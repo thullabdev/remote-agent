@@ -91,6 +91,12 @@ describe('runPermissionFlow', () => {
     expect(await runPermissionFlow(input, deps(gives, { maxFailures: 3 }))).toBeNull()
   })
 
+  test('leaves AskUserQuestion to the mod', async () => {
+    const bridge = new FakeBridge()
+    expect(await runPermissionFlow({ ...input, tool_name: 'AskUserQuestion' }, deps(bridge))).toBeNull()
+    expect(bridge.created).toEqual([])
+  })
+
   test('stops waiting at the deadline', async () => {
     const bridge = new FakeBridge()
     expect(await runPermissionFlow(input, deps(bridge, { deadlineMs: 3_000 }))).toBeNull()

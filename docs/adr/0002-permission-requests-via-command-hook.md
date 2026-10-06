@@ -20,3 +20,4 @@ A `PermissionRequest` command hook fires only when Claude Code is about to show 
 - The hook input has no `tool_use_id` (R6), so the hook generates the Prompt id and local settlement matches on session, tool name and tool input.
 - The hook is a separate `bun` process per Permission Request, so `bun` must be on the `PATH` Claude Code uses for hooks. If it is missing or the Bridge is down, the hook exits silently and the native dialog is the only path.
 - The mod no longer draws its own Allow/Deny dialog.
+- Claude Code fires `PermissionRequest` for `AskUserQuestion` too; the hook ignores it because the mod answers Questions.

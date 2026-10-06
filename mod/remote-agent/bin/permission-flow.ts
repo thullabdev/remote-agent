@@ -50,6 +50,10 @@ export function parseHookInput(raw: string): PermissionHookInput | null {
  * the terminal, or the deadline passes. Never produces an allow without a remote Answer.
  */
 export async function runPermissionFlow(input: PermissionHookInput, deps: PermissionFlowDeps): Promise<HookOutput | null> {
+  // Claude Code fires PermissionRequest for AskUserQuestion too, but the mod's tool.call hook answers Questions.
+  if (input.tool_name === 'AskUserQuestion') {
+    return null
+  }
   const request = {
     promptId: `p:${deps.newId()}`,
     session: { sessionId: input.session_id, cwd: input.cwd },
