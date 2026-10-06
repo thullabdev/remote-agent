@@ -58,9 +58,13 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
-    const bridge = await bridgeFor($)
-    const session = { sessionId: e.sessionId, cwd: await $.session.cwd() }
-    await bridge.report({ session, report: { kind: 'session_ended', reason: e.reason } }).catch(() => undefined)
+    try {
+      const bridge = await bridgeFor($)
+      const session = { sessionId: e.sessionId, cwd: await $.session.cwd() }
+      await bridge.report({ session, report: { kind: 'session_ended', reason: e.reason } }).catch(() => undefined)
+    } catch {
+      // Reporting is best effort and must never block the stock handler.
+    }
     return next(e)
   })
 
@@ -69,10 +73,14 @@ export const register: Register = on => {
     if (e.agentId !== undefined) {
       return result
     }
-    const bridge = await bridgeFor($)
-    await bridge
-      .report({ session: await sessionInfo($), report: { kind: 'turn_complete', text: e.answer, durationMs: e.durationMs, isAborted: e.isAborted } })
-      .catch(() => undefined)
+    try {
+      const bridge = await bridgeFor($)
+      await bridge
+        .report({ session: await sessionInfo($), report: { kind: 'turn_complete', text: e.answer, durationMs: e.durationMs, isAborted: e.isAborted } })
+        .catch(() => undefined)
+    } catch {
+      // Reporting is best effort and must never change the turn result.
+    }
     return result
   })
 
@@ -81,14 +89,14 @@ export const register: Register = on => {
     if (hasAnswers || e.tool_use_id === undefined) {
       return next(e)
     }
-    const questions = e.questions.map(question => ({
-      question: question.question,
-      header: question.header,
-      multiSelect: question.multiSelect,
-      options: question.options.map(option => ({ label: option.label, description: option.description })),
-    }))
     let answer: Answer | null
     try {
+      const questions = e.questions.map(question => ({
+        question: question.question,
+        header: question.header,
+        multiSelect: question.multiSelect,
+        options: question.options.map(option => ({ label: option.label, description: option.description })),
+      }))
       answer = await resolvePrompt({
         bridge: await bridgeFor($),
         request: { promptId: `q:${e.tool_use_id}`, session: await sessionInfo($), body: { kind: 'question', questions } },
@@ -100,7 +108,8 @@ export const register: Register = on => {
       if (error instanceof DismissedError) {
         return { deny: error.message }
       }
-      throw error
+      // Fail safe: any other failure falls back to the stock question dialog.
+      return next(e)
     }
     if (answer === null || answer.kind !== 'question') {
       return next(e)
@@ -114,23 +123,28 @@ export const register: Register = on => {
     if (verdict.decision !== 'ask' || e.tool === 'AskUserQuestion' || e.tool_use_id === undefined) {
       return verdict
     }
-    const answer = await resolvePrompt({
-      bridge: await bridgeFor($),
-      request: {
-        promptId: `p:${e.tool_use_id}`,
-        session: await sessionInfo($),
-        body: { kind: 'permission', tool: e.tool, input: e.input, reason: verdict.reason, agentId: e.agentId },
-      },
-      localAsk: askPermissionLocally(askPort($), e.tool, e.input),
-      signal: next.signal,
-      sleep: sleepPort($, next.signal),
-    })
-    if (answer === null || answer.kind !== 'permission') {
+    try {
+      const answer = await resolvePrompt({
+        bridge: await bridgeFor($),
+        request: {
+          promptId: `p:${e.tool_use_id}`,
+          session: await sessionInfo($),
+          body: { kind: 'permission', tool: e.tool, input: e.input, reason: verdict.reason, agentId: e.agentId },
+        },
+        localAsk: askPermissionLocally(askPort($), e.tool, e.input),
+        signal: next.signal,
+        sleep: sleepPort($, next.signal),
+      })
+      if (answer === null || answer.kind !== 'permission') {
+        return verdict
+      }
+      if (answer.decision === 'allow') {
+        return { ...verdict, decision: 'allow', reason: 'Allowed by the user via remote-agent.' }
+      }
+      return { ...verdict, decision: 'deny', reason: answer.message ?? 'Denied by the user via remote-agent.' }
+    } catch {
+      // Fail safe: any failure keeps the stock permission decision.
       return verdict
     }
-    if (answer.decision === 'allow') {
-      return { ...verdict, decision: 'allow', reason: 'Allowed by the user via remote-agent.' }
-    }
-    return { ...verdict, decision: 'deny', reason: answer.message ?? 'Denied by the user via remote-agent.' }
   })
 }

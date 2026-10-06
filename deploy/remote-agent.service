@@ -8,7 +8,7 @@ WorkingDirectory=%h/Sites/remote-agent
 EnvironmentFile=%h/.config/remote-agent/env
 ExecStart=%h/.bun/bin/bun run src/bridge/main.ts
 Restart=on-failure
-RestartSec=5
+RestartSec=1
 
 [Install]
 WantedBy=default.target

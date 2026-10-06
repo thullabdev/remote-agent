@@ -99,6 +99,12 @@ describe('resolvePrompt', () => {
     expect(bridge.created).toBe(2)
   })
 
+  test('default failure budget survives five consecutive failures', async () => {
+    const bridge = new FakeBridge()
+    bridge.waitQueue = ['error', 'error', 'error', 'error', 'error', { status: 'answered', answer: allow, source: 'remote' }]
+    expect(await resolvePrompt({ ...options(bridge, () => never<Answer>()), retryDelayMs: undefined })).toEqual(allow)
+  })
+
   test('a dismissed permission dialog becomes a local deny', async () => {
     const bridge = new FakeBridge()
     const result = await resolvePrompt(options(bridge, async () => {
@@ -122,6 +128,7 @@ describe('resolvePrompt', () => {
     const pending = resolvePrompt(options(bridge, () => never<Answer>(), controller.signal))
     controller.abort(new Error('interrupted'))
     await expect(pending).rejects.toThrow('interrupted')
+    expect(bridge.posted).toEqual([{ kind: 'permission', decision: 'deny', message: 'Dismissed in the terminal.' }])
   })
 })
 

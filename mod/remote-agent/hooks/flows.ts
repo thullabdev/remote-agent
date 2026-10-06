@@ -53,7 +53,7 @@ function isDismissedQuestion(answer: Answer): boolean {
 
 async function waitForRemote(options: ResolveOptions): Promise<Answer> {
   const waitMs = options.waitMs ?? 20_000
-  const maxFailures = options.maxFailures ?? 3
+  const maxFailures = options.maxFailures ?? 6
   const retryDelayMs = options.retryDelayMs ?? 1_000
   let failures = 0
   while (!options.signal.aborted) {
@@ -99,7 +99,14 @@ export async function resolvePrompt(options: ResolveOptions): Promise<Answer | n
   remote.catch(() => undefined)
   aborted.catch(() => undefined)
 
-  const winner = await Promise.race([remote, local, aborted])
+  let winner: Awaited<typeof remote | typeof local>
+  try {
+    winner = await Promise.race([remote, local, aborted])
+  } catch (error) {
+    // The dispatch was aborted (turn interrupted): free the Telegram buttons before giving up.
+    await bridge.postLocalAnswer(request.promptId, dismissal(request.body)).catch(() => undefined)
+    throw error
+  }
   if (winner.source === 'remote') {
     return winner.answer
   }
