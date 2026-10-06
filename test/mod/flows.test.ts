@@ -158,7 +158,7 @@ describe('pollInstructions', () => {
   test('submits each instruction once and acknowledges it', async () => {
     const bridge = new FakeBridge()
     bridge.pending = [{ id: 'i1', sessionId: 's', text: 'go on' }]
-    const state: InstructionState = { inFlight: new Set(), submitted: new Set() }
+    const state: InstructionState = { inFlight: new Set(), submitted: new Set(), delivered: new Set() }
     const submitted: string[] = []
     await pollInstructions(bridge, 's', state, async text => {
       submitted.push(text)
@@ -170,7 +170,7 @@ describe('pollInstructions', () => {
   test('does not resubmit while a submission is still waiting for the session to be idle', async () => {
     const bridge = new FakeBridge()
     bridge.pending = [{ id: 'i1', sessionId: 's', text: 'go on' }]
-    const state: InstructionState = { inFlight: new Set(), submitted: new Set() }
+    const state: InstructionState = { inFlight: new Set(), submitted: new Set(), delivered: new Set() }
     let calls = 0
     const submit = () => {
       calls += 1
@@ -194,13 +194,42 @@ describe('pollInstructions', () => {
       }
       bridge.acked.push(id)
     }
-    const state: InstructionState = { inFlight: new Set(), submitted: new Set() }
+    const state: InstructionState = { inFlight: new Set(), submitted: new Set(), delivered: new Set() }
     let submits = 0
     const submit = async () => {
       submits += 1
     }
     await pollInstructions(bridge, 's', state, submit)
     await pollInstructions(bridge, 's', state, submit)
+    expect(submits).toBe(1)
+    expect(bridge.acked).toEqual(['i1'])
+  })
+
+  test('a stale instructions response never resubmits an acknowledged instruction', async () => {
+    const bridge = new FakeBridge()
+    const listing: Instruction[] = [{ id: 'i1', sessionId: 's', text: 'go on' }]
+    let release: () => void = () => {}
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    let first = true
+    bridge.instructions = async () => {
+      if (first) {
+        first = false
+        await gate
+      }
+      return listing
+    }
+    const state: InstructionState = { inFlight: new Set(), submitted: new Set(), delivered: new Set() }
+    let submits = 0
+    const submit = async () => {
+      submits += 1
+    }
+    const pollA = pollInstructions(bridge, 's', state, submit)
+    await pollInstructions(bridge, 's', state, submit)
+    expect(submits).toBe(1)
+    release()
+    await pollA
     expect(submits).toBe(1)
     expect(bridge.acked).toEqual(['i1'])
   })

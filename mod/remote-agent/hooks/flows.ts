@@ -153,11 +153,12 @@ export function askPermissionLocally(ask: AskPort, tool: string, input: unknown)
   }
 }
 
-export type InstructionState = { inFlight: Set<string>; submitted: Set<string> }
+export type InstructionState = { inFlight: Set<string>; submitted: Set<string>; delivered: Set<string> }
 
 async function acknowledge(bridge: BridgePort, id: string, state: InstructionState): Promise<void> {
   try {
     await bridge.ackInstruction(id)
+    state.delivered.add(id)
     state.submitted.delete(id)
   } catch {
     // Retried on the next poll.
@@ -184,8 +185,17 @@ export async function pollInstructions(
   submit: (text: string) => Promise<void>,
 ): Promise<void> {
   const pending = await bridge.instructions(sessionId)
+  const listed = new Set(pending.map(instruction => instruction.id))
+  for (const id of state.delivered) {
+    if (!listed.has(id)) {
+      state.delivered.delete(id)
+    }
+  }
   const deliveries: Promise<void>[] = []
   for (const instruction of pending) {
+    if (state.delivered.has(instruction.id)) {
+      continue
+    }
     if (state.inFlight.has(instruction.id)) {
       continue
     }
