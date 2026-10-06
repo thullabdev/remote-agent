@@ -12,13 +12,30 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,
 ]
 
-const SECRET_ASSIGNMENT =
-  /\b([A-Za-z0-9_]*(?:secret|token|password|passwd|api_key|apikey|private_key|access_key)[A-Za-z0-9_]*)(\s*[=:]\s*)(["']?)([^\s"']+)\3/gi
+const SECRET_NAME =
+  '(?:[A-Za-z0-9_-]*(?:secret|token|password|passwd|api[-_]?key|private[-_]?key|access[-_]?key|authorization)[A-Za-z0-9_-]*|(?:[A-Za-z0-9]+[_-])*(?:pass|pwd|auth)\\b)'
+
+// name, optional closing quote (JSON keys), separator, then a quoted value (may contain spaces) or a bare word.
+const SECRET_ASSIGNMENT = new RegExp(`\\b(${SECRET_NAME})(["']?\\s*[=:]\\s*)("[^"]*"|'[^']*'|\\S+)`, 'gi')
+
+const AUTH_SCHEME = /\b(Bearer|Basic) [A-Za-z0-9._~+/=-]{8,}/g
+
+const URL_CREDENTIALS = /(:\/\/[^\s:/@]+:)[^\s@/]+@/g
+
+function redactValue(value: string): string {
+  const quote = value[0]
+  if (value.length >= 2 && (quote === '"' || quote === "'") && value.endsWith(quote)) {
+    return `${quote}${REDACTED}${quote}`
+  }
+  return REDACTED
+}
 
 export function redactSecrets(text: string): string {
-  let out = text.replace(
+  let out = text.replace(URL_CREDENTIALS, `$1${REDACTED}@`)
+  out = out.replace(AUTH_SCHEME, `$1 ${REDACTED}`)
+  out = out.replace(
     SECRET_ASSIGNMENT,
-    (_match, name: string, separator: string, quote: string) => `${name}${separator}${quote}${REDACTED}${quote}`,
+    (_match, name: string, separator: string, value: string) => `${name}${separator}${redactValue(value)}`,
   )
   for (const pattern of SECRET_PATTERNS) {
     out = out.replace(pattern, REDACTED)

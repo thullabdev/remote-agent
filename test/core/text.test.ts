@@ -29,6 +29,39 @@ describe('redactSecrets', () => {
     const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----'
     expect(redactSecrets(`key:\n${pem}\nend`)).toBe(`key:\n${REDACTED}\nend`)
   })
+  test('redacts JSON-quoted keys', () => {
+    expect(redactSecrets('{"password": "hunter2"}')).toBe(`{"password": "${REDACTED}"}`)
+    expect(redactSecrets('{"token":"abc"}')).toBe(`{"token":"${REDACTED}"}`)
+  })
+  test('redacts quoted values containing spaces', () => {
+    expect(redactSecrets('password="my pass phrase" next')).toBe(`password="${REDACTED}" next`)
+    expect(redactSecrets("secret='a b c'")).toBe(`secret='${REDACTED}'`)
+  })
+  test('redacts Authorization Bearer and Basic credentials', () => {
+    expect(redactSecrets('Authorization: Bearer abcdefgh12345')).not.toContain('abcdefgh12345')
+    expect(redactSecrets('curl -H "Authorization: Basic dXNlcjpwYXNz"')).not.toContain('dXNlcjpwYXNz')
+    expect(redactSecrets('got Bearer abcdefgh12345 here')).toBe(`got Bearer ${REDACTED} here`)
+  })
+  test('redacts hyphenated header and key names', () => {
+    expect(redactSecrets('X-Api-Key: v123')).toBe(`X-Api-Key: ${REDACTED}`)
+    expect(redactSecrets('api-key=v123')).toBe(`api-key=${REDACTED}`)
+    expect(redactSecrets('auth_token=v123')).toBe(`auth_token=${REDACTED}`)
+  })
+  test('redacts URL credentials but keeps scheme, user and host', () => {
+    expect(redactSecrets('postgres://u:pw@host/db')).toBe(`postgres://u:${REDACTED}@host/db`)
+    expect(redactSecrets('git clone https://u:pw@github.com/a/b')).toBe(`git clone https://u:${REDACTED}@github.com/a/b`)
+  })
+  test('redacts short password names', () => {
+    expect(redactSecrets('DB_PASS=x')).toBe(`DB_PASS=${REDACTED}`)
+    expect(redactSecrets('pass=x')).toBe(`pass=${REDACTED}`)
+    expect(redactSecrets('pwd=x')).toBe(`pwd=${REDACTED}`)
+    expect(redactSecrets('passwd: x')).toBe(`passwd: ${REDACTED}`)
+  })
+  test('does not redact words that merely contain pass or auth', () => {
+    expect(redactSecrets('passed = true')).toBe('passed = true')
+    expect(redactSecrets('author: bob')).toBe('author: bob')
+    expect(redactSecrets('compass=north')).toBe('compass=north')
+  })
   test('leaves ordinary code alone', () => {
     expect(redactSecrets('const total = items.length')).toBe('const total = items.length')
   })
