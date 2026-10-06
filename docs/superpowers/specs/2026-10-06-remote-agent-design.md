@@ -11,7 +11,7 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
 1. **Scope**: every interactive Claude Code Session on this one machine (no special launch flags). Already-running Sessions join after one `/reload-plugins`.
 2. **User**: exactly one Telegram user; one private supergroup with Topics. Updates from any other chat or user are ignored.
 3. **Pushed to the Channel**:
-   - Prompts — always: AskUserQuestion Questions and Permission Requests (`tool.check` verdict `ask`).
+   - Prompts — always: AskUserQuestion Questions, and Permission Requests whenever Claude Code would show a permission dialog (so in auto mode only the ones the classifier escalates).
    - Reports — only while Away mode is on: session started, session ended, turn finished (last assistant message, ≤1,000 chars, plus duration).
 4. **Accepted from the Channel**: Answers (button tap or reply to the Prompt message), Instructions (any other text in a Session's Thread), commands `/away`, `/back`, `/status`.
 5. **First Answer wins** between the terminal and Telegram; the losing side is told ("answered locally/remotely"). Permission Requests race Claude Code's own permission dialog through a `PermissionRequest` hook (ADR-0002); a Permission Request answered in the terminal is settled when the tool call finishes or the turn ends.
@@ -27,14 +27,16 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
 ```
 ┌──────────── claude (each Session) ───────────┐        ┌──────────────── Bridge (bun, systemd --user) ────────────────┐
 │ remote-agent mod                              │  HTTP  │ http.ts ─ PromptService ─ Store (bun:sqlite)                 │
-│  tool.call(AskUserQuestion) ─┐                │ over   │      │          │                                            │
-│  tool.check(verdict ask) ────┼─ resolvePrompt ├─Unix──►│  Notifier ── Channel ◄── Inbound (buttons/replies/commands) │
-│  turn.complete / session.*  ─┘  (race local   │ socket │      │      (TelegramChannel, grammY long polling)          │
+│  tool.call(AskUserQuestion) ── resolvePrompt  │ over   │      │          │                                            │
+│  tool.call(any) → settled (answered locally)  ├─Unix──►│  Notifier ── Channel ◄── Inbound (buttons/replies/commands) │
+│  turn.complete / session.*  → reports         │ socket │      │      (TelegramChannel, grammY long polling)          │
 │  clock.every → instructions → prompt.submit   │        └──────┼──────────────────────────────────────────────────────┘
-└───────────────────────────────────────────────┘               ▼ Telegram supergroup, one Topic (Thread) per Session
+│ PermissionRequest command hook (bun) ─────────┘               ▼ Telegram supergroup, one Topic (Thread) per Session
+└───────────────────────────────────────────────┘
 ```
 
 - **Mod** (`mod/remote-agent`): in-process hooks. Creates Prompts on the Bridge, races a local `$.ui.ask` dialog against a remote long-poll, posts the local Answer back (first wins), polls Instructions every 3 s and submits them with `asUser: true`.
+- **Permission hook** (`mod/remote-agent/bin/permission-hook.ts`, a `PermissionRequest` command hook in the same plugin): registers the Permission Request with the Bridge and long-polls for a Telegram Answer while Claude Code's own dialog stays open; exits silently when the Bridge is unreachable.
 - **Bridge** (`src/bridge`): Bun HTTP server on `$XDG_RUNTIME_DIR/remote-agent/bridge.sock` (dir 0700, socket 0600). Owns state, the first-Answer-wins rule, redaction, Away mode, reminders.
 - **Channel** (`src/channel`): interface + Telegram adapter. Bridge core never sees Telegram types.
 
