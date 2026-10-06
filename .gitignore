@@ -1,0 +1,8 @@
+node_modules/
+spike/
+*.db
+*.db-wal
+*.db-shm
+.env
+mod/remote-agent/.claude-plugin/types/
+.superpowers/
