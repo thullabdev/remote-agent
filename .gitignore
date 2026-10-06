@@ -6,3 +6,4 @@ spike/
 .env
 mod/remote-agent/.claude-plugin/types/
 .superpowers/
+mod/remote-agent/tsconfig.json
