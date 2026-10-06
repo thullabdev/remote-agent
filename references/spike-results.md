@@ -47,4 +47,14 @@ Trigger: in **auto mode** the mod (round 1 design) interrupted the user with its
 
 ## E2E findings
 
-(Filled in after Task 13 Step 7.)
+Run 2026-10-06 against a scratch Bridge (the real Bridge code with a fake Telegram channel and a test-only answer endpoint, on an isolated `XDG_RUNTIME_DIR`), with the worktree's plugin loaded by `--plugin-dir` into pty-driven sessions. Claude Code 2.1.291.
+
+| ID | Mode | Scenario | Result |
+|---|---|---|---|
+| E-A | default (Haiku) | Permission Request, answered Allow from the fake Telegram | The Bridge held one pending prompt while the native dialog (with "always allow") stayed open. The remote Allow dismissed the dialog, the command ran, the note read "✅ Allowed (remote)" |
+| E-B | default | Same, answered in the terminal | The command ran; the mod's `tool.call` hook reported it finished; the Bridge settled the prompt: "☑️ Answered in the terminal", nothing pending |
+| E-C | default | Remote Deny | The command did not run; Claude reported the denial; note "❌ Denied (remote): …" |
+| E-D | **auto** (Sonnet 5.5) | A harmless command the classifier approves | Ran with **no dialog, no Telegram prompt**, nothing pending. This is the reported bug, fixed |
+| E-E | auto | AskUserQuestion answered remotely | Claude received the answer. **Bug found:** the `PermissionRequest` hook also fired for `AskUserQuestion` (its dialog is a permission dialog) and registered a bogus "Permission: AskUserQuestion" prompt. Fixed: the hook ignores that tool. Re-run: only the real question is pending, and it resolves |
+
+Known limitation confirmed again: after a remote Answer to a Question, the terminal's question dialog stays open until Esc.
