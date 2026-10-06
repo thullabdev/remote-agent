@@ -42,3 +42,10 @@ test('http errors and transport failures become BridgeError', async () => {
   })
   await expect(broken.instructions('s')).rejects.toBeInstanceOf(BridgeError)
 })
+
+test('settled posts the scope to the session', async () => {
+  const { calls, client } = recording([{ status: 200, text: '{"settled":1}' }])
+  await client.settled('s 1', { kind: 'all' })
+  expect(calls[0]).toMatchObject({ path: '/sessions/s%201/settled', method: 'POST' })
+  expect(JSON.parse(calls[0]!.body!)).toEqual({ scope: { kind: 'all' } })
+})

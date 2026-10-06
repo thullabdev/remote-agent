@@ -11,6 +11,6 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "test", "scripts", "mod/remote-agent/hooks"],
+  "include": ["src", "test", "scripts", "mod/remote-agent/hooks", "mod/remote-agent/bin"],
   "exclude": ["mod/remote-agent/hooks/register.ts"]
 }
