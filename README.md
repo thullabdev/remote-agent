@@ -14,7 +14,7 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
 2. Create a private group, open its settings, enable **Topics** (this converts it to a supergroup).
 3. Add the bot as an **admin** with **Manage Topics**. Admin bots receive every message, so privacy mode doesn't matter.
 4. Turn off "Remain anonymous" for your own admin account. Anonymous posts arrive from the group, not from you, and the allowlist drops them.
-5. Get the chat id: send a message in the group, then `curl "https://api.telegram.org/bot<TOKEN>/getUpdates"` and read `message.chat.id`. It is negative and starts with `-100`. Get your user id from `message.from.id` in the same output.
+5. Get the chat id and your user id: put `TELEGRAM_BOT_TOKEN` in `.env`, send a message in the group (Bridge stopped), then run `bun run telegram:ids`. It lists each chat (use the supergroup with Topics, id starts with `-100`) and each user (use your own id). Manual alternative: `curl "https://api.telegram.org/bot<TOKEN>/getUpdates"` and read `message.chat.id` and `message.from.id`.
 
 ## 3. Run the Bridge
 

@@ -5,7 +5,8 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "bridge": "bun run src/bridge/main.ts"
+    "bridge": "bun run src/bridge/main.ts",
+    "telegram:ids": "bun run scripts/telegram-ids.ts"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
