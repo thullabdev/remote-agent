@@ -1,0 +1,1 @@
+{ "name": "remote-agent", "version": "0.1.0", "description": "Relays Prompts and Reports from every Claude Code session to the remote-agent Bridge (Telegram), and Answers and Instructions back." }

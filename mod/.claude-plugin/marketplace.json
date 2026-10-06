@@ -1,0 +1,5 @@
+{
+  "name": "remote-agent-local",
+  "owner": { "name": "Muhammad Zhafarudin" },
+  "plugins": [{ "name": "remote-agent", "source": "./remote-agent" }]
+}
