@@ -19,11 +19,14 @@ const log: Log = (message, error) => {
 const config = loadConfig(process.env)
 await mkdir(dirname(config.dbPath), { recursive: true, mode: 0o700 })
 await mkdir(dirname(config.socketPath), { recursive: true, mode: 0o700 })
+// mkdir leaves existing directories untouched, so tighten them explicitly.
+await chmod(dirname(config.dbPath), 0o700)
+await chmod(dirname(config.socketPath), 0o700)
 await rm(config.socketPath, { force: true })
 
 const store = new Store(config.dbPath)
 const channel = new TelegramChannel(config, log)
-const notifier = new Notifier(store, channel, new AwayMode(true))
+const notifier = new Notifier(store, channel, new AwayMode(true), log)
 const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
 const inbound = new Inbound(store, prompts, notifier)
 
@@ -36,8 +39,15 @@ const server = Bun.serve({
 } as unknown as Bun.Serve.Options<undefined>)
 await chmod(config.socketPath, 0o600)
 await channel.start(inbound)
+const retryUndelivered = (): void => {
+  void notifier.redeliverUndelivered().catch(error => {
+    log('redelivery sweep failed', error)
+  })
+}
+retryUndelivered()
 const reminders = setInterval(() => {
   void prompts.remindStale()
+  retryUndelivered()
 }, 60_000)
 log(`listening on ${config.socketPath}`)
 await channel.sendText(null, '🟢 Bridge started. Away mode is on.', null).catch(error => {
@@ -51,12 +61,17 @@ async function shutdown(signal: string): Promise<void> {
   }
   stopping = true
   log(`${signal} received, shutting down`)
-  clearInterval(reminders)
-  server.stop(true)
-  await channel.stop()
-  store.close()
-  await rm(config.socketPath, { force: true })
-  process.exit(0)
+  try {
+    clearInterval(reminders)
+    server.stop(true)
+    await channel.stop()
+    store.close()
+    await rm(config.socketPath, { force: true })
+  } catch (error) {
+    log('shutdown failed', error)
+  } finally {
+    process.exit(0)
+  }
 }
 process.on('SIGINT', () => {
   void shutdown('SIGINT')

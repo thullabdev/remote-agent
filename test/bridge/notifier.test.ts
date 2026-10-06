@@ -87,3 +87,63 @@ test('instructionDelivered confirms in the thread', async () => {
   await notifier.instructionDelivered(instruction)
   expect(channel.texts.at(-1)?.text).toBe('📨 Delivered: add tests')
 })
+
+test('redeliverUndelivered re-sends a prompt whose first delivery failed', async () => {
+  const sendPrompt = channel.sendPrompt.bind(channel)
+  let calls = 0
+  channel.sendPrompt = async (thread, view) => {
+    calls += 1
+    if (calls === 1) {
+      throw new Error('telegram down')
+    }
+    return sendPrompt(thread, view)
+  }
+  const prompt = addPrompt('p:1')
+  await expect(notifier.promptCreated(prompt)).rejects.toThrow('telegram down')
+  expect(store.listPromptMessageRefs('p:1')).toEqual([])
+  await notifier.redeliverUndelivered()
+  expect(channel.prompts).toHaveLength(1)
+  expect(store.listPromptMessageRefs('p:1')).toHaveLength(1)
+  await notifier.redeliverUndelivered()
+  expect(channel.prompts).toHaveLength(1)
+})
+
+test('redeliverUndelivered logs failures instead of throwing', async () => {
+  const logged: string[] = []
+  notifier = new Notifier(store, channel, new AwayMode(true), message => {
+    logged.push(message)
+  })
+  channel.sendPrompt = async () => {
+    throw new Error('still down')
+  }
+  addPrompt('p:1')
+  await notifier.redeliverUndelivered()
+  expect(logged).toEqual(['redelivery of p:1 failed'])
+})
+
+test('session end dismisses its pending prompts and strips their buttons', async () => {
+  await notifier.promptCreated(addPrompt('p:1'))
+  store.insertPrompt('q:1', session.sessionId, { kind: 'question', questions: [] })
+  store.upsertSession({ sessionId: 'other', cwd: '/x' })
+  store.insertPrompt('p:other', 'other', permission)
+  await notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })
+  expect(store.getPrompt('p:1')).toMatchObject({
+    status: 'answered',
+    source: 'local',
+    answer: { kind: 'permission', decision: 'deny', message: 'Session ended.' },
+  })
+  expect(store.getPrompt('q:1')).toMatchObject({ status: 'answered', answer: { kind: 'question', answers: {} } })
+  expect(store.getPrompt('p:other')?.status).toBe('pending')
+  expect(channel.resolved).toHaveLength(1)
+  expect(channel.resolved[0]!.note).toBe('❌ Denied (local): Session ended.')
+})
+
+test('session end still closes the thread when the report cannot be sent', async () => {
+  await notifier.ensureThread(session.sessionId)
+  channel.sendText = async () => {
+    throw new Error('send failed')
+  }
+  await expect(notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })).rejects.toThrow('send failed')
+  expect(channel.threads[0]!.closed).toBe(true)
+  expect(store.getSession(session.sessionId)?.threadId).toBeNull()
+})

@@ -1,7 +1,7 @@
-import type { Instruction, ReportRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { Answer, Instruction, ReportRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { Channel, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
-import type { PromptEvents } from './prompts.ts'
+import type { Log, PromptEvents } from './prompts.ts'
 import type { PromptRow, SessionRow, Store } from './store.ts'
 import { promptView, reportText, resolutionNote, sessionLabel, threadTitle } from './views.ts'
 
@@ -20,11 +20,13 @@ export class AwayMode {
 export class Notifier implements PromptEvents {
   private readonly creating = new Map<string, Promise<ThreadRef>>()
   private readonly resolvedNotified = new Set<string>()
+  private readonly delivering = new Set<string>()
 
   constructor(
     private readonly store: Store,
     private readonly channel: Channel,
     readonly away: AwayMode,
+    private readonly log: Log = (message, error) => console.error(message, error),
   ) {}
 
   async ensureThread(sessionId: string): Promise<ThreadRef> {
@@ -50,6 +52,29 @@ export class Notifier implements PromptEvents {
   }
 
   async promptCreated(prompt: PromptRow): Promise<void> {
+    this.delivering.add(prompt.id)
+    try {
+      await this.deliverPrompt(prompt)
+    } finally {
+      this.delivering.delete(prompt.id)
+    }
+  }
+
+  /** Re-sends Prompts whose first delivery failed, so they never stay pending without a message. */
+  async redeliverUndelivered(): Promise<void> {
+    for (const prompt of this.store.listPendingPrompts()) {
+      if (this.delivering.has(prompt.id) || this.store.listPromptMessageRefs(prompt.id).length > 0) {
+        continue
+      }
+      try {
+        await this.promptCreated(prompt)
+      } catch (error) {
+        this.log(`redelivery of ${prompt.id} failed`, error)
+      }
+    }
+  }
+
+  private async deliverPrompt(prompt: PromptRow): Promise<void> {
     const thread = await this.ensureThread(prompt.sessionId)
     const session = this.requireSession(prompt.sessionId)
     const refs = await this.channel.sendPrompt(thread, promptView(prompt, session))
@@ -107,14 +132,46 @@ export class Notifier implements PromptEvents {
 
   private async endSession(session: SessionRow, text: string): Promise<void> {
     this.store.endSession(session.id)
+    await this.dismissPending(session.id)
     if (session.threadId === null) {
       return
     }
-    if (this.away.isAway()) {
-      await this.channel.sendText(session.threadId, text, null)
+    try {
+      if (this.away.isAway()) {
+        await this.channel.sendText(session.threadId, text, null)
+      }
+    } finally {
+      try {
+        await this.channel.closeThread(session.threadId)
+      } finally {
+        this.store.setSessionThread(session.id, null)
+      }
     }
-    await this.channel.closeThread(session.threadId)
-    this.store.setSessionThread(session.id, null)
+  }
+
+  /** A Session that ended can no longer receive Answers, so its pending Prompts are dismissed. */
+  private async dismissPending(sessionId: string): Promise<void> {
+    for (const prompt of this.store.listPendingPrompts()) {
+      if (prompt.sessionId !== sessionId) {
+        continue
+      }
+      const answer: Answer =
+        prompt.body.kind === 'question'
+          ? { kind: 'question', answers: {} }
+          : { kind: 'permission', decision: 'deny', message: 'Session ended.' }
+      if (!this.store.resolvePrompt(prompt.id, answer, 'local')) {
+        continue
+      }
+      const latest = this.store.getPrompt(prompt.id)
+      if (latest === undefined) {
+        continue
+      }
+      try {
+        await this.promptResolved(latest)
+      } catch (error) {
+        this.log(`dismissing ${prompt.id} failed`, error)
+      }
+    }
   }
 
   private requireSession(id: string): SessionRow {
