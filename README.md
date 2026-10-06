@@ -55,8 +55,10 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 ## 7. Known limitations
 
 - Headless (`-p`/SDK) sessions are not bridged.
-- When Telegram answers first, the terminal's question/permission dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a).
+- When Telegram answers a **Question** first, the terminal's question dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a). Permission dialogs close by themselves.
 - Permission Requests use Claude Code's own dialog; Telegram answers race it. In auto mode only requests the classifier escalates to you reach Telegram.
+- A Permission Request you answer in the terminal is settled in Telegram when the tool call **finishes**, so during a long-running command the Telegram buttons stay tappable; a tap then shows "Allowed/Denied (remote)" although nothing happens in Claude Code. When a turn ends, any Permission Request still pending for that session (including a background subagent's) is also marked "Answered in the terminal" and loses its buttons; the terminal dialog keeps working.
+- A Permission Request nobody answers is dropped from the hook after about 9.5 minutes (Claude Code's own dialog keeps waiting); its Telegram buttons stay until the session ends.
 - The permission hook runs with `bun`; make sure `bun` is on the `PATH` Claude Code uses for hooks (`which bun` in a fresh shell).
 - An Instruction sent from Telegram appears in the terminal as "Prompt from the remote-agent plugin".
 - Sessions that were already running when the mod was installed need `/reload-plugins` once.
