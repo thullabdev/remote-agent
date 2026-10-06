@@ -55,7 +55,13 @@ Already-running sessions pick it up after `/reload-plugins`.
 ## 7. Known limitations
 
 - Headless (`-p`/SDK) sessions are not bridged.
-- Behaviour of the terminal dialog when Telegram answers first: see `references/spike-results.md` (filled in after the mod spike).
+- When Telegram answers first, the terminal's question/permission dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a).
+- While a Prompt waits, the terminal shows the mod's own dialog (header "Plugin"), not Claude Code's native one, so "always allow" options are not offered there.
+- An Instruction sent from Telegram appears in the terminal as "Prompt from the remote-agent plugin".
+- Sessions that were already running when the mod was installed need `/reload-plugins` once.
+- If the Bridge is down for more than about 6 seconds while a Prompt waits, that Prompt can only be answered in the terminal.
+- A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
+- Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
 ## 8. Development
 
