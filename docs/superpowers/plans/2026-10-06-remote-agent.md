@@ -3503,7 +3503,7 @@ git commit -m "feat: add mod bridge client and local/remote answer race"
 
 - [ ] **Step 2: Write the hooks module**
 
-Apply any Task 1 Step 7 consequences to this code first: the `promptId` fallback, and the `sleepPort` and `maxFailures` choice.
+Spike results (`references/spike-results.md`) are already applied below: `tool_use_id` is present (no promptId fallback), `sleepPort` stays on `$.clock.sleep` (E7: `clock.after` waits count against the 10 s budget), AskUserQuestion is answered by returning `{ result }` (E12), and the `tool.check` AskUserQuestion guard is required (E9).
 
 `mod/remote-agent/hooks/register.ts`:
 
@@ -3525,7 +3525,7 @@ import { BRIDGE_ORIGIN, defaultSocketPath, type Answer, type SessionInfo } from 
 const INSTRUCTION_POLL_MS = 3_000
 
 export const register: Register = on => {
-  const instructionState: InstructionState = { inFlight: new Set(), submitted: new Set() }
+  const instructionState: InstructionState = { inFlight: new Set(), submitted: new Set(), delivered: new Set() }
   let socketPath: string | undefined
 
   const bridgeFor = async ($: EngineInterface): Promise<BridgeClient> => {
@@ -3614,7 +3614,8 @@ export const register: Register = on => {
     if (answer === null || answer.kind !== 'question') {
       return next(e)
     }
-    return next({ ...e, answers: answer.answers })
+    // Spike E11/E12: answers passed through next() are dropped; the hook must answer the call itself.
+    return { result: { questions: e.questions, answers: answer.answers } }
   })
 
   on('tool.check', async ($, e, next) => {
