@@ -32,3 +32,10 @@ export const ReportRequestSchema = z.object({
     z.object({ kind: z.literal('turn_complete'), text: z.string(), durationMs: z.number().nonnegative(), isAborted: z.boolean() }),
   ]),
 })
+
+export const SettleRequestSchema = z.object({
+  scope: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('tool'), tool: z.string().min(1), input: z.unknown(), denied: z.boolean() }),
+    z.object({ kind: z.literal('all') }),
+  ]),
+})

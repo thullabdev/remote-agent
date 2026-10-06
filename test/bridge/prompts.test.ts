@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from 'bun:test'
-import type { CreatePromptRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { SETTLED_LOCALLY_MESSAGE, type CreatePromptRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import { BadRequest } from '../../src/bridge/errors.ts'
 import { PromptService, type PromptEvents } from '../../src/bridge/prompts.ts'
 import { Store, type PromptRow } from '../../src/bridge/store.ts'
@@ -105,4 +105,45 @@ test('remindStale reminds each old pending prompt once', async () => {
   await service.remindStale()
   await service.remindStale()
   expect(events.reminded).toEqual(['p:1'])
+})
+
+function permissionFor(id: string, sessionId: string, tool: string, input: unknown): CreatePromptRequest {
+  return { promptId: id, session: { sessionId, cwd: '/home/u/app' }, body: { kind: 'permission', tool, input } }
+}
+
+test('settleLocally settles the matching permission prompt, whatever the key order', async () => {
+  service.create(permissionFor('p:a', 's1', 'Bash', { command: 'ls', description: 'list' }))
+  service.create(permissionFor('p:b', 's1', 'Bash', { command: 'pwd' }))
+  service.create(permissionFor('p:c', 's2', 'Bash', { command: 'ls', description: 'list' }))
+  service.create(twoQuestions)
+  expect(service.settleLocally('s1', { kind: 'tool', tool: 'Bash', input: { description: 'list', command: 'ls' }, denied: false })).toBe(1)
+  expect(service.state('p:a')).toEqual({ status: 'answered', answer: { kind: 'permission', decision: 'allow', message: SETTLED_LOCALLY_MESSAGE }, source: 'local' })
+  expect(service.state('p:b')).toEqual({ status: 'pending' })
+  expect(service.state('p:c')).toEqual({ status: 'pending' })
+  expect(service.state('q:1')).toEqual({ status: 'pending' })
+  await flush()
+  expect(events.resolved).toEqual(['p:a'])
+})
+
+test('settleLocally records a denied tool call as deny', () => {
+  service.create(permissionFor('p:a', 's1', 'Bash', { command: 'ls' }))
+  service.settleLocally('s1', { kind: 'tool', tool: 'Bash', input: { command: 'ls' }, denied: true })
+  expect(service.state('p:a')).toMatchObject({ answer: { decision: 'deny' }, source: 'local' })
+})
+
+test('settleLocally "all" settles every pending permission prompt of that session only', () => {
+  service.create(permissionFor('p:a', 's1', 'Bash', { command: 'ls' }))
+  service.create(permissionFor('p:b', 's1', 'Edit', { file_path: '/a' }))
+  service.create(permissionFor('p:c', 's2', 'Bash', { command: 'ls' }))
+  service.create(twoQuestions)
+  expect(service.settleLocally('s1', { kind: 'all' })).toBe(2)
+  expect(service.state('p:c')).toEqual({ status: 'pending' })
+  expect(service.state('q:1')).toEqual({ status: 'pending' })
+})
+
+test('settleLocally never overrides an earlier answer', () => {
+  service.create(permissionFor('p:a', 's1', 'Bash', { command: 'ls' }))
+  service.answer('p:a', { kind: 'permission', decision: 'deny' }, 'remote')
+  expect(service.settleLocally('s1', { kind: 'all' })).toBe(0)
+  expect(service.state('p:a')).toMatchObject({ answer: { decision: 'deny' }, source: 'remote' })
 })

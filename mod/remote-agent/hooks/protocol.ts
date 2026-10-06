@@ -31,6 +31,13 @@ export type ReportRequest = { session: SessionInfo; report: Report }
 
 export type Instruction = { id: string; sessionId: string; text: string }
 
+/** Marks a Permission Request that was answered in the terminal; the Answer's decision is then not meaningful. */
+export const SETTLED_LOCALLY_MESSAGE = 'Settled in the terminal.'
+
+/** `tool`: a tool call matching this tool name and input finished. `all`: the turn ended, so nothing for the session is still pending. */
+export type SettleScope = { kind: 'tool'; tool: string; input: unknown; denied: boolean } | { kind: 'all' }
+export type SettleRequest = { scope: SettleScope }
+
 export function defaultSocketPath(env: { XDG_RUNTIME_DIR?: string; HOME?: string }): string {
   if (env.XDG_RUNTIME_DIR) {
     return `${env.XDG_RUNTIME_DIR}/remote-agent/bridge.sock`

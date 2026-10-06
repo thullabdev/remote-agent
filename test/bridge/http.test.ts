@@ -99,3 +99,22 @@ test('instructions are listed until acknowledged', async () => {
 test('unknown routes are 404', async () => {
   expect((await call('GET', '/nope')).status).toBe(404)
 })
+
+test('POST /sessions/:id/settled settles the matching permission prompt', async () => {
+  await call('POST', '/prompts', permissionRequest)
+  const response = await call('POST', '/sessions/s1/settled', { scope: { kind: 'tool', tool: 'Bash', input: { command: 'rm -rf build' }, denied: false } })
+  expect(await response.json()).toEqual({ settled: 1 })
+  expect(await (await call('GET', '/prompts/p%3Atoolu_1')).json()).toMatchObject({ status: 'answered', source: 'local' })
+  await flush()
+  expect(channel.resolved.map(resolved => resolved.note)).toEqual(['☑️ Answered in the terminal'])
+})
+
+test('a turn_complete report settles the session\'s pending permission prompts', async () => {
+  await call('POST', '/prompts', permissionRequest)
+  await call('POST', '/reports', { session, report: { kind: 'turn_complete', text: 'done', durationMs: 1_000, isAborted: false } })
+  expect(await (await call('GET', '/prompts/p%3Atoolu_1')).json()).toMatchObject({ status: 'answered', source: 'local' })
+})
+
+test('malformed settle bodies are 400', async () => {
+  expect((await call('POST', '/sessions/s1/settled', { scope: { kind: 'tool' } })).status).toBe(400)
+})

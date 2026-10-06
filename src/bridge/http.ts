@@ -1,9 +1,9 @@
 import { ZodError } from 'zod'
-import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
-import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema } from './schemas.ts'
+import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema } from './schemas.ts'
 import type { Store } from './store.ts'
 
 export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log }
@@ -11,7 +11,8 @@ export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Stor
 const PROMPT = /^\/prompts\/([^/]+)$/
 const PROMPT_ANSWER = /^\/prompts\/([^/]+)\/answer$/
 const SESSION_INSTRUCTIONS = /^\/sessions\/([^/]+)\/instructions$/
-const INSTRUCTION_DELIVERED = /^\/instructions\/([^/]+)\/delivered$/
+const SESSION_SETTLED = /^\/sessions\/([^/]+)\/settled$/
+const INSTRUCTION_DELIVERED =/^\/instructions\/([^/]+)\/delivered$/
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status })
@@ -74,8 +75,17 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
     return result === undefined ? empty(404) : json(result)
   }
 
+  const settled = SESSION_SETTLED.exec(path)
+  if (method === 'POST' && settled !== null) {
+    const body = SettleRequestSchema.parse(await request.json()) as SettleRequest
+    return json({ settled: deps.prompts.settleLocally(param(settled), body.scope) })
+  }
+
   if (method === 'POST' && path === '/reports') {
     const body = ReportRequestSchema.parse(await request.json()) as ReportRequest
+    if (body.report.kind === 'turn_complete') {
+      deps.prompts.settleLocally(body.session.sessionId, { kind: 'all' })
+    }
     void deps.notifier.report(body).catch(error => {
       deps.log('report delivery failed', error)
     })

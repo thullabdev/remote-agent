@@ -1,4 +1,4 @@
-import type { Answer, AnswerSource, QuestionItem, Report } from '../../mod/remote-agent/hooks/protocol.ts'
+import { SETTLED_LOCALLY_MESSAGE, type Answer, type AnswerSource, type QuestionItem, type Report } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { PromptView, PromptViewItem } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import type { PromptRow, SessionRow } from './store.ts'
@@ -107,6 +107,9 @@ export function reportText(report: Report, session: SessionRow): string {
 
 export function resolutionNote(answer: Answer, source: AnswerSource): string {
   if (answer.kind === 'permission') {
+    if (answer.message === SETTLED_LOCALLY_MESSAGE) {
+      return '☑️ Answered in the terminal'
+    }
     const head = `${answer.decision === 'allow' ? '✅ Allowed' : '❌ Denied'} (${source})`
     return answer.message === undefined ? head : `${head}: ${clean(answer.message, LIMITS.note)}`
   }

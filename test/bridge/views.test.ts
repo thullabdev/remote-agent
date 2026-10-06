@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { SETTLED_LOCALLY_MESSAGE } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { PromptRow, SessionRow } from '../../src/bridge/store.ts'
 import { formatDuration, permissionSummary, promptView, reportText, resolutionNote, threadTitle } from '../../src/bridge/views.ts'
 
@@ -85,4 +86,9 @@ test('cwd, reason and option labels are redacted and bounded', () => {
     session,
   )
   expect(view.items[0]!.buttons[0]!.label.length).toBeLessThan(90)
+})
+
+test('a prompt settled in the terminal is reported as such, not as an allow or deny', () => {
+  expect(resolutionNote({ kind: 'permission', decision: 'allow', message: SETTLED_LOCALLY_MESSAGE }, 'local')).toBe('☑️ Answered in the terminal')
+  expect(resolutionNote({ kind: 'permission', decision: 'deny', message: SETTLED_LOCALLY_MESSAGE }, 'local')).toBe('☑️ Answered in the terminal')
 })

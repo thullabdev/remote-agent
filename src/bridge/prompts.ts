@@ -1,4 +1,5 @@
-import type { Answer, AnswerResult, AnswerSource, AnswerState, CreatePromptRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { SETTLED_LOCALLY_MESSAGE, type Answer, type AnswerResult, type AnswerSource, type AnswerState, type CreatePromptRequest, type SettleScope } from '../../mod/remote-agent/hooks/protocol.ts'
+import { canonicalJson } from '../core/json.ts'
 import { BadRequest } from './errors.ts'
 import type { PromptRow, Store } from './store.ts'
 
@@ -108,6 +109,25 @@ export class PromptService {
     }
     this.store.setPartial(id, partial)
     return { accepted: true, state: { status: 'pending' } }
+  }
+
+  /** Settles pending Permission Requests of a session that were answered in the terminal. Returns how many it settled. */
+  settleLocally(sessionId: string, scope: SettleScope): number {
+    let settled = 0
+    for (const prompt of this.store.listPendingPrompts()) {
+      if (prompt.sessionId !== sessionId || prompt.body.kind !== 'permission') {
+        continue
+      }
+      if (scope.kind === 'tool' && (prompt.body.tool !== scope.tool || canonicalJson(prompt.body.input) !== canonicalJson(scope.input))) {
+        continue
+      }
+      const decision = scope.kind === 'tool' && !scope.denied ? 'allow' : 'deny'
+      const result = this.answer(prompt.id, { kind: 'permission', decision, message: SETTLED_LOCALLY_MESSAGE }, 'local')
+      if (result?.accepted === true) {
+        settled += 1
+      }
+    }
+    return settled
   }
 
   async remindStale(): Promise<void> {
