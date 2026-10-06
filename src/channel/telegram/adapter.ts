@@ -1,7 +1,6 @@
 import { autoRetry } from '@grammyjs/auto-retry'
 import { Bot } from 'grammy'
 import type { Log } from '../../bridge/prompts.ts'
-import { escapeHtml } from '../../core/text.ts'
 import type { Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../types.ts'
 import { decodeButton, keyboard, renderHtml } from './render.ts'
 import { isAuthorized, parseCommand, replyTarget, threadOf } from './updates.ts'
@@ -47,7 +46,7 @@ export class TelegramChannel implements Channel {
       if (reply === null) {
         return
       }
-      await this.bot.api.sendMessage(this.config.chatId, escapeHtml(reply), {
+      await this.bot.api.sendMessage(this.config.chatId, renderHtml(null, reply), {
         parse_mode: 'HTML',
         message_thread_id: thread === null ? undefined : Number(thread),
         reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
