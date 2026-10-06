@@ -56,3 +56,47 @@ Already-running sessions pick it up after `/reload-plugins`.
 
 - Headless (`-p`/SDK) sessions are not bridged.
 - Behaviour of the terminal dialog when Telegram answers first: see `references/spike-results.md` (filled in after the mod spike).
+
+## 8. Development
+
+Run the Bridge in the foreground instead of as a systemd service:
+
+```bash
+cp .env.example .env          # fill in the three TELEGRAM_* values; .env is git-ignored
+bun run bridge                # Ctrl+C stops it and removes the socket
+bun --watch run src/bridge/main.ts   # or: restart on every file change
+```
+
+Bun loads `.env` from the working directory automatically. To use the service's config file instead, run `set -a; source ~/.config/remote-agent/env; set +a` first.
+
+Handy overrides for `.env` while developing:
+
+```bash
+REMOTE_AGENT_DB=/tmp/remote-agent-dev.db   # throwaway database
+REMOTE_AGENT_REMINDER_MINUTES=1            # see reminders quickly
+```
+
+Leave `REMOTE_AGENT_SOCKET` unset: the mod always connects to the default socket path.
+
+Check the Bridge and send a fake Permission Request without Claude Code:
+
+```bash
+SOCK="$XDG_RUNTIME_DIR/remote-agent/bridge.sock"
+curl --unix-socket "$SOCK" http://bridge/health
+curl --unix-socket "$SOCK" -X POST http://bridge/prompts \
+  -d '{"promptId":"p:dev1","session":{"sessionId":"dev-session","cwd":"/tmp/demo"},"body":{"kind":"permission","tool":"Bash","input":{"command":"ls"}}}'
+curl --unix-socket "$SOCK" "http://bridge/prompts/p%3Adev1?waitMs=25000"   # tap Allow/Deny in Telegram
+```
+
+Load the mod into a single Claude Code session without installing it:
+
+```bash
+claude --plugin-dir ~/Sites/remote-agent/mod/remote-agent
+```
+
+Tests and type checks:
+
+```bash
+bun test
+bun run typecheck
+```
