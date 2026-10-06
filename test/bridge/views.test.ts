@@ -76,3 +76,13 @@ test('durations', () => {
   expect(formatDuration(59_000)).toBe('59s')
   expect(formatDuration(3_725_000)).toBe('62m 5s')
 })
+
+test('cwd, reason and option labels are redacted and bounded', () => {
+  expect(reportText({ kind: 'session_started' }, { ...session, cwd: '/srv/app?token=abc123' })).toBe('🟢 Session started in /srv/app?token=[REDACTED]')
+  expect(reportText({ kind: 'session_ended', reason: 'password=hunter2' }, session)).toBe('⚪ Session ended (password=[REDACTED])')
+  const view = promptView(
+    prompt({ kind: 'question', questions: [{ question: 'q', header: 'h', multiSelect: false, options: [{ label: 'x'.repeat(100), description: '' }] }] }),
+    session,
+  )
+  expect(view.items[0]!.buttons[0]!.label.length).toBeLessThan(90)
+})

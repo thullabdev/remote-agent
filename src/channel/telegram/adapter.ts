@@ -62,7 +62,12 @@ export class TelegramChannel implements Channel {
       { command: 'back', description: 'Send prompts only' },
       { command: 'status', description: 'Show sessions and pending prompts' },
     ])
-    void this.bot.start({ allowed_updates: ['message', 'callback_query'] })
+    // Polling only ends on a fatal error. Exiting is intended: systemd restarts the Bridge visibly
+    // instead of leaving it running while deaf to Telegram.
+    this.bot.start({ allowed_updates: ['message', 'callback_query'] }).catch(error => {
+      this.log('telegram polling stopped', error)
+      process.exit(1)
+    })
   }
 
   async stop(): Promise<void> {

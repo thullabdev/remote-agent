@@ -5,6 +5,8 @@ import type { PromptRow, SessionRow } from './store.ts'
 
 export const LIMITS = { question: 1_500, toolInput: 1_500, report: 1_000, note: 300, reason: 300 }
 
+const LABEL_MAX = 60
+
 function clean(text: string, max: number): string {
   return truncate(redactSecrets(text), max)
 }
@@ -65,7 +67,7 @@ function questionItem(promptId: string, question: QuestionItem, questionIndex: n
     text: `${clean(`❓ ${question.header}\n${question.question}\n\n${options}`, LIMITS.question)}\n\n${hint}`,
     buttons: question.multiSelect
       ? []
-      : question.options.map((option, optionIndex) => ({ label: option.label, data: { promptId, questionIndex, optionIndex } })),
+      : question.options.map((option, optionIndex) => ({ label: clean(option.label, LABEL_MAX), data: { promptId, questionIndex, optionIndex } })),
   }
 }
 
@@ -82,7 +84,7 @@ export function promptView(prompt: PromptRow, session: SessionRow): PromptView {
     title,
     items: [
       {
-        text: `🔐 Permission: ${body.tool}${who}${reason}\n\n${permissionSummary(body.tool, body.input)}\n\nReply to this message to deny with feedback.`,
+        text: `🔐 Permission: ${clean(body.tool, LABEL_MAX)}${who}${reason}\n\n${permissionSummary(body.tool, body.input)}\n\nReply to this message to deny with feedback.`,
         buttons: [
           { label: '✅ Allow', data: { promptId: prompt.id, questionIndex: 0, optionIndex: 0 } },
           { label: '❌ Deny', data: { promptId: prompt.id, questionIndex: 0, optionIndex: 1 } },
@@ -94,10 +96,10 @@ export function promptView(prompt: PromptRow, session: SessionRow): PromptView {
 
 export function reportText(report: Report, session: SessionRow): string {
   if (report.kind === 'session_started') {
-    return `🟢 Session started in ${session.cwd}`
+    return `🟢 Session started in ${clean(session.cwd, LIMITS.reason)}`
   }
   if (report.kind === 'session_ended') {
-    return `⚪ Session ended (${report.reason})`
+    return `⚪ Session ended (${clean(report.reason, LIMITS.reason)})`
   }
   const head = `${report.isAborted ? '⛔ Turn interrupted' : '✅ Turn finished'} after ${formatDuration(report.durationMs)}`
   return report.text === '' ? head : `${head}\n\n${clean(report.text, LIMITS.report)}`

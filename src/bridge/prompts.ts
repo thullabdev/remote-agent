@@ -102,7 +102,7 @@ export class PromptService {
       throw new BadRequest(`Prompt ${id} has no question ${questionIndex}`)
     }
     const partial = { ...prompt.partial, [question.question]: value }
-    const isComplete = prompt.body.questions.every(item => item.question in partial)
+    const isComplete = prompt.body.questions.every(item => Object.hasOwn(partial, item.question))
     if (isComplete) {
       return this.answer(id, { kind: 'question', answers: partial }, 'remote')
     }
