@@ -12,7 +12,7 @@ const PROMPT = /^\/prompts\/([^/]+)$/
 const PROMPT_ANSWER = /^\/prompts\/([^/]+)\/answer$/
 const SESSION_INSTRUCTIONS = /^\/sessions\/([^/]+)\/instructions$/
 const SESSION_SETTLED = /^\/sessions\/([^/]+)\/settled$/
-const INSTRUCTION_DELIVERED =/^\/instructions\/([^/]+)\/delivered$/
+const INSTRUCTION_DELIVERED = /^\/instructions\/([^/]+)\/delivered$/
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status })
@@ -84,7 +84,11 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
   if (method === 'POST' && path === '/reports') {
     const body = ReportRequestSchema.parse(await request.json()) as ReportRequest
     if (body.report.kind === 'turn_complete') {
-      deps.prompts.settleLocally(body.session.sessionId, { kind: 'all' })
+      try {
+        deps.prompts.settleLocally(body.session.sessionId, { kind: 'all' })
+      } catch (error) {
+        deps.log('settling permission prompts failed', error)
+      }
     }
     void deps.notifier.report(body).catch(error => {
       deps.log('report delivery failed', error)

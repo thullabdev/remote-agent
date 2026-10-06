@@ -15,6 +15,7 @@ async function main(): Promise<void> {
       method: init?.method ?? 'GET',
       body: init?.body,
       headers: { 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(35_000),
       unix: socketPath,
     })
     return { status: response.status, text: await response.text() }

@@ -28,7 +28,7 @@ class FakeBridge {
 
 function deps(bridge: FakeBridge, extra: Partial<PermissionFlowDeps> = {}): PermissionFlowDeps {
   let clock = 0
-  return { bridge, newId: () => 'id-1', sleep: noSleep, now: () => (clock += 1_000), deadlineMs: 5_000, ...extra }
+  return { bridge, newId: () => 'id-1', sleep: noSleep, now: () => (clock += 100), deadlineMs: 5_000, ...extra }
 }
 
 describe('parseHookInput', () => {
@@ -95,6 +95,22 @@ describe('runPermissionFlow', () => {
     const bridge = new FakeBridge()
     expect(await runPermissionFlow({ ...input, tool_name: 'AskUserQuestion' }, deps(bridge))).toBeNull()
     expect(bridge.created).toEqual([])
+  })
+
+  test('an unexpected status counts as a failure and gives up silently', async () => {
+    const bridge = new FakeBridge()
+    bridge.waits = Array.from({ length: 6 }, () => ({ status: 'weird' }) as unknown as AnswerState)
+    expect(await runPermissionFlow(input, deps(bridge, { maxFailures: 3 }))).toBeNull()
+    expect(bridge.waits).toHaveLength(3)
+  })
+
+  test('an instantly pending bridge does not spin', async () => {
+    const bridge = new FakeBridge()
+    let clock = 0
+    let sleeps = 0
+    const result = await runPermissionFlow(input, deps(bridge, { now: () => (clock += 10), sleep: async () => { sleeps += 1 } }))
+    expect(result).toBeNull()
+    expect(sleeps).toBeGreaterThan(0)
   })
 
   test('stops waiting at the deadline', async () => {

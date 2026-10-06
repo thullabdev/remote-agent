@@ -69,8 +69,8 @@ export async function runPermissionFlow(input: PermissionHookInput, deps: Permis
   let failures = 0
   while (deps.now() < deadline) {
     try {
+      const polledAt = deps.now()
       const state = await deps.bridge.waitAnswer(request.promptId, deps.waitMs ?? 20_000)
-      failures = 0
       if (state.status === 'answered') {
         if (state.source !== 'remote' || state.answer.kind !== 'permission') {
           return null
@@ -78,6 +78,14 @@ export async function runPermissionFlow(input: PermissionHookInput, deps: Permis
         const answer = state.answer
         const decision = answer.decision === 'allow' ? ({ behavior: 'allow' } as const) : ({ behavior: 'deny', message: answer.message ?? 'Denied via remote-agent.' } as const)
         return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }
+      }
+      if (state.status !== 'pending') {
+        throw new Error('unexpected answer state')
+      }
+      failures = 0
+      if (deps.now() - polledAt < 100) {
+        // A Bridge that answers pending instantly must not turn the wait into a busy loop.
+        await deps.sleep(deps.retryDelayMs ?? 1_000)
       }
     } catch {
       failures += 1

@@ -83,6 +83,23 @@ test('reports are accepted asynchronously', async () => {
   expect(channel.texts.map(sent => sent.text)).toEqual(['✅ Turn finished after 2s\n\ndone'])
 })
 
+test('a failing settleLocally never breaks the report route', async () => {
+  const store2 = new Store(':memory:')
+  const channel2 = new FakeChannel()
+  const notifier = new Notifier(store2, channel2, new AwayMode(true))
+  const prompts = new PromptService(store2, notifier, { reminderAfterMs: 60_000 })
+  prompts.settleLocally = () => {
+    throw new Error('boom')
+  }
+  const errors: string[] = []
+  const failing = createHandler({ prompts, notifier, store: store2, log: message => errors.push(message) })
+  const response = await failing(new Request('http://bridge/reports', { method: 'POST', body: JSON.stringify({ session, report: { kind: 'turn_complete', text: 'done', durationMs: 2_000, isAborted: false } }) }))
+  expect(response.status).toBe(202)
+  await flush()
+  expect(channel2.texts.map(sent => sent.text)).toEqual(['✅ Turn finished after 2s\n\ndone'])
+  expect(errors).toContain('settling permission prompts failed')
+})
+
 test('instructions are listed until acknowledged', async () => {
   store.upsertSession(session)
   store.setSessionThread('s1', 't1')

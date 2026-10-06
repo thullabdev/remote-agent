@@ -122,9 +122,13 @@ export class PromptService {
         continue
       }
       const decision = scope.kind === 'tool' && !scope.denied ? 'allow' : 'deny'
-      const result = this.answer(prompt.id, { kind: 'permission', decision, message: SETTLED_LOCALLY_MESSAGE }, 'local')
-      if (result?.accepted === true) {
-        settled += 1
+      try {
+        const result = this.answer(prompt.id, { kind: 'permission', decision, message: SETTLED_LOCALLY_MESSAGE }, 'local')
+        if (result?.accepted === true) {
+          settled += 1
+        }
+      } catch (error) {
+        this.log(`settling ${prompt.id} failed`, error)
       }
     }
     return settled
