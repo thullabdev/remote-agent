@@ -1,11 +1,11 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { BridgeClient } from './bridge-client.ts'
 import {
-  askPermissionLocally,
   askQuestionsLocally,
   DismissedError,
   pollInstructions,
   resolvePrompt,
+  toolInputOf,
   type AskPort,
   type InstructionState,
   type Sleep,
@@ -84,6 +84,21 @@ export const register: Register = on => {
     return result
   })
 
+  // Tells the Bridge a tool call finished, so a Telegram Permission Request answered in the terminal is settled.
+  // The PermissionRequest command hook is not cancelled by a local answer (ADR-0002).
+  on('tool.call', async ($, e, next) => {
+    const ran = await next(e)
+    if (e.tool === 'AskUserQuestion') {
+      return ran
+    }
+    void (async () => {
+      const bridge = await bridgeFor($)
+      const session = await sessionInfo($)
+      await bridge.settled(session.sessionId, { kind: 'tool', tool: e.tool, input: toolInputOf(e as unknown as Record<string, unknown>), denied: ran.deny !== undefined })
+    })().catch(() => undefined)
+    return ran
+  })
+
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     const hasAnswers = e.answers !== undefined && Object.keys(e.answers).length > 0
     if (hasAnswers || e.tool_use_id === undefined) {
@@ -116,35 +131,5 @@ export const register: Register = on => {
     }
     // Spike E11/E12: answers passed through next() are dropped; the hook must answer the call itself.
     return { result: { questions: e.questions, answers: answer.answers } }
-  })
-
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (verdict.decision !== 'ask' || e.tool === 'AskUserQuestion' || e.tool_use_id === undefined) {
-      return verdict
-    }
-    try {
-      const answer = await resolvePrompt({
-        bridge: await bridgeFor($),
-        request: {
-          promptId: `p:${e.tool_use_id}`,
-          session: await sessionInfo($),
-          body: { kind: 'permission', tool: e.tool, input: e.input, reason: verdict.reason, agentId: e.agentId },
-        },
-        localAsk: askPermissionLocally(askPort($), e.tool, e.input),
-        signal: next.signal,
-        sleep: sleepPort($, next.signal),
-      })
-      if (answer === null || answer.kind !== 'permission') {
-        return verdict
-      }
-      if (answer.decision === 'allow') {
-        return { ...verdict, decision: 'allow', reason: 'Allowed by the user via remote-agent.' }
-      }
-      return { ...verdict, decision: 'deny', reason: answer.message ?? 'Denied by the user via remote-agent.' }
-    } catch {
-      // Fail safe: any failure keeps the stock permission decision.
-      return verdict
-    }
   })
 }

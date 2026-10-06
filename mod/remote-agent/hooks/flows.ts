@@ -139,25 +139,11 @@ export function askQuestionsLocally(ask: AskPort, questions: readonly QuestionIt
   }
 }
 
-export function shortSummary(tool: string, input: unknown): string {
-  const record = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
-  const pick = (key: string): string | undefined => (typeof record[key] === 'string' ? (record[key] as string) : undefined)
-  const detail = pick('command') ?? pick('file_path') ?? pick('url') ?? pick('pattern') ?? JSON.stringify(input) ?? tool
-  const oneLine = detail.replace(/\s+/g, ' ').trim()
-  return oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine
-}
+const ENGINE_KEYS = new Set(['tool', 'tool_use_id', 'agentId', 'consent'])
 
-export function askPermissionLocally(ask: AskPort, tool: string, input: unknown): () => Promise<Answer> {
-  return async () => {
-    const label = await ask(`Allow ${tool}: ${shortSummary(tool, input)}?`, { options: ['Allow', 'Deny'] })
-    if (label === 'Allow') {
-      return { kind: 'permission', decision: 'allow' }
-    }
-    if (label === 'Deny') {
-      return { kind: 'permission', decision: 'deny' }
-    }
-    return { kind: 'permission', decision: 'deny', message: label }
-  }
+/** The tool's own arguments from a `tool.call` input: what a PermissionRequest hook reports as `tool_input`. */
+export function toolInputOf(call: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(call).filter(([key]) => !ENGINE_KEYS.has(key)))
 }
 
 export type InstructionState = { inFlight: Set<string>; submitted: Set<string>; delivered: Set<string> }

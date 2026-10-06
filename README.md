@@ -34,7 +34,7 @@ claude plugin install remote-agent@remote-agent-local --scope user
 claude plugin list
 ```
 
-Already-running sessions pick it up after `/reload-plugins`.
+Already-running sessions pick it up after `/reload-plugins`. The plugin also installs a `PermissionRequest` hook that carries Permission Requests to Telegram.
 
 ## 5. Using it
 
@@ -56,10 +56,11 @@ Already-running sessions pick it up after `/reload-plugins`.
 
 - Headless (`-p`/SDK) sessions are not bridged.
 - When Telegram answers first, the terminal's question/permission dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a).
-- While a Prompt waits, the terminal shows the mod's own dialog (header "Plugin"), not Claude Code's native one, so "always allow" options are not offered there.
+- Permission Requests use Claude Code's own dialog; Telegram answers race it. In auto mode only requests the classifier escalates to you reach Telegram.
+- The permission hook runs with `bun`; make sure `bun` is on the `PATH` Claude Code uses for hooks (`which bun` in a fresh shell).
 - An Instruction sent from Telegram appears in the terminal as "Prompt from the remote-agent plugin".
 - Sessions that were already running when the mod was installed need `/reload-plugins` once.
-- If the Bridge is down for more than about 6 seconds while a Prompt waits, that Prompt can only be answered in the terminal.
+- If the Bridge is down for more than about 6 seconds while a Question waits, that Question can only be answered in the terminal.
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 

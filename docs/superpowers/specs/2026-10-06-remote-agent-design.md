@@ -14,7 +14,7 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
    - Prompts — always: AskUserQuestion Questions and Permission Requests (`tool.check` verdict `ask`).
    - Reports — only while Away mode is on: session started, session ended, turn finished (last assistant message, ≤1,000 chars, plus duration).
 4. **Accepted from the Channel**: Answers (button tap or reply to the Prompt message), Instructions (any other text in a Session's Thread), commands `/away`, `/back`, `/status`.
-5. **First Answer wins** between the terminal and Telegram; the losing side is told ("answered locally/remotely").
+5. **First Answer wins** between the terminal and Telegram; the losing side is told ("answered locally/remotely"). Permission Requests race Claude Code's own permission dialog through a `PermissionRequest` hook (ADR-0002); a Permission Request answered in the terminal is settled when the tool call finishes or the turn ends.
 6. **Unanswered Prompts** wait indefinitely; one reminder after 30 minutes (configurable).
 7. **Instructions to a busy Session** are queued and delivered as a real user turn when the Session is idle; the user sees "queued" then "delivered".
 8. **Privacy**: all text leaving the machine is secret-redacted and truncated.

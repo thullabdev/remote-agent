@@ -1,12 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { BridgeError } from '../../mod/remote-agent/hooks/bridge-client.ts'
 import {
-  askPermissionLocally,
   askQuestionsLocally,
   DismissedError,
   pollInstructions,
   resolvePrompt,
-  shortSummary,
+  toolInputOf,
   type BridgePort,
   type InstructionState,
 } from '../../mod/remote-agent/hooks/flows.ts'
@@ -146,18 +145,14 @@ describe('local asks', () => {
     expect(answer).toEqual({ kind: 'question', answers: { 'A?': 'a1', 'B?': 'b1' } })
     expect(asked).toEqual(['A?|a1/a2|false', 'B?|b1/b2|true'])
   })
+})
 
-  test('permission: Allow, Deny, or free text as denial feedback', async () => {
-    expect(await askPermissionLocally(async () => 'Allow', 'Bash', { command: 'ls' })()).toEqual(allow)
-    expect(await askPermissionLocally(async () => 'Deny', 'Bash', { command: 'ls' })()).toEqual(deny)
-    expect(await askPermissionLocally(async () => 'use pnpm', 'Bash', { command: 'npm i' })()).toEqual({ kind: 'permission', decision: 'deny', message: 'use pnpm' })
+describe('toolInputOf', () => {
+  test('strips the engine\'s own keys and keeps the tool arguments', () => {
+    expect(toolInputOf({ tool: 'Bash', tool_use_id: 'toolu_1', agentId: 'a', consent: 'c', command: 'ls', description: 'list' })).toEqual({ command: 'ls', description: 'list' })
   })
-
-  test('short summary is one line and bounded', () => {
-    expect(shortSummary('Bash', { command: 'ls\n  -la' })).toBe('ls -la')
-    expect(shortSummary('Edit', { file_path: '/a.ts' })).toBe('/a.ts')
-    expect(shortSummary('X', { n: 1 })).toBe('{"n":1}')
-    expect(shortSummary('Bash', { command: 'x'.repeat(500) }).length).toBe(161)
+  test('keeps nested values untouched', () => {
+    expect(toolInputOf({ tool: 'Edit', file_path: '/a', edits: [{ x: 1 }] })).toEqual({ file_path: '/a', edits: [{ x: 1 }] })
   })
 })
 
