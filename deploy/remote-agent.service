@@ -1,0 +1,14 @@
+[Unit]
+Description=Remote Agent bridge (Claude Code <-> Telegram)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Sites/remote-agent
+EnvironmentFile=%h/.config/remote-agent/env
+ExecStart=%h/.bun/bin/bun run src/bridge/main.ts
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
