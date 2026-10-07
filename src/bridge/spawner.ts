@@ -236,7 +236,9 @@ export class Spawner {
       return `❌ Could not start the session: ${reason}`
     }
     this.armTimer(sessionId)
-    await channel.sendText(thread, `⏳ Starting… attach with: tmux attach -t ${tmuxName}`, null)
+    await channel.sendText(thread, `⏳ Starting… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
+      log(`announcing the start of ${sessionId} failed`, sendError)
+    })
     return `🚀 Starting ${projectName(cwd)}. Open its topic.`
   }
 

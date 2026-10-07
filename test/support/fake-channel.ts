@@ -48,7 +48,13 @@ export class FakeChannel implements Channel {
     }
   }
 
+  /** Makes sendText throw for texts that start with this prefix. */
+  sendTextFails: string | null = null
+
   async sendText(thread: ThreadRef | null, text: string, replyTo: MessageRef | null): Promise<MessageRef> {
+    if (this.sendTextFails !== null && text.startsWith(this.sendTextFails)) {
+      throw new Error('sendMessage failed')
+    }
     this.texts.push({ thread, text, replyTo })
     return `m${this.nextId++}`
   }

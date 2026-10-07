@@ -94,6 +94,13 @@ test('tapping a project creates the thread first, then launches and arms the sta
   expect(timers.map(timer => timer.ms)).toEqual([30_000])
 })
 
+test('a failed Starting message still returns the toast for a running session', async () => {
+  channel.sendTextFails = '⏳ Starting'
+  expect(await spawner.newCommand(null, '~/Sites/api')).toBe('🚀 Starting api. Open its topic.')
+  expect(tmux.alive.size).toBe(1)
+  expect(store.getSession(idFor(ids))?.endedAt).toBeNull()
+})
+
 test('/new with a trusted path containing spaces launches there', async () => {
   expect(await spawner.newCommand('t9', '~/Sites/My Projects/app')).toBe('🚀 Starting app. Open its topic.')
   expect(tmux.calls[0]).toContain(`${home}/Sites/My Projects/app`)
