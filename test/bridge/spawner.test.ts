@@ -179,3 +179,23 @@ test('when the topic cannot be created nothing is launched and the session is en
   expect(tmux.calls).toEqual([])
   expect(store.getSession(idFor(1))?.endedAt).not.toBeNull()
 })
+
+test('a kill that fails still ends the session and closes the thread', async () => {
+  await spawner.newCommand(null, '~/Sites/api')
+  tmux.killFails = 'permission denied'
+  timers[0]?.run()
+  await flush()
+  expect(store.getSession(idFor(1))?.endedAt).not.toBeNull()
+  expect(channel.threads[0]?.closed).toBe(true)
+})
+
+test('a session that becomes ready while the timeout captures is left alone', async () => {
+  await spawner.newCommand(null, '~/Sites/api')
+  tmux.onCapture = () => spawner.onSessionStarted(idFor(1))
+  timers[0]?.run()
+  await flush()
+  expect(tmux.alive.has('ra-00000001')).toBe(true)
+  expect(store.getSession(idFor(1))?.endedAt).toBeNull()
+  expect(channel.texts.some(text => text.text.includes('did not start'))).toBe(false)
+  expect(channel.threads[0]?.closed).toBeFalsy()
+})

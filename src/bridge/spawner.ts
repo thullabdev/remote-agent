@@ -191,6 +191,9 @@ export class Spawner {
     } catch (error) {
       log(`capturing the screen of ${session.tmuxName} failed`, error)
     }
+    if (this.hasSettled(sessionId)) {
+      return
+    }
     if (session.threadId !== null) {
       const shown = tail === '' ? '(no output)' : truncate(redactSecrets(tail), CAPTURE_MAX)
       await channel
@@ -199,7 +202,20 @@ export class Spawner {
           log(`reporting the startup timeout of ${sessionId} failed`, error)
         })
     }
-    await launcher.kill(session.tmuxName)
+    if (this.hasSettled(sessionId)) {
+      return
+    }
+    try {
+      await launcher.kill(session.tmuxName)
+    } catch (error) {
+      log(`killing ${session.tmuxName} failed`, error)
+    }
     await notifier.closeSession(sessionId)
+  }
+
+  /** True when the session started or ended since the timeout began, so the timeout must back off. */
+  private hasSettled(sessionId: string): boolean {
+    const session = this.deps.store.getSession(sessionId)
+    return session === undefined || session.startedAt !== null || session.endedAt !== null
   }
 }
