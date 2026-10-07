@@ -25,6 +25,11 @@ test('launch runs claude in a detached tmux session in its own systemd scope', a
   ])
 })
 
+test('launch passes --model to claude when a model is given', async () => {
+  await launcher.launch({ sessionId: id, cwd: '/x', model: 'opus' })
+  expect(tmux.calls[0]?.slice(-5)).toEqual(['claude', '--session-id', id, '--model', 'opus'])
+})
+
 test('a failed launch throws a redacted LaunchError', async () => {
   tmux.launchFails = 'Failed to connect to bus: token=abcdef123456'
   const failure = launcher.launch({ sessionId: id, cwd: '/x' })

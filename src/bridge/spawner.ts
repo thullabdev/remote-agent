@@ -11,7 +11,8 @@ import { TrustedFoldersUnavailable, type Project, type TrustedFolders } from './
 export const NOT_TRUSTED = 'Not a trusted folder. Open it once in Claude Code locally and accept the trust dialog.'
 export const STALE_PICKER = 'Project list changed. Send /new again.'
 export const CONFIG_UNREADABLE = "Can't read Claude Code's trusted folders."
-export const USAGE = 'Usage: /new <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
+export const USAGE = 'Usage: /new [--model <model>] <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
+export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started from Telegram can be ended remotely.'
 
@@ -19,6 +20,27 @@ const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
 const REASON_MAX = 150
 const MAX_PICKERS = 20
+const MODEL_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'opusplan'])
+const MODEL_ID = /^claude-[a-z0-9][a-z0-9.-]*$/
+const MODEL_FIRST = /^(?:--model|-m)(?:\s+(\S+))?(?:\s+(.*))?$/s
+const MODEL_LAST = /^(.*?)\s+(?:--model|-m)\s+(\S+)$/s
+
+type Picker = { projects: Project[]; model: string | null }
+
+/** Splits `/new` args into a path and an optional `--model`/`-m` given before or after it. Null means a bad model. */
+export function parseNewArgs(args: string): { path: string; model: string | null } | null {
+  const first = MODEL_FIRST.exec(args)
+  const last = first === null ? MODEL_LAST.exec(args) : null
+  if (first === null && last === null) {
+    return { path: args, model: null }
+  }
+  const model = first !== null ? first[1] : last?.[2]
+  const path = (first !== null ? first[2] : last?.[1]) ?? ''
+  if (model === undefined || !(MODEL_ALIASES.has(model) || MODEL_ID.test(model))) {
+    return null
+  }
+  return { path: path.trim(), model }
+}
 
 /** Runs `run` after `ms`; the returned function cancels it. */
 export type Schedule = (run: () => void, ms: number) => () => void
@@ -50,7 +72,7 @@ function reasonOf(error: unknown): string {
 export class Spawner {
   private readonly timers = new Map<string, () => void>()
   private readonly ending = new Set<string>()
-  private readonly pickers = new Map<string, Project[]>()
+  private readonly pickers = new Map<string, Picker>()
   private readonly schedule: Schedule
   private readonly sleep: (ms: number) => Promise<void>
   private readonly newId: () => string
@@ -61,13 +83,17 @@ export class Spawner {
     this.newId = deps.newId ?? (() => crypto.randomUUID())
   }
 
-  /** `/new [path]`. Returns the reply, or null when the project picker was posted instead. */
+  /** `/new [--model <model>] [path]`. Returns the reply, or null when the project picker was posted instead. */
   async newCommand(thread: ThreadRef | null, args: string): Promise<string | null> {
+    const parsed = parseNewArgs(args)
+    if (parsed === null) {
+      return BAD_MODEL
+    }
     try {
-      if (args !== '') {
-        return await this.startAt(args)
+      if (parsed.path !== '') {
+        return await this.startAt(parsed.path, parsed.model)
       }
-      return await this.postPicker(thread)
+      return await this.postPicker(thread, parsed.model)
     } catch (error) {
       if (error instanceof TrustedFoldersUnavailable) {
         this.deps.log('reading trusted folders failed', error)
@@ -79,12 +105,13 @@ export class Spawner {
 
   /** A tap on a picker button. Returns the toast. */
   async startFromPicker(pickerId: string, choice: number): Promise<string> {
-    const project = this.pickers.get(pickerId)?.[choice]
-    if (project === undefined) {
+    const picker = this.pickers.get(pickerId)
+    const project = picker?.projects[choice]
+    if (picker === undefined || project === undefined) {
       return STALE_PICKER
     }
     try {
-      return await this.startAt(project.cwd)
+      return await this.startAt(project.cwd, picker.model)
     } catch (error) {
       if (error instanceof TrustedFoldersUnavailable) {
         this.deps.log('reading trusted folders failed', error)
@@ -185,13 +212,13 @@ export class Spawner {
     }
   }
 
-  private async postPicker(thread: ThreadRef | null): Promise<string | null> {
+  private async postPicker(thread: ThreadRef | null, model: string | null): Promise<string | null> {
     const projects = await this.deps.trusted.configuredProjects()
     if (projects.length === 0) {
       return USAGE
     }
     const pickerId = this.newId().slice(0, 8)
-    this.pickers.set(pickerId, projects)
+    this.pickers.set(pickerId, { projects, model })
     if (this.pickers.size > MAX_PICKERS) {
       const oldest = this.pickers.keys().next().value
       if (oldest !== undefined) {
@@ -199,19 +226,19 @@ export class Spawner {
       }
     }
     const buttons = projects.map((project, choice) => ({ label: project.label, data: { kind: 'launch' as const, pickerId, choice } }))
-    await this.deps.channel.sendButtons(thread, 'Start a session in:', buttons)
+    await this.deps.channel.sendButtons(thread, `Start a session${model === null ? '' : ` with ${model}`} in:`, buttons)
     return null
   }
 
-  private async startAt(path: string): Promise<string> {
+  private async startAt(path: string, model: string | null): Promise<string> {
     const cwd = await this.deps.trusted.isTrusted(path)
     if (cwd === null) {
       return NOT_TRUSTED
     }
-    return this.start(cwd)
+    return this.start(cwd, model)
   }
 
-  private async start(cwd: string): Promise<string> {
+  private async start(cwd: string, model: string | null): Promise<string> {
     const { store, notifier, channel, launcher, log } = this.deps
     const sessionId = this.newId()
     const tmuxName = tmuxNameFor(sessionId)
@@ -226,7 +253,7 @@ export class Spawner {
       return '❌ Could not create a topic for the session.'
     }
     try {
-      await launcher.launch({ sessionId, cwd })
+      await launcher.launch({ sessionId, cwd, model })
     } catch (error) {
       const reason = reasonOf(error)
       await channel.sendText(thread, `❌ Could not start the session:\n${reason}`, null).catch(sendError => {
@@ -239,7 +266,7 @@ export class Spawner {
     await channel.sendText(thread, `⏳ Starting… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
       log(`announcing the start of ${sessionId} failed`, sendError)
     })
-    return `🚀 Starting ${projectName(cwd)}. Open its topic.`
+    return `🚀 Starting ${projectName(cwd)}${model === null ? '' : ` with ${model}`}. Open its topic.`
   }
 
   private armTimer(sessionId: string): void {

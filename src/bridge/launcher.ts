@@ -34,13 +34,14 @@ export class Launcher {
   constructor(private readonly run: Run = runCommand) {}
 
   /** The scope keeps tmux (and claude) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
-  async launch(spec: { sessionId: string; cwd: string }): Promise<{ tmuxName: string }> {
+  async launch(spec: { sessionId: string; cwd: string; model?: string | null }): Promise<{ tmuxName: string }> {
     const tmuxName = tmuxNameFor(spec.sessionId)
     const result = await this.run([
       'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
       'systemd-run', '--user', '--scope', '--quiet', '--collect',
       'tmux', 'new-session', '-d', '-s', tmuxName, '-c', spec.cwd,
       'claude', '--session-id', spec.sessionId,
+      ...(spec.model == null ? [] : ['--model', spec.model]),
     ])
     if (result.code !== 0) {
       throw failure(result)

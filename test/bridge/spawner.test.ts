@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, type Schedule } from '../../src/bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
@@ -99,6 +99,35 @@ test('a failed Starting message still returns the toast for a running session', 
   expect(await spawner.newCommand(null, '~/Sites/api')).toBe('🚀 Starting api. Open its topic.')
   expect(tmux.alive.size).toBe(1)
   expect(store.getSession(idFor(ids))?.endedAt).toBeNull()
+})
+
+test('parseNewArgs takes --model or -m before or after the path', () => {
+  expect(parseNewArgs('')).toEqual({ path: '', model: null })
+  expect(parseNewArgs('~/Sites/My Projects/app')).toEqual({ path: '~/Sites/My Projects/app', model: null })
+  expect(parseNewArgs('--model opus ~/Sites/My Projects/app')).toEqual({ path: '~/Sites/My Projects/app', model: 'opus' })
+  expect(parseNewArgs('~/Sites/api -m claude-sonnet-5-5')).toEqual({ path: '~/Sites/api', model: 'claude-sonnet-5-5' })
+  expect(parseNewArgs('--model haiku')).toEqual({ path: '', model: 'haiku' })
+  expect(parseNewArgs('--model')).toBeNull()
+  expect(parseNewArgs('--model gpt-5 ~/Sites/api')).toBeNull()
+  expect(parseNewArgs('--model --dangerously-skip-permissions ~/Sites/api')).toBeNull()
+})
+
+test('/new with a model launches claude with --model and says so', async () => {
+  expect(await spawner.newCommand(null, '--model opus ~/Sites/api')).toBe('🚀 Starting api with opus. Open its topic.')
+  expect(tmux.calls[0]?.slice(-2)).toEqual(['--model', 'opus'])
+})
+
+test('/new with an unknown model is refused without launching', async () => {
+  expect(await spawner.newCommand(null, '--model gpt-5 ~/Sites/api')).toBe(BAD_MODEL)
+  expect(tmux.calls).toEqual([])
+  expect(channel.threads).toEqual([])
+})
+
+test('the picker remembers the model given to /new', async () => {
+  expect(await spawner.newCommand(null, '-m sonnet')).toBeNull()
+  expect(channel.buttons[0]?.text).toBe('Start a session with sonnet in:')
+  expect(await spawner.startFromPicker('00000001', 0)).toBe('🚀 Starting api with sonnet. Open its topic.')
+  expect(tmux.calls[0]?.slice(-2)).toEqual(['--model', 'sonnet'])
 })
 
 test('/new with a trusted path containing spaces launches there', async () => {
