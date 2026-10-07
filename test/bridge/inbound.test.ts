@@ -34,21 +34,21 @@ test('parseQuestionReply maps numbers to labels and keeps free text', () => {
 
 test('permission buttons answer allow/deny and a double tap is refused', async () => {
   prompts.create({ promptId: 'p:1', session, body: { kind: 'permission', tool: 'Bash', input: {} } })
-  expect(await inbound.onButton({ promptId: 'p:1', questionIndex: 0, optionIndex: 0 })).toBe('Allowed')
-  expect(await inbound.onButton({ promptId: 'p:1', questionIndex: 0, optionIndex: 1 })).toBe('Already answered.')
+  expect(await inbound.onButton({ kind: 'answer', promptId: 'p:1', questionIndex: 0, optionIndex: 0 })).toBe('Allowed')
+  expect(await inbound.onButton({ kind: 'answer', promptId: 'p:1', questionIndex: 0, optionIndex: 1 })).toBe('Already answered.')
   expect(prompts.state('p:1')).toEqual({ status: 'answered', answer: { kind: 'permission', decision: 'allow' }, source: 'remote' })
 })
 
 test('question buttons record the chosen label', async () => {
   prompts.create({ promptId: 'q:1', session, body: { kind: 'question', questions: [single] } })
-  expect(await inbound.onButton({ promptId: 'q:1', questionIndex: 0, optionIndex: 1 })).toBe('Answered: Postgres')
+  expect(await inbound.onButton({ kind: 'answer', promptId: 'q:1', questionIndex: 0, optionIndex: 1 })).toBe('Answered: Postgres')
   expect(prompts.state('q:1')).toMatchObject({ status: 'answered', answer: { answers: { 'DB?': 'Postgres' } } })
 })
 
 test('unknown prompts and options are reported', async () => {
-  expect(await inbound.onButton({ promptId: 'nope', questionIndex: 0, optionIndex: 0 })).toBe('This prompt no longer exists.')
+  expect(await inbound.onButton({ kind: 'answer', promptId: 'nope', questionIndex: 0, optionIndex: 0 })).toBe('This prompt no longer exists.')
   prompts.create({ promptId: 'q:1', session, body: { kind: 'question', questions: [single] } })
-  expect(await inbound.onButton({ promptId: 'q:1', questionIndex: 0, optionIndex: 5 })).toBe('Unknown option.')
+  expect(await inbound.onButton({ kind: 'answer', promptId: 'q:1', questionIndex: 0, optionIndex: 5 })).toBe('Unknown option.')
 })
 
 test('reply to a question message answers it', async () => {
@@ -80,11 +80,11 @@ test('text outside a session thread is refused', async () => {
 })
 
 test('commands toggle away mode and report status', async () => {
-  expect(await inbound.onCommand({ name: 'back', thread: null })).toBe('🏠 Away mode off: only prompts will be sent.')
+  expect(await inbound.onCommand({ name: 'back', args: '', thread: null })).toBe('🏠 Away mode off: only prompts will be sent.')
   expect(notifier.away.isAway()).toBe(false)
-  expect(await inbound.onCommand({ name: 'away', thread: null })).toBe('🛫 Away mode on: prompts and reports will be sent.')
+  expect(await inbound.onCommand({ name: 'away', args: '', thread: null })).toBe('🛫 Away mode on: prompts and reports will be sent.')
   store.upsertSession(session)
   prompts.create({ promptId: 'p:1', session, body: { kind: 'permission', tool: 'Bash', input: {} } })
-  expect(await inbound.onCommand({ name: 'status', thread: null })).toBe('Away mode: on\nActive sessions: 1\n• app · s1\nPending prompts: 1')
-  expect(await inbound.onCommand({ name: 'nope', thread: null })).toBe('Unknown command. Try /away, /back or /status.')
+  expect(await inbound.onCommand({ name: 'status', args: '', thread: null })).toBe('Away mode: on\nActive sessions: 1\n• app · s1\nPending prompts: 1')
+  expect(await inbound.onCommand({ name: 'nope', args: '', thread: null })).toBe('Unknown command. Try /away, /back or /status.')
 })

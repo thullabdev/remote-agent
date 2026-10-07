@@ -4,9 +4,12 @@ export function isAuthorized(sender: { chatId?: number; userId?: number }, allow
   return sender.chatId === allowed.chatId && sender.userId === allowed.allowedUserId
 }
 
-export function parseCommand(text: string): { name: string } | undefined {
-  const match = /^\/([a-z_]+)(?:@\w+)?(?:\s|$)/i.exec(text)
-  return match === null ? undefined : { name: (match[1] ?? '').toLowerCase() }
+export function parseCommand(text: string): { name: string; args: string } | undefined {
+  const match = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(text)
+  if (match === null) {
+    return undefined
+  }
+  return { name: (match[1] ?? '').toLowerCase(), args: (match[2] ?? '').trim() }
 }
 
 export function threadOf(message: { is_topic_message?: boolean; message_thread_id?: number }): ThreadRef | null {

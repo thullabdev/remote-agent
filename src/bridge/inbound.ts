@@ -45,6 +45,9 @@ export class Inbound implements ChannelHandlers {
   ) {}
 
   async onButton(press: ButtonData): Promise<string> {
+    if (press.kind !== 'answer') {
+      return 'Unknown button.'
+    }
     const prompt = this.store.getPrompt(press.promptId)
     if (prompt === undefined) {
       return 'This prompt no longer exists.'
@@ -82,7 +85,7 @@ export class Inbound implements ChannelHandlers {
     return '📥 Queued. It will be sent when the session is idle.'
   }
 
-  async onCommand(command: InboundCommand): Promise<string> {
+  async onCommand(command: InboundCommand): Promise<string | null> {
     if (command.name === 'away') {
       this.notifier.away.set(true)
       return '🛫 Away mode on: prompts and reports will be sent.'

@@ -38,13 +38,13 @@ test('remote answer reaches a long-polling session', async () => {
   await flush()
   expect(channel.prompts).toHaveLength(1)
   const polling = call('GET', '/prompts/p%3Atoolu_1?waitMs=5000')
-  await inbound.onButton({ promptId: 'p:toolu_1', questionIndex: 0, optionIndex: 0 })
+  await inbound.onButton({ kind: 'answer', promptId: 'p:toolu_1', questionIndex: 0, optionIndex: 0 })
   expect(await (await polling).json()).toEqual({ status: 'answered', answer: { kind: 'permission', decision: 'allow' }, source: 'remote' })
 })
 
 test('a late local answer is rejected and told the winner', async () => {
   await call('POST', '/prompts', permissionRequest)
-  await inbound.onButton({ promptId: 'p:toolu_1', questionIndex: 0, optionIndex: 1 })
+  await inbound.onButton({ kind: 'answer', promptId: 'p:toolu_1', questionIndex: 0, optionIndex: 1 })
   const response = await call('POST', '/prompts/p%3Atoolu_1/answer', { answer: { kind: 'permission', decision: 'allow' } })
   expect(await response.json()).toEqual({ accepted: false, state: { status: 'answered', answer: { kind: 'permission', decision: 'deny' }, source: 'remote' } })
 })

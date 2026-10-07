@@ -84,7 +84,7 @@ function questionItem(promptId: string, question: QuestionItem, questionIndex: n
     text: `${clean(`❓ ${question.header}\n${question.question}\n\n${options}`, LIMITS.question)}\n\n${hint}`,
     buttons: question.multiSelect
       ? []
-      : question.options.map((option, optionIndex) => ({ label: clean(option.label, LABEL_MAX), data: { promptId, questionIndex, optionIndex } })),
+      : question.options.map((option, optionIndex) => ({ label: clean(option.label, LABEL_MAX), data: { kind: 'answer', promptId, questionIndex, optionIndex } })),
   }
 }
 
@@ -103,8 +103,8 @@ export function promptView(prompt: PromptRow, session: SessionRow): PromptView {
       {
         text: `🔐 Permission: ${clean(body.tool, LABEL_MAX)}${who}${reason}\n\n${permissionSummary(body.tool, body.input)}\n\nReply to this message to deny with feedback.`,
         buttons: [
-          { label: '✅ Allow', data: { promptId: prompt.id, questionIndex: 0, optionIndex: 0 } },
-          { label: '❌ Deny', data: { promptId: prompt.id, questionIndex: 0, optionIndex: 1 } },
+          { label: '✅ Allow', data: { kind: 'answer', promptId: prompt.id, questionIndex: 0, optionIndex: 0 } },
+          { label: '❌ Deny', data: { kind: 'answer', promptId: prompt.id, questionIndex: 0, optionIndex: 1 } },
         ],
       },
     ],

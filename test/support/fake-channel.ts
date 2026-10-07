@@ -1,4 +1,4 @@
-import type { Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../../src/channel/types.ts'
+import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../../src/channel/types.ts'
 
 export class FakeChannel implements Channel {
   threads: { ref: ThreadRef; title: string; closed: boolean }[] = []
@@ -6,6 +6,8 @@ export class FakeChannel implements Channel {
   prompts: { thread: ThreadRef; view: PromptView; refs: MessageRef[] }[] = []
   resolved: { thread: ThreadRef; messages: MessageRef[]; note: string }[] = []
   handlers: ChannelHandlers | null = null
+  buttons: { thread: ThreadRef | null; text: string; buttons: Button[] }[] = []
+  createThreadFails = false
   createThreadDelayMs = 0
   private nextId = 1
 
@@ -16,6 +18,9 @@ export class FakeChannel implements Channel {
   async stop(): Promise<void> {}
 
   async createThread(title: string): Promise<ThreadRef> {
+    if (this.createThreadFails) {
+      throw new Error('createForumTopic failed')
+    }
     if (this.createThreadDelayMs > 0) {
       await Bun.sleep(this.createThreadDelayMs)
     }
@@ -45,6 +50,11 @@ export class FakeChannel implements Channel {
 
   async sendText(thread: ThreadRef | null, text: string, replyTo: MessageRef | null): Promise<MessageRef> {
     this.texts.push({ thread, text, replyTo })
+    return `m${this.nextId++}`
+  }
+
+  async sendButtons(thread: ThreadRef | null, text: string, buttons: Button[]): Promise<MessageRef> {
+    this.buttons.push({ thread, text, buttons })
     return `m${this.nextId++}`
   }
 

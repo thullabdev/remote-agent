@@ -22,7 +22,7 @@ test('permission view has Allow and Deny buttons and a redacted summary', () => 
   expect(item.text).toContain('API_KEY=[REDACTED]')
   expect(item.text).not.toContain('s3cret')
   expect(item.buttons.map(button => button.label)).toEqual(['✅ Allow', '❌ Deny'])
-  expect(item.buttons[1]!.data).toEqual({ promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 1 })
+  expect(item.buttons[1]!.data).toEqual({ kind: 'answer', promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 1 })
 })
 
 test('question view: buttons for single-select, reply hint for multi-select', () => {
@@ -39,8 +39,8 @@ test('question view: buttons for single-select, reply hint for multi-select', ()
   expect(view.items).toHaveLength(2)
   expect(view.items[0]!.text).toContain('1. SQLite — embedded')
   expect(view.items[0]!.buttons.map(button => button.data)).toEqual([
-    { promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 0 },
-    { promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 1 },
+    { kind: 'answer', promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 0 },
+    { kind: 'answer', promptId: 'q:toolu_1', questionIndex: 0, optionIndex: 1 },
   ])
   expect(view.items[1]!.buttons).toEqual([])
   expect(view.items[1]!.text).toContain('Reply to this message with option numbers')

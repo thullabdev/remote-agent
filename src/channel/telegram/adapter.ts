@@ -1,7 +1,7 @@
 import { autoRetry } from '@grammyjs/auto-retry'
 import { Bot } from 'grammy'
 import type { Log } from '../../bridge/prompts.ts'
-import type { Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../types.ts'
+import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../types.ts'
 import { decodeButton, keyboard, renderHtml } from './render.ts'
 import { isAuthorized, parseCommand, replyTarget, threadOf } from './updates.ts'
 
@@ -42,7 +42,7 @@ export class TelegramChannel implements Channel {
       const command = parseCommand(message.text)
       const reply = command === undefined
         ? await handlers.onText({ thread, replyTo: replyTarget(message), text: message.text })
-        : await handlers.onCommand({ name: command.name, thread })
+        : await handlers.onCommand({ name: command.name, args: command.args, thread })
       if (reply === null) {
         return
       }
@@ -58,6 +58,8 @@ export class TelegramChannel implements Channel {
     })
 
     await this.bot.api.setMyCommands([
+      { command: 'new', description: 'Start a session (pick a project or give a trusted path)' },
+      { command: 'end', description: 'End the session started from Telegram in this topic' },
       { command: 'away', description: 'Send prompts and reports' },
       { command: 'back', description: 'Send prompts only' },
       { command: 'status', description: 'Show sessions and pending prompts' },
@@ -94,6 +96,15 @@ export class TelegramChannel implements Channel {
       parse_mode: 'HTML',
       message_thread_id: thread === null ? undefined : Number(thread),
       reply_parameters: replyTo === null ? undefined : { message_id: Number(replyTo), allow_sending_without_reply: true },
+    })
+    return String(message.message_id)
+  }
+
+  async sendButtons(thread: ThreadRef | null, text: string, buttons: Button[]): Promise<MessageRef> {
+    const message = await this.bot.api.sendMessage(this.config.chatId, renderHtml(null, text), {
+      parse_mode: 'HTML',
+      message_thread_id: thread === null ? undefined : Number(thread),
+      reply_markup: keyboard({ buttons }),
     })
     return String(message.message_id)
   }
