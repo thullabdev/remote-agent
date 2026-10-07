@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { defaultSocketPath } from '../../mod/remote-agent/hooks/protocol.ts'
 
+export const STARTUP_TIMEOUT_MS = 30_000
+export const END_GRACE_MS = 5_000
+
 export type Config = {
   botToken: string
   chatId: number
@@ -8,6 +11,10 @@ export type Config = {
   socketPath: string
   dbPath: string
   reminderAfterMs: number
+  home: string
+  /** Raw entries; `~` is expanded by TrustedFolders. */
+  projects: string[]
+  claudeConfigPath: string
 }
 
 const EnvSchema = z.object({
@@ -17,6 +24,8 @@ const EnvSchema = z.object({
   REMOTE_AGENT_SOCKET: z.string().optional(),
   REMOTE_AGENT_DB: z.string().optional(),
   REMOTE_AGENT_REMINDER_MINUTES: z.coerce.number().positive().default(30),
+  REMOTE_AGENT_PROJECTS: z.string().optional(),
+  CLAUDE_CONFIG_PATH: z.string().optional(),
   XDG_RUNTIME_DIR: z.string().optional(),
   HOME: z.string({ required_error: 'HOME is required' }),
 })
@@ -35,5 +44,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     socketPath: values.REMOTE_AGENT_SOCKET ?? defaultSocketPath(values),
     dbPath: values.REMOTE_AGENT_DB ?? `${values.HOME}/.local/state/remote-agent/bridge.db`,
     reminderAfterMs: values.REMOTE_AGENT_REMINDER_MINUTES * 60_000,
+    home: values.HOME,
+    projects: (values.REMOTE_AGENT_PROJECTS ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== ''),
+    claudeConfigPath: values.CLAUDE_CONFIG_PATH ?? `${values.HOME}/.claude.json`,
   }
 }
