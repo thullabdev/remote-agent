@@ -108,3 +108,10 @@ test('an existing database gains the spawn columns', async () => {
   expect(migrated.getSession('o1')).toMatchObject({ spawned: false, tmuxName: null, startedAt: null, title: null })
   migrated.close()
 })
+
+test('upsertSession keeps an ended spawned session ended', () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  store.endSession('sp1')
+  const row = store.upsertSession({ sessionId: 'sp1', cwd: '/home/u/Sites/api' })
+  expect(row.endedAt).toBe(1_000)
+})

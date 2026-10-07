@@ -96,7 +96,16 @@ export class Notifier implements PromptEvents {
     }
   }
 
+  /** The Bridge ended it and its Thread is gone; late requests from the dying claude must not reopen it. */
+  private isEndedSpawned(session: SessionRow): boolean {
+    return session.spawned && session.endedAt !== null
+  }
+
   private async deliverPrompt(prompt: PromptRow): Promise<void> {
+    if (this.isEndedSpawned(this.requireSession(prompt.sessionId))) {
+      await this.dismissPending(prompt.sessionId)
+      return
+    }
     const thread = await this.ensureThread(prompt.sessionId)
     const session = this.requireSession(prompt.sessionId)
     const refs = await this.channel.sendPrompt(thread, promptView(prompt, session))
@@ -137,7 +146,7 @@ export class Notifier implements PromptEvents {
       await this.endSession(session, reportText(request.report, session))
       return
     }
-    if (!this.away.isAway()) {
+    if (!this.away.isAway() || this.isEndedSpawned(session)) {
       return
     }
     const thread = await this.ensureThread(session.id)

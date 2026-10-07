@@ -199,3 +199,20 @@ test('closeSession ends the session and closes its thread silently, once', async
   expect(channel.texts.length).toBe(textsBefore)
   await notifier.closeSession('unknown')
 })
+
+test('late mod traffic for an ended spawned session creates no thread and keeps it ended', async () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  store.setSessionThread('sp1', 't-sp1')
+  await notifier.closeSession('sp1')
+  const late = { sessionId: 'sp1', cwd: '/home/u/Sites/api' }
+  await notifier.report({ session: late, report: { kind: 'turn_complete', text: 'ok', durationMs: 1_000, isAborted: false } })
+  store.upsertSession(late)
+  store.insertPrompt('p:late', 'sp1', permission)
+  await notifier.promptCreated(store.getPrompt('p:late')!)
+  expect(store.getSession('sp1')?.endedAt).not.toBeNull()
+  expect(store.getSession('sp1')?.threadId).toBeNull()
+  expect(channel.threads).toEqual([])
+  expect(channel.prompts).toEqual([])
+  expect(channel.texts).toEqual([])
+  expect(store.getPrompt('p:late')?.status).toBe('answered')
+})

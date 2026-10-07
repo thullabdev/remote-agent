@@ -139,7 +139,8 @@ export class Store {
     this.db
       .query(
         `INSERT INTO sessions (id, cwd, project, created_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET cwd = excluded.cwd, project = excluded.project, ended_at = NULL`,
+         ON CONFLICT(id) DO UPDATE SET cwd = excluded.cwd, project = excluded.project,
+         ended_at = CASE WHEN sessions.spawned = 1 THEN sessions.ended_at ELSE NULL END`,
       )
       .run(info.sessionId, info.cwd, projectName(info.cwd), this.now())
     const session = this.getSession(info.sessionId)
