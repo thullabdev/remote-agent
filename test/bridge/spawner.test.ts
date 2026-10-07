@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { CONFIG_UNREADABLE, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, type Schedule } from '../../src/bridge/spawner.ts'
+import { CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
@@ -198,4 +198,77 @@ test('a session that becomes ready while the timeout captures is left alone', as
   expect(store.getSession(idFor(1))?.endedAt).toBeNull()
   expect(channel.texts.some(text => text.text.includes('did not start'))).toBe(false)
   expect(channel.threads[0]?.closed).toBeFalsy()
+})
+
+async function startedSession(): Promise<{ id: string; thread: string }> {
+  await spawner.newCommand(null, '~/Sites/api')
+  const id = idFor(ids)
+  await spawner.onSessionStarted(id)
+  return { id, thread: store.getSession(id)?.threadId ?? '' }
+}
+
+test('/end exits gracefully and closes the thread', async () => {
+  const { id, thread } = await startedSession()
+  expect(await spawner.end(thread)).toBeNull()
+  expect(tmux.commands()).toEqual(['launch', 'has-session', 'send-keys', 'has-session'])
+  expect(channel.texts.some(text => text.text === '⏹ Ending the session…')).toBe(true)
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
+  expect(channel.threads[0]?.closed).toBe(true)
+})
+
+test('/end kills the session when /exit does not work within the grace period', async () => {
+  const { id, thread } = await startedSession()
+  tmux.exitWorks = false
+  await spawner.end(thread)
+  expect(tmux.commands()).toEqual(['launch', 'has-session', 'send-keys', 'has-session', 'kill-session'])
+  expect(tmux.alive.size).toBe(0)
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
+})
+
+test('a second /end during the grace period is refused', async () => {
+  const { thread } = await startedSession()
+  let release = (): void => {}
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const notifier = new Notifier(store, channel, new AwayMode(false), () => {})
+  spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ configPath, home, projects }), log: () => {}, schedule, sleep: () => gate })
+  const first = spawner.end(thread)
+  await flush()
+  expect(await spawner.end(thread)).toBe('⏹ Already ending.')
+  release()
+  await first
+  expect(tmux.commands().filter(command => command === 'send-keys')).toHaveLength(1)
+})
+
+test('/end when tmux is already gone just closes the session', async () => {
+  const { id, thread } = await startedSession()
+  tmux.alive.clear()
+  expect(await spawner.end(thread)).toBe('⚪ The session was already gone.')
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
+})
+
+test('/end refuses terminal-started sessions, ended sessions and the General topic', async () => {
+  store.upsertSession({ sessionId: 's1', cwd: '/x/app' })
+  store.setSessionThread('s1', 't77')
+  expect(await spawner.end('t77')).toBe(NOT_SPAWNED)
+  expect(await spawner.end('t-unknown')).toBe('This session has ended.')
+  expect(await spawner.end(null)).toBe('Send /end inside a session topic.')
+})
+
+test('reconcile closes dead sessions and re-arms the timer for alive ones that never reported', async () => {
+  store.createSpawnedSession({ id: 'gone', cwd: `${home}/Sites/api`, tmuxName: 'ra-gone' })
+  store.setSessionThread('gone', 't1')
+  store.createSpawnedSession({ id: 'ready', cwd: `${home}/Sites/api`, tmuxName: 'ra-ready' })
+  store.markSpawnedStarted('ready')
+  store.createSpawnedSession({ id: 'booting', cwd: `${home}/Sites/api`, tmuxName: 'ra-booting' })
+  store.upsertSession({ sessionId: 'terminal', cwd: '/x/app' })
+  tmux.alive.add('ra-ready')
+  tmux.alive.add('ra-booting')
+  await spawner.reconcile()
+  expect(store.getSession('gone')?.endedAt).not.toBeNull()
+  expect(store.getSession('ready')?.endedAt).toBeNull()
+  expect(store.getSession('booting')?.endedAt).toBeNull()
+  expect(store.getSession('terminal')?.endedAt).toBeNull()
+  expect(timers.map(timer => timer.ms)).toEqual([30_000])
 })

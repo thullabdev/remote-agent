@@ -1,7 +1,7 @@
 import { projectName } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { Channel, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
-import { STARTUP_TIMEOUT_MS } from './config.ts'
+import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log } from './prompts.ts'
@@ -13,6 +13,7 @@ export const STALE_PICKER = 'Project list changed. Send /new again.'
 export const CONFIG_UNREADABLE = "Can't read Claude Code's trusted folders."
 export const USAGE = 'Usage: /new <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
 export const READY = '✅ Ready. Send your task here.'
+export const NOT_SPAWNED = 'Only sessions started from Telegram can be ended remotely.'
 
 const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
@@ -48,6 +49,7 @@ function reasonOf(error: unknown): string {
 /** Starts Spawned Sessions from the Channel and watches them until they are ready. */
 export class Spawner {
   private readonly timers = new Map<string, () => void>()
+  private readonly ending = new Set<string>()
   private readonly pickers = new Map<string, Project[]>()
   private readonly schedule: Schedule
   private readonly sleep: (ms: number) => Promise<void>
@@ -106,6 +108,64 @@ export class Spawner {
       return
     }
     await this.deps.channel.sendText(session.threadId, READY, null)
+  }
+
+  /** `/end` in a Thread: `/exit`, then kill after the grace period. Returns the reply, or null when the Thread got its own message. */
+  async end(thread: ThreadRef | null): Promise<string | null> {
+    if (thread === null) {
+      return 'Send /end inside a session topic.'
+    }
+    const { store, channel, launcher, notifier } = this.deps
+    const session = store.findSessionByThread(thread)
+    if (session === undefined || session.endedAt !== null) {
+      return 'This session has ended.'
+    }
+    if (!session.spawned || session.tmuxName === null) {
+      return NOT_SPAWNED
+    }
+    if (this.ending.has(session.id)) {
+      return '⏹ Already ending.'
+    }
+    this.ending.add(session.id)
+    try {
+      this.cancelTimer(session.id)
+      if (!(await launcher.exists(session.tmuxName))) {
+        await notifier.closeSession(session.id)
+        return '⚪ The session was already gone.'
+      }
+      await channel.sendText(thread, '⏹ Ending the session…', null)
+      await launcher.sendExit(session.tmuxName)
+      await this.sleep(END_GRACE_MS)
+      if (await launcher.exists(session.tmuxName)) {
+        await launcher.kill(session.tmuxName)
+      }
+      // A graceful exit usually already closed it through the session_ended Report; closeSession is then a no-op.
+      await notifier.closeSession(session.id)
+      return null
+    } finally {
+      this.ending.delete(session.id)
+    }
+  }
+
+  /** On Bridge startup: Spawned Sessions survive restarts, so close the dead ones and keep watching the ones still booting. */
+  async reconcile(): Promise<void> {
+    const { store, launcher, notifier, log } = this.deps
+    for (const session of store.listActiveSessions()) {
+      if (!session.spawned) {
+        continue
+      }
+      try {
+        if (session.tmuxName === null || !(await launcher.exists(session.tmuxName))) {
+          await notifier.closeSession(session.id)
+          continue
+        }
+        if (session.startedAt === null) {
+          this.armTimer(session.id)
+        }
+      } catch (error) {
+        log(`reconciling ${session.id} failed`, error)
+      }
+    }
   }
 
   private async postPicker(thread: ThreadRef | null): Promise<string | null> {
