@@ -37,6 +37,7 @@ export class Launcher {
   async launch(spec: { sessionId: string; cwd: string }): Promise<{ tmuxName: string }> {
     const tmuxName = tmuxNameFor(spec.sessionId)
     const result = await this.run([
+      'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
       'systemd-run', '--user', '--scope', '--quiet', '--collect',
       'tmux', 'new-session', '-d', '-s', tmuxName, '-c', spec.cwd,
       'claude', '--session-id', spec.sessionId,

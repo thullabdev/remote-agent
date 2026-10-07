@@ -84,6 +84,7 @@ test('tapping a project creates the thread first, then launches and arms the sta
   expect(toast).toBe('🚀 Starting api. Open its topic.')
   expect(channel.threads.map(thread => thread.title)).toEqual(['api · 00000002'])
   expect(tmux.calls[0]).toEqual([
+    'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
     'systemd-run', '--user', '--scope', '--quiet', '--collect',
     'tmux', 'new-session', '-d', '-s', 'ra-00000002', '-c', `${home}/Sites/api`,
     'claude', '--session-id', sessionId,

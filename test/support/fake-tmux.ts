@@ -21,7 +21,7 @@ export class FakeTmux {
 
   run: Run = async argv => {
     this.calls.push(argv)
-    if (argv[0] === 'systemd-run') {
+    if (argv.includes('systemd-run')) {
       if (this.launchFails !== null) {
         return { code: 1, stdout: '', stderr: this.launchFails }
       }
@@ -55,6 +55,6 @@ export class FakeTmux {
   }
 
   commands(): string[] {
-    return this.calls.map(argv => (argv[0] === 'systemd-run' ? 'launch' : argv[1] ?? ''))
+    return this.calls.map(argv => (argv.includes('systemd-run') ? 'launch' : argv[1] ?? ''))
   }
 }

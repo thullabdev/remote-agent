@@ -26,7 +26,7 @@ Start a new Claude Code Session from Telegram while away from the desk, steer it
    1. generates `sessionId = crypto.randomUUID()`, `tmuxName = ra-<sessionId[0:8]>`;
    2. inserts the Session row (`cwd`, `project`, `spawned = 1`, `tmux_name`);
    3. creates the Thread `<project> · <sessionId[0:8]>` and stores its id (before launch, so the mod's lazy `ensureThread` never creates a second Thread);
-   4. runs `systemd-run --user --scope --quiet tmux new-session -d -s <tmuxName> -c <cwd> claude --session-id <sessionId>`;
+   4. runs `env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID -u TELEGRAM_ALLOWED_USER_ID systemd-run --user --scope --quiet --collect tmux new-session -d -s <tmuxName> -c <cwd> claude --session-id <sessionId>` (the `env -u` scrub keeps the Bridge's Telegram credentials out of the spawned claude);
    5. posts `⏳ Starting… attach with tmux attach -t <tmuxName>` in the Thread;
    6. arms a 30 s startup timer.
 3. When the mod's `session_started` Report for `sessionId` arrives, the timer is cleared and the Bridge posts `✅ Ready — send your task here.` (regardless of Away mode). From then on everything is the existing flow, including renaming the Thread to the session name.

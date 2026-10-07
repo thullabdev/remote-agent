@@ -18,6 +18,7 @@ test('tmux names use the first 8 characters of the session id', () => {
 test('launch runs claude in a detached tmux session in its own systemd scope', async () => {
   expect(await launcher.launch({ sessionId: id, cwd: '/home/u/Sites/My Projects/app' })).toEqual({ tmuxName: 'ra-3f2a9c1b' })
   expect(tmux.calls[0]).toEqual([
+    'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
     'systemd-run', '--user', '--scope', '--quiet', '--collect',
     'tmux', 'new-session', '-d', '-s', 'ra-3f2a9c1b', '-c', '/home/u/Sites/My Projects/app',
     'claude', '--session-id', id,

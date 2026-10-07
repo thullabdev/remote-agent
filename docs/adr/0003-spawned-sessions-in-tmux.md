@@ -1,6 +1,6 @@
 # Spawned Sessions run interactive claude in tmux, launched in their own systemd scope
 
-Extends [ADR-0001](0001-mod-as-session-client.md). When the user starts a Session from the Channel, the Bridge runs plain interactive `claude --session-id <uuid>` inside a detached tmux session, started through `systemd-run --user --scope` so it lives outside the Bridge service's cgroup. We chose it because the user must be able to attach to the **same live Session** in a terminal later, and because an interactive `claude` loads the mod like any other Session, so Prompts, Reports and Instructions need no new code path.
+Extends [ADR-0001](0001-mod-as-session-client.md). When the user starts a Session from the Channel, the Bridge runs plain interactive `claude --session-id <uuid>` inside a detached tmux session, started through `systemd-run --user --scope` so it lives outside the Bridge service's cgroup. The launch is prefixed with `env -u` for the Telegram variables so the Bridge's credentials never reach the spawned `claude`. We chose it because the user must be able to attach to the **same live Session** in a terminal later, and because an interactive `claude` loads the mod like any other Session, so Prompts, Reports and Instructions need no new code path.
 
 ## Considered options
 
