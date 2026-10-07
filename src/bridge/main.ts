@@ -4,9 +4,12 @@ import { TelegramChannel } from '../channel/telegram/adapter.ts'
 import { loadConfig } from './config.ts'
 import { createHandler } from './http.ts'
 import { Inbound } from './inbound.ts'
+import { Launcher } from './launcher.ts'
 import { AwayMode, Notifier } from './notifier.ts'
 import { PromptService, type Log } from './prompts.ts'
+import { Spawner } from './spawner.ts'
 import { Store } from './store.ts'
+import { TrustedFolders, TrustedFoldersUnavailable } from './trusted.ts'
 
 const log: Log = (message, error) => {
   if (error === undefined) {
@@ -28,17 +31,32 @@ const store = new Store(config.dbPath)
 const channel = new TelegramChannel(config, log)
 const notifier = new Notifier(store, channel, new AwayMode(true), log)
 const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
-const inbound = new Inbound(store, prompts, notifier)
+const trusted = new TrustedFolders({ configPath: config.claudeConfigPath, home: config.home, projects: config.projects })
+const spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(), trusted, log })
+const inbound = new Inbound(store, prompts, notifier, spawner)
 
 // bun-types rejects idleTimeout together with unix, but the runtime honours it.
 // Long polls wait up to 25 s and the 10 s default would cut them.
 const server = Bun.serve({
   unix: config.socketPath,
   idleTimeout: 60,
-  fetch: createHandler({ prompts, notifier, store, log }),
+  fetch: createHandler({ prompts, notifier, store, log, activity: spawner }),
 } as unknown as Bun.Serve.Options<undefined>)
 await chmod(config.socketPath, 0o600)
 await channel.start(inbound)
+await spawner.reconcile().catch(error => {
+  log('reconciling spawned sessions failed', error)
+})
+try {
+  for (const entry of await trusted.untrustedProjects()) {
+    log(`REMOTE_AGENT_PROJECTS entry is not a trusted folder and is left out of /new: ${entry}`)
+  }
+} catch (error) {
+  if (!(error instanceof TrustedFoldersUnavailable)) {
+    throw error
+  }
+  log('cannot read Claude Code trusted folders; /new will refuse every folder', error)
+}
 const retryUndelivered = (): void => {
   void notifier.redeliverUndelivered().catch(error => {
     log('redelivery sweep failed', error)

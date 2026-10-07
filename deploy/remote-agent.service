@@ -6,6 +6,8 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%h/Sites/remote-agent
 EnvironmentFile=%h/.config/remote-agent/env
+# claude (~/.local/bin), bun for the mod's hooks (~/.bun/bin), tmux and systemd-run (/usr/bin).
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.bun/bin/bun run src/bridge/main.ts
 Restart=on-failure
 RestartSec=1

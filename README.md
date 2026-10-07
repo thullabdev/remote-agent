@@ -18,6 +18,8 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
 
 ## 3. Run the Bridge
 
+Starting Sessions from Telegram (`/new`) needs tmux: `sudo apt install tmux`. Set `REMOTE_AGENT_PROJECTS` in the env file to get one button per project.
+
 ```bash
 mkdir -p ~/.config/remote-agent && cp .env.example ~/.config/remote-agent/env && chmod 600 ~/.config/remote-agent/env
 # edit the values, then:
@@ -25,6 +27,8 @@ mkdir -p ~/.config/systemd/user && cp deploy/remote-agent.service ~/.config/syst
 systemctl --user daemon-reload && systemctl --user enable --now remote-agent
 journalctl --user -u remote-agent -f
 ```
+
+After changing `deploy/remote-agent.service`, copy it again and run `systemctl --user daemon-reload && systemctl --user restart remote-agent`.
 
 ## 4. Install the mod
 
@@ -43,7 +47,10 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - Permission Request: Allow / Deny buttons. Replying `allow`/`yes` allows, `deny`/`no` denies, and any other reply denies with that text as feedback to the agent.
 - On resolution, the buttons are removed and a note is posted as a reply (for example `✅ Allowed (local)`).
 - Any other text in a Session's Thread is an Instruction. It is queued if the Session is busy and delivered when the Session is idle.
-- Commands: `/away` turns Away mode on (Reports are pushed), `/back` turns it off, `/status` lists Sessions and pending Prompts.
+- `/new` shows one button per project in `REMOTE_AGENT_PROJECTS`; `/new <path>` starts in any folder you trusted in Claude Code (exact folder, not a subfolder). The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
+- Attach in a terminal with the command shown in the Thread and in `/status` (`tmux attach -t ra-xxxxxxxx`); detach with `Ctrl-b d`. Telegram keeps working while you are attached.
+- `/end` in the Thread of a Session started from Telegram sends `/exit` and kills it after 5 seconds if it is still running.
+- Commands: `/new`, `/end`, `/away` turns Away mode on (Reports are pushed), `/back` turns it off, `/status` lists Sessions and pending Prompts.
 
 ## 6. Security notes
 
@@ -64,6 +71,9 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - Sessions that were already running when the mod was installed need `/reload-plugins` once.
 - If the Bridge is down for more than about 6 seconds while a Question waits, that Question can only be answered in the terminal.
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
+- Sessions started with `/new` run with your default permission mode and only in folders you trusted in Claude Code. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
+- Sessions started with `/new` survive a Bridge restart, but not a logout or reboot unless lingering is enabled (`loginctl enable-linger`).
+- `/end` works only for Sessions started from Telegram.
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
 ## 8. Development
