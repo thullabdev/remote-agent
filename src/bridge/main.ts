@@ -52,10 +52,11 @@ try {
     log(`REMOTE_AGENT_PROJECTS entry is not a trusted folder and is left out of /new: ${entry}`)
   }
 } catch (error) {
-  if (!(error instanceof TrustedFoldersUnavailable)) {
-    throw error
+  if (error instanceof TrustedFoldersUnavailable) {
+    log('cannot read Claude Code trusted folders; /new will refuse every folder', error)
+  } else {
+    log('checking REMOTE_AGENT_PROJECTS against the trusted folders failed', error)
   }
-  log('cannot read Claude Code trusted folders; /new will refuse every folder', error)
 }
 const retryUndelivered = (): void => {
   void notifier.redeliverUndelivered().catch(error => {
