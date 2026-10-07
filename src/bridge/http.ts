@@ -1,9 +1,9 @@
 import { ZodError } from 'zod'
-import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest, type TitleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
-import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema } from './schemas.ts'
+import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema } from './schemas.ts'
 import type { Store } from './store.ts'
 
 export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log }
@@ -94,6 +94,12 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
       deps.log('report delivery failed', error)
     })
     return empty(202)
+  }
+
+  if (method === 'POST' && path === '/titles') {
+    const body = TitleRequestSchema.parse(await request.json()) as TitleRequest
+    await deps.notifier.updateTitle(body)
+    return empty(204)
   }
 
   const instructions = SESSION_INSTRUCTIONS.exec(path)

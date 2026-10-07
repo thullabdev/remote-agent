@@ -23,8 +23,25 @@ export function sessionLabel(session: SessionRow): string {
   return `${session.project} · ${session.id.slice(0, 8)}`
 }
 
+const THREAD_TITLE_MAX = 128
+
+/** Collapses whitespace; an empty result means the session has no name. */
+export function cleanSessionName(name: string): string {
+  return name.replace(/\s+/g, ' ').trim()
+}
+
 export function threadTitle(session: SessionRow): string {
-  return sessionLabel(session).slice(0, 128)
+  const label = sessionLabel(session)
+  const name = cleanSessionName(session.title ?? '')
+  if (name === '') {
+    return label.slice(0, THREAD_TITLE_MAX)
+  }
+  const budget = THREAD_TITLE_MAX - label.length - ' · '.length
+  if (budget < 1) {
+    return label.slice(0, THREAD_TITLE_MAX)
+  }
+  const shown = name.length <= budget ? name : `${name.slice(0, budget - 1)}…`
+  return `${label} · ${shown}`
 }
 
 export function formatDuration(ms: number): string {

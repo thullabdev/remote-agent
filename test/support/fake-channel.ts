@@ -31,6 +31,18 @@ export class FakeChannel implements Channel {
     }
   }
 
+  renameFails = false
+
+  async renameThread(thread: ThreadRef, title: string): Promise<void> {
+    if (this.renameFails) {
+      throw new Error('rename failed')
+    }
+    const found = this.threads.find(item => item.ref === thread)
+    if (found !== undefined) {
+      found.title = title
+    }
+  }
+
   async sendText(thread: ThreadRef | null, text: string, replyTo: MessageRef | null): Promise<MessageRef> {
     this.texts.push({ thread, text, replyTo })
     return `m${this.nextId++}`

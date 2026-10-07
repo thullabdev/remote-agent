@@ -1,5 +1,7 @@
 {
-  "modules": ["./register.ts"],
+  "modules": [
+    "./register.ts"
+  ],
   "hooks": {
     "PermissionRequest": [
       {
@@ -9,6 +11,30 @@
             "type": "command",
             "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/bin/permission-hook.ts\"",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/bin/title-hook.ts\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/bin/title-hook.ts\"",
+            "timeout": 10
           }
         ]
       }

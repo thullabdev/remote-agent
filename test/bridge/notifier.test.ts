@@ -147,3 +147,43 @@ test('session end still closes the thread when the report cannot be sent', async
   expect(channel.threads[0]!.closed).toBe(true)
   expect(store.getSession(session.sessionId)?.threadId).toBeNull()
 })
+
+const titled = { session, title: 'fix login' }
+
+test('a topic created for an already named session carries the name', async () => {
+  await notifier.updateTitle(titled)
+  await notifier.promptCreated(addPrompt('p:1'))
+  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+})
+
+test('renames an existing topic when the session name changes, and only then', async () => {
+  await notifier.promptCreated(addPrompt('p:1'))
+  await notifier.updateTitle(titled)
+  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+  channel.threads[0]!.title = 'edited by hand'
+  await notifier.updateTitle(titled)
+  expect(channel.threads[0]!.title).toBe('edited by hand')
+  await notifier.updateTitle({ session, title: 'ship it' })
+  expect(channel.threads[0]!.title).toBe('app · abcdef12 · ship it')
+})
+
+test('an empty name changes nothing', async () => {
+  await notifier.promptCreated(addPrompt('p:1'))
+  await notifier.updateTitle({ session, title: '  ' })
+  expect(channel.threads[0]!.title).toBe('app · abcdef12')
+})
+
+test('a failed rename is logged, swallowed and retried on the next call', async () => {
+  const logged: string[] = []
+  notifier = new Notifier(store, channel, new AwayMode(true), message => {
+    logged.push(message)
+  })
+  await notifier.promptCreated(addPrompt('p:1'))
+  channel.renameFails = true
+  await notifier.updateTitle(titled)
+  expect(logged).toHaveLength(1)
+  expect(channel.threads[0]!.title).toBe('app · abcdef12')
+  channel.renameFails = false
+  await notifier.updateTitle(titled)
+  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+})

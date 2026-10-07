@@ -1,9 +1,9 @@
-import type { Answer, Instruction, ReportRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { Answer, Instruction, ReportRequest, TitleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { Channel, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import type { Log, PromptEvents } from './prompts.ts'
 import type { PromptRow, SessionRow, Store } from './store.ts'
-import { promptView, reportText, resolutionNote, sessionLabel, threadTitle } from './views.ts'
+import { cleanSessionName, promptView, reportText, resolutionNote, sessionLabel, threadTitle } from './views.ts'
 
 export class AwayMode {
   constructor(private on: boolean) {}
@@ -49,6 +49,28 @@ export class Notifier implements PromptEvents {
       })
     this.creating.set(sessionId, created)
     return created
+  }
+
+  /** Follows the session name in the topic title. Never throws: a failed rename is retried on the next call. */
+  async updateTitle(request: TitleRequest): Promise<void> {
+    const name = cleanSessionName(request.title)
+    if (name === '') {
+      return
+    }
+    const session = this.store.upsertSession(request.session)
+    if (session.title === name) {
+      return
+    }
+    if (session.threadId === null) {
+      this.store.setSessionTitle(session.id, name)
+      return
+    }
+    try {
+      await this.channel.renameThread(session.threadId, threadTitle({ ...session, title: name }))
+      this.store.setSessionTitle(session.id, name)
+    } catch (error) {
+      this.log(`renaming the topic of ${session.id} failed`, error)
+    }
   }
 
   async promptCreated(prompt: PromptRow): Promise<void> {

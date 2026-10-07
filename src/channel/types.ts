@@ -23,6 +23,7 @@ export interface Channel {
   stop(): Promise<void>
   createThread(title: string): Promise<ThreadRef>
   closeThread(thread: ThreadRef): Promise<void>
+  renameThread(thread: ThreadRef, title: string): Promise<void>
   sendText(thread: ThreadRef | null, text: string, replyTo: MessageRef | null): Promise<MessageRef>
   /** Sends one message per view item, in order. */
   sendPrompt(thread: ThreadRef, view: PromptView): Promise<MessageRef[]>

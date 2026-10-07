@@ -79,6 +79,10 @@ export class TelegramChannel implements Channel {
     return String(topic.message_thread_id)
   }
 
+  async renameThread(thread: ThreadRef, title: string): Promise<void> {
+    await this.bot.api.editForumTopic(this.config.chatId, Number(thread), { name: title.slice(0, 128) })
+  }
+
   async closeThread(thread: ThreadRef): Promise<void> {
     await this.bot.api.closeForumTopic(this.config.chatId, Number(thread)).catch(error => {
       this.log(`closing topic ${thread} failed`, error)

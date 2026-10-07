@@ -16,7 +16,7 @@ test('upsertSession derives the project and reopens ended sessions', () => {
   store.endSession('s1')
   expect(store.getSession('s1')?.endedAt).toBe(1_000)
   const reopened = store.upsertSession({ sessionId: 's1', cwd: '/home/u/Sites/app' })
-  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, endedAt: null })
+  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null })
 })
 
 test('threads are stored and looked up', () => {

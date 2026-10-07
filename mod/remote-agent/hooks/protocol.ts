@@ -29,6 +29,9 @@ export type Report =
   | { kind: 'turn_complete'; text: string; durationMs: number; isAborted: boolean }
 export type ReportRequest = { session: SessionInfo; report: Report }
 
+/** The session's own name, as set with /rename or at start. */
+export type TitleRequest = { session: SessionInfo; title: string }
+
 export type Instruction = { id: string; sessionId: string; text: string }
 
 /** Marks a Permission Request that was answered in the terminal; the Answer's decision is then not meaningful. */

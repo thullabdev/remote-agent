@@ -1,4 +1,4 @@
-import type { Answer, AnswerResult, AnswerState, CreatePromptRequest, Instruction, ReportRequest, SettleScope } from './protocol.ts'
+import type { Answer, AnswerResult, AnswerState, CreatePromptRequest, Instruction, ReportRequest, SettleScope, TitleRequest } from './protocol.ts'
 
 export type HttpPort = (path: string, init?: { method?: string; body?: string }) => Promise<{ status: number; text: string }>
 
@@ -21,6 +21,10 @@ export class BridgeClient {
 
   async report(request: ReportRequest): Promise<void> {
     await this.send('/reports', 'POST', request)
+  }
+
+  async title(request: TitleRequest): Promise<void> {
+    await this.send('/titles', 'POST', request)
   }
 
   instructions(sessionId: string): Promise<Instruction[]> {

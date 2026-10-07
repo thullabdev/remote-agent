@@ -33,6 +33,8 @@ export const ReportRequestSchema = z.object({
   ]),
 })
 
+export const TitleRequestSchema = z.object({ session: SessionInfoSchema, title: z.string() })
+
 export const SettleRequestSchema = z.object({
   scope: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('tool'), tool: z.string().min(1), input: z.unknown(), denied: z.boolean() }),

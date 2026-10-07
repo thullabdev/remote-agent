@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { projectName, type Answer, type AnswerSource, type Instruction, type PromptBody, type SessionInfo } from '../../mod/remote-agent/hooks/protocol.ts'
 
-export type SessionRow = { id: string; cwd: string; project: string; threadId: string | null; endedAt: number | null }
+export type SessionRow = { id: string; cwd: string; project: string; threadId: string | null; title: string | null; endedAt: number | null }
 
 export type PromptRow = {
   id: string
@@ -17,7 +17,7 @@ export type PromptRow = {
 
 export type PromptMessageLink = { promptId: string; questionIndex: number }
 
-type SessionRecord = { id: string; cwd: string; project: string; thread_id: string | null; ended_at: number | null }
+type SessionRecord = { id: string; cwd: string; project: string; thread_id: string | null; title: string | null; ended_at: number | null }
 type PromptRecord = {
   id: string
   session_id: string
@@ -50,11 +50,11 @@ CREATE TABLE IF NOT EXISTS instructions (
 );
 `
 
-const SESSION_COLUMNS = 'id, cwd, project, thread_id, ended_at'
+const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at'
 const PROMPT_COLUMNS = 'id, session_id, body, status, answer, source, partial, created_at, reminded'
 
 function toSession(record: SessionRecord): SessionRow {
-  return { id: record.id, cwd: record.cwd, project: record.project, threadId: record.thread_id, endedAt: record.ended_at }
+  return { id: record.id, cwd: record.cwd, project: record.project, threadId: record.thread_id, title: record.title, endedAt: record.ended_at }
 }
 
 function toPrompt(record: PromptRecord): PromptRow {
@@ -83,6 +83,14 @@ export class Store {
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec('PRAGMA foreign_keys = ON;')
     this.db.exec(SCHEMA)
+    this.migrate()
+  }
+
+  private migrate(): void {
+    const columns = this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all()
+    if (!columns.some(column => column.name === 'title')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN title TEXT')
+    }
   }
 
   close(): void {
@@ -122,6 +130,10 @@ export class Store {
 
   setSessionThread(id: string, threadId: string | null): void {
     this.db.query('UPDATE sessions SET thread_id = ? WHERE id = ?').run(threadId, id)
+  }
+
+  setSessionTitle(id: string, title: string): void {
+    this.db.query('UPDATE sessions SET title = ? WHERE id = ?').run(title, id)
   }
 
   endSession(id: string): void {

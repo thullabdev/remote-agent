@@ -135,3 +135,10 @@ test('a turn_complete report settles the session\'s pending permission prompts',
 test('malformed settle bodies are 400', async () => {
   expect((await call('POST', '/sessions/s1/settled', { scope: { kind: 'tool' } })).status).toBe(400)
 })
+
+test('a title update is stored for the session', async () => {
+  const response = await call('POST', '/titles', { session, title: 'fix login' })
+  expect(response.status).toBe(204)
+  expect(store.getSession('s1')?.title).toBe('fix login')
+  expect((await call('POST', '/titles', { session })).status).toBe(400)
+})
