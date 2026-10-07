@@ -16,7 +16,7 @@ test('upsertSession derives the project and reopens ended sessions', () => {
   store.endSession('s1')
   expect(store.getSession('s1')?.endedAt).toBe(1_000)
   const reopened = store.upsertSession({ sessionId: 's1', cwd: '/home/u/Sites/app' })
-  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null })
+  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null })
 })
 
 test('threads are stored and looked up', () => {
@@ -70,4 +70,41 @@ test('instructions are delivered exactly once', () => {
   expect(store.markInstructionDelivered(instruction.id)).toBe(true)
   expect(store.markInstructionDelivered(instruction.id)).toBe(false)
   expect(store.listPendingInstructions('s1')).toEqual([])
+})
+
+test('createSpawnedSession records the tmux name and is not started yet', () => {
+  const row = store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  expect(row).toEqual({
+    id: 'sp1', cwd: '/home/u/Sites/api', project: 'api', threadId: null, title: null, endedAt: null,
+    spawned: true, tmuxName: 'ra-sp1', startedAt: null,
+  })
+})
+
+test('upsertSession from the mod keeps the spawn fields and the thread', () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  store.setSessionThread('sp1', 't1')
+  store.markSpawnedStarted('sp1')
+  const row = store.upsertSession({ sessionId: 'sp1', cwd: '/home/u/Sites/api' })
+  expect(row).toMatchObject({ threadId: 't1', spawned: true, tmuxName: 'ra-sp1', startedAt: 1_000 })
+})
+
+test('markSpawnedStarted is true once, and never for a terminal-started session', () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  expect(store.markSpawnedStarted('sp1')).toBe(true)
+  expect(store.markSpawnedStarted('sp1')).toBe(false)
+  expect(store.markSpawnedStarted('s1')).toBe(false)
+})
+
+test('an existing database gains the spawn columns', async () => {
+  const { Database } = await import('bun:sqlite')
+  const { mkdtemp } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const path = `${await mkdtemp(`${tmpdir()}/ra-store-`)}/old.db`
+  const old = new Database(path, { create: true })
+  old.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, project TEXT NOT NULL, thread_id TEXT, created_at INTEGER NOT NULL, ended_at INTEGER)')
+  old.exec("INSERT INTO sessions (id, cwd, project, created_at) VALUES ('o1', '/x/app', 'app', 1)")
+  old.close()
+  const migrated = new Store(path)
+  expect(migrated.getSession('o1')).toMatchObject({ spawned: false, tmuxName: null, startedAt: null, title: null })
+  migrated.close()
 })

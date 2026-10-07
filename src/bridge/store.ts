@@ -1,7 +1,17 @@
 import { Database } from 'bun:sqlite'
 import { projectName, type Answer, type AnswerSource, type Instruction, type PromptBody, type SessionInfo } from '../../mod/remote-agent/hooks/protocol.ts'
 
-export type SessionRow = { id: string; cwd: string; project: string; threadId: string | null; title: string | null; endedAt: number | null }
+export type SessionRow = {
+  id: string
+  cwd: string
+  project: string
+  threadId: string | null
+  title: string | null
+  endedAt: number | null
+  spawned: boolean
+  tmuxName: string | null
+  startedAt: number | null
+}
 
 export type PromptRow = {
   id: string
@@ -17,7 +27,17 @@ export type PromptRow = {
 
 export type PromptMessageLink = { promptId: string; questionIndex: number }
 
-type SessionRecord = { id: string; cwd: string; project: string; thread_id: string | null; title: string | null; ended_at: number | null }
+type SessionRecord = {
+  id: string
+  cwd: string
+  project: string
+  thread_id: string | null
+  title: string | null
+  ended_at: number | null
+  spawned: number
+  tmux_name: string | null
+  started_at: number | null
+}
 type PromptRecord = {
   id: string
   session_id: string
@@ -50,11 +70,21 @@ CREATE TABLE IF NOT EXISTS instructions (
 );
 `
 
-const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at'
+const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at, spawned, tmux_name, started_at'
 const PROMPT_COLUMNS = 'id, session_id, body, status, answer, source, partial, created_at, reminded'
 
 function toSession(record: SessionRecord): SessionRow {
-  return { id: record.id, cwd: record.cwd, project: record.project, threadId: record.thread_id, title: record.title, endedAt: record.ended_at }
+  return {
+    id: record.id,
+    cwd: record.cwd,
+    project: record.project,
+    threadId: record.thread_id,
+    title: record.title,
+    endedAt: record.ended_at,
+    spawned: record.spawned === 1,
+    tmuxName: record.tmux_name,
+    startedAt: record.started_at,
+  }
 }
 
 function toPrompt(record: PromptRecord): PromptRow {
@@ -87,9 +117,17 @@ export class Store {
   }
 
   private migrate(): void {
-    const columns = this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all()
-    if (!columns.some(column => column.name === 'title')) {
-      this.db.exec('ALTER TABLE sessions ADD COLUMN title TEXT')
+    const columns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all().map(column => column.name))
+    const added: [string, string][] = [
+      ['title', 'title TEXT'],
+      ['spawned', 'spawned INTEGER NOT NULL DEFAULT 0'],
+      ['tmux_name', 'tmux_name TEXT'],
+      ['started_at', 'started_at INTEGER'],
+    ]
+    for (const [name, definition] of added) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN ${definition}`)
+      }
     }
   }
 
@@ -109,6 +147,25 @@ export class Store {
       throw new Error(`Session ${info.sessionId} vanished after upsert`)
     }
     return session
+  }
+
+  createSpawnedSession(spawn: { id: string; cwd: string; tmuxName: string }): SessionRow {
+    this.db
+      .query('INSERT INTO sessions (id, cwd, project, created_at, spawned, tmux_name) VALUES (?, ?, ?, ?, 1, ?)')
+      .run(spawn.id, spawn.cwd, projectName(spawn.cwd), this.now(), spawn.tmuxName)
+    const session = this.getSession(spawn.id)
+    if (session === undefined) {
+      throw new Error(`Session ${spawn.id} vanished after insert`)
+    }
+    return session
+  }
+
+  /** True only for the first call on a Spawned Session, so concurrent mod requests post one Ready. */
+  markSpawnedStarted(id: string): boolean {
+    const result = this.db
+      .query('UPDATE sessions SET started_at = ? WHERE id = ? AND spawned = 1 AND started_at IS NULL')
+      .run(this.now(), id)
+    return result.changes === 1
   }
 
   getSession(id: string): SessionRow | undefined {
