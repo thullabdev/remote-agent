@@ -152,14 +152,23 @@ export class Notifier implements PromptEvents {
     await this.channel.sendText(session.threadId, `📨 Delivered: ${truncate(redactSecrets(instruction.text), 200)}`, null)
   }
 
-  private async endSession(session: SessionRow, text: string): Promise<void> {
+  /** Ends a Session the Bridge stopped itself, so no session_ended Report will come. Idempotent. */
+  async closeSession(sessionId: string): Promise<void> {
+    const session = this.store.getSession(sessionId)
+    if (session === undefined || session.endedAt !== null) {
+      return
+    }
+    await this.endSession(session, null)
+  }
+
+  private async endSession(session: SessionRow, text: string | null): Promise<void> {
     this.store.endSession(session.id)
     await this.dismissPending(session.id)
     if (session.threadId === null) {
       return
     }
     try {
-      if (this.away.isAway()) {
+      if (text !== null && this.away.isAway()) {
         await this.channel.sendText(session.threadId, text, null)
       }
     } finally {

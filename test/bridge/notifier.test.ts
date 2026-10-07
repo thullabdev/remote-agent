@@ -187,3 +187,15 @@ test('a failed rename is logged, swallowed and retried on the next call', async 
   await notifier.updateTitle(titled)
   expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
 })
+
+test('closeSession ends the session and closes its thread silently, once', async () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/api', tmuxName: 'ra-sp1' })
+  const thread = await notifier.ensureThread('sp1')
+  const textsBefore = channel.texts.length
+  await notifier.closeSession('sp1')
+  await notifier.closeSession('sp1')
+  expect(store.getSession('sp1')?.endedAt).not.toBeNull()
+  expect(channel.threads.find(item => item.ref === thread)?.closed).toBe(true)
+  expect(channel.texts.length).toBe(textsBefore)
+  await notifier.closeSession('unknown')
+})
