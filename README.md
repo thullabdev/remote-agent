@@ -72,7 +72,7 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - If the Bridge is down for more than about 6 seconds while a Question waits, that Question can only be answered in the terminal.
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
 - Sessions started with `/new` run with your default permission mode and only in folders you trusted in Claude Code. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
-- Sessions started with `/new` survive a Bridge restart, but not a logout or reboot unless lingering is enabled (`loginctl enable-linger`).
+- Sessions started with `/new` survive a Bridge restart, and a logout too if lingering is enabled (`loginctl enable-linger`), but never a reboot.
 - `/end` works only for Sessions started from Telegram.
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
