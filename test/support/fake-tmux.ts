@@ -12,6 +12,7 @@ export class FakeTmux {
   alive = new Set<string>()
   launchFails: string | null = null
   killFails: string | null = null
+  sendKeysFails: string | null = null
   /** Runs when a pane capture starts, to interleave other work. */
   onCapture: (() => Promise<void>) | null = null
   /** When false, `/exit` is ignored and only kill-session ends the session. */
@@ -38,6 +39,9 @@ export class FakeTmux {
       return this.alive.delete(target) ? OK : missing(target)
     }
     if (argv[1] === 'send-keys') {
+      if (this.sendKeysFails !== null) {
+        return { code: 1, stdout: '', stderr: this.sendKeysFails }
+      }
       if (this.exitWorks) {
         this.alive.delete(target)
       }

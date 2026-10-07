@@ -115,7 +115,7 @@ export class Spawner {
     if (thread === null) {
       return 'Send /end inside a session topic.'
     }
-    const { store, channel, launcher, notifier } = this.deps
+    const { store, channel, launcher, notifier, log } = this.deps
     const session = store.findSessionByThread(thread)
     if (session === undefined || session.endedAt !== null) {
       return 'This session has ended.'
@@ -134,10 +134,14 @@ export class Spawner {
         return '⚪ The session was already gone.'
       }
       await channel.sendText(thread, '⏹ Ending the session…', null)
-      await launcher.sendExit(session.tmuxName)
-      await this.sleep(END_GRACE_MS)
-      if (await launcher.exists(session.tmuxName)) {
-        await launcher.kill(session.tmuxName)
+      try {
+        await launcher.sendExit(session.tmuxName)
+        await this.sleep(END_GRACE_MS)
+        if (await launcher.exists(session.tmuxName)) {
+          await launcher.kill(session.tmuxName)
+        }
+      } catch (error) {
+        log(`ending ${session.tmuxName} failed`, error)
       }
       // A graceful exit usually already closed it through the session_ended Report; closeSession is then a no-op.
       await notifier.closeSession(session.id)

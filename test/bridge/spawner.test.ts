@@ -272,3 +272,20 @@ test('reconcile closes dead sessions and re-arms the timer for alive ones that n
   expect(store.getSession('terminal')?.endedAt).toBeNull()
   expect(timers.map(timer => timer.ms)).toEqual([30_000])
 })
+
+test('/end still closes the session when sending /exit fails', async () => {
+  const { id, thread } = await startedSession()
+  tmux.sendKeysFails = 'tmux exploded'
+  expect(await spawner.end(thread)).toBeNull()
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
+  expect(channel.threads[0]?.closed).toBe(true)
+})
+
+test('/end still closes the session when /exit does not work and kill fails', async () => {
+  const { id, thread } = await startedSession()
+  tmux.exitWorks = false
+  tmux.killFails = 'permission denied'
+  expect(await spawner.end(thread)).toBeNull()
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
+  expect(channel.threads[0]?.closed).toBe(true)
+})
