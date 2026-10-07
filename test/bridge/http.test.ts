@@ -142,3 +142,48 @@ test('a title update is stored for the session', async () => {
   expect(store.getSession('s1')?.title).toBe('fix login')
   expect((await call('POST', '/titles', { session })).status).toBe(400)
 })
+
+test('every mod request reports session activity', async () => {
+  const seen: string[] = []
+  const store2 = new Store(':memory:')
+  const notifier2 = new Notifier(store2, new FakeChannel(), new AwayMode(false))
+  const prompts2 = new PromptService(store2, notifier2, { reminderAfterMs: 60_000 })
+  const handler = createHandler({
+    prompts: prompts2,
+    notifier: notifier2,
+    store: store2,
+    log: () => {},
+    activity: {
+      onSessionStarted: async id => {
+        seen.push(id)
+      },
+    },
+  })
+  const send = (method: string, path: string, body?: unknown): Promise<Response> =>
+    handler(new Request(`http://bridge${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) }))
+  await send('POST', '/reports', { session, report: { kind: 'session_started' } })
+  await send('GET', '/sessions/s1/instructions')
+  await send('POST', '/titles', { session, title: 'hi' })
+  await send('POST', '/sessions/s1/settled', { scope: { kind: 'all' } })
+  await send('POST', '/prompts', permissionRequest)
+  await flush()
+  expect(seen).toEqual(['s1', 's1', 's1', 's1', 's1'])
+})
+
+test('a failing activity hook never fails the request', async () => {
+  const handler = createHandler({
+    prompts: new PromptService(store, new Notifier(store, channel, new AwayMode(false)), { reminderAfterMs: 60_000 }),
+    notifier: new Notifier(store, channel, new AwayMode(false)),
+    store,
+    log: message => logged.push(message),
+    activity: {
+      onSessionStarted: async () => {
+        throw new Error('boom')
+      },
+    },
+  })
+  const response = await handler(new Request('http://bridge/sessions/s1/instructions'))
+  expect(response.status).toBe(200)
+  await flush()
+  expect(logged).toContain('session activity for s1 failed')
+})

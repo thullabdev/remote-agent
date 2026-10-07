@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test'
 import type { QuestionItem } from '../../mod/remote-agent/hooks/protocol.ts'
-import { Inbound, parseQuestionReply } from '../../src/bridge/inbound.ts'
+import { Inbound, parseQuestionReply, type SessionCommands } from '../../src/bridge/inbound.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
 import { Store } from '../../src/bridge/store.ts'
@@ -86,5 +86,45 @@ test('commands toggle away mode and report status', async () => {
   store.upsertSession(session)
   prompts.create({ promptId: 'p:1', session, body: { kind: 'permission', tool: 'Bash', input: {} } })
   expect(await inbound.onCommand({ name: 'status', args: '', thread: null })).toBe('Away mode: on\nActive sessions: 1\n• app · s1\nPending prompts: 1')
-  expect(await inbound.onCommand({ name: 'nope', args: '', thread: null })).toBe('Unknown command. Try /away, /back or /status.')
+  expect(await inbound.onCommand({ name: 'nope', args: '', thread: null })).toBe('Unknown command. Try /new, /end, /away, /back or /status.')
+})
+
+function withSpawner(): string[] {
+  const calls: string[] = []
+  const spawner: SessionCommands = {
+    newCommand: async (thread, args) => {
+      calls.push(`new ${thread} ${args}`)
+      return null
+    },
+    end: async thread => {
+      calls.push(`end ${thread}`)
+      return 'ending'
+    },
+    startFromPicker: async (pickerId, choice) => {
+      calls.push(`launch ${pickerId} ${choice}`)
+      return 'started'
+    },
+  }
+  inbound = new Inbound(store, prompts, notifier, spawner)
+  return calls
+}
+
+test('/new, /end and launch buttons go to the spawner', async () => {
+  const calls = withSpawner()
+  expect(await inbound.onCommand({ name: 'new', args: '~/Sites/api', thread: 't1' })).toBeNull()
+  expect(await inbound.onCommand({ name: 'end', args: '', thread: 't1' })).toBe('ending')
+  expect(await inbound.onButton({ kind: 'launch', pickerId: 'abcd1234', choice: 2 })).toBe('started')
+  expect(calls).toEqual(['new t1 ~/Sites/api', 'end t1', 'launch abcd1234 2'])
+})
+
+test('without a spawner /new and launch buttons explain it is not set up', async () => {
+  expect(await inbound.onCommand({ name: 'new', args: '', thread: null })).toBe('Starting sessions is not set up.')
+  expect(await inbound.onButton({ kind: 'launch', pickerId: 'x', choice: 0 })).toBe('Starting sessions is not set up.')
+})
+
+test('/status shows how to attach to spawned sessions', async () => {
+  store.createSpawnedSession({ id: 'abcdef12-0000', cwd: '/home/u/api', tmuxName: 'ra-abcdef12' })
+  expect(await inbound.onCommand({ name: 'status', args: '', thread: null })).toBe(
+    'Away mode: on\nActive sessions: 1\n• api · abcdef12 (tmux attach -t ra-abcdef12)\nPending prompts: 0',
+  )
 })

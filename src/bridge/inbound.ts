@@ -2,9 +2,13 @@ import type { AnswerResult, QuestionItem } from '../../mod/remote-agent/hooks/pr
 import type { ButtonData, ChannelHandlers, InboundCommand, InboundText } from '../channel/types.ts'
 import type { Notifier } from './notifier.ts'
 import type { PromptService } from './prompts.ts'
+import type { Spawner } from './spawner.ts'
 import type { PromptMessageLink, Store } from './store.ts'
 import { sessionLabel } from './views.ts'
 
+export type SessionCommands = Pick<Spawner, 'newCommand' | 'end' | 'startFromPicker'>
+
+const NOT_SET_UP = 'Starting sessions is not set up.'
 const ALLOW_WORDS = new Set(['allow', 'yes', 'y', 'ok', 'approve'])
 const DENY_WORDS = new Set(['deny', 'no', 'n', 'reject'])
 
@@ -42,11 +46,15 @@ export class Inbound implements ChannelHandlers {
     private readonly store: Store,
     private readonly prompts: PromptService,
     private readonly notifier: Notifier,
+    private readonly spawner?: SessionCommands,
   ) {}
 
   async onButton(press: ButtonData): Promise<string> {
-    if (press.kind !== 'answer') {
-      return 'Unknown button.'
+    if (press.kind === 'launch') {
+      if (this.spawner === undefined) {
+        return NOT_SET_UP
+      }
+      return this.spawner.startFromPicker(press.pickerId, press.choice)
     }
     const prompt = this.store.getPrompt(press.promptId)
     if (prompt === undefined) {
@@ -86,6 +94,18 @@ export class Inbound implements ChannelHandlers {
   }
 
   async onCommand(command: InboundCommand): Promise<string | null> {
+    if (command.name === 'new') {
+      if (this.spawner === undefined) {
+        return NOT_SET_UP
+      }
+      return this.spawner.newCommand(command.thread, command.args)
+    }
+    if (command.name === 'end') {
+      if (this.spawner === undefined) {
+        return NOT_SET_UP
+      }
+      return this.spawner.end(command.thread)
+    }
     if (command.name === 'away') {
       this.notifier.away.set(true)
       return '🛫 Away mode on: prompts and reports will be sent.'
@@ -99,12 +119,12 @@ export class Inbound implements ChannelHandlers {
       const lines = [
         `Away mode: ${this.notifier.away.isAway() ? 'on' : 'off'}`,
         `Active sessions: ${sessions.length}`,
-        ...sessions.map(session => `• ${sessionLabel(session)}`),
+        ...sessions.map(session => `• ${sessionLabel(session)}${session.tmuxName === null ? '' : ` (tmux attach -t ${session.tmuxName})`}`),
         `Pending prompts: ${this.store.listPendingPrompts().length}`,
       ]
       return lines.join('\n')
     }
-    return 'Unknown command. Try /away, /back or /status.'
+    return 'Unknown command. Try /new, /end, /away, /back or /status.'
   }
 
   private answerByText(link: PromptMessageLink, text: string): string {

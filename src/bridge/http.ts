@@ -6,7 +6,19 @@ import type { Log, PromptService } from './prompts.ts'
 import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema } from './schemas.ts'
 import type { Store } from './store.ts'
 
-export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log }
+/** Told about every mod request that names a Session; a Spawned Session counts as started on the first one. */
+export type SessionActivity = { onSessionStarted(sessionId: string): Promise<void> }
+
+export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log; activity?: SessionActivity }
+
+function sessionSeen(deps: HttpDeps, sessionId: string): void {
+  if (deps.activity === undefined) {
+    return
+  }
+  void deps.activity.onSessionStarted(sessionId).catch(error => {
+    deps.log(`session activity for ${sessionId} failed`, error)
+  })
+}
 
 const PROMPT = /^\/prompts\/([^/]+)$/
 const PROMPT_ANSWER = /^\/prompts\/([^/]+)\/answer$/
@@ -59,7 +71,9 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
 
   if (method === 'POST' && path === '/prompts') {
     const body = CreatePromptSchema.parse(await request.json()) as CreatePromptRequest
-    return json(deps.prompts.create(body))
+    const result = deps.prompts.create(body)
+    sessionSeen(deps, body.session.sessionId)
+    return json(result)
   }
 
   const prompt = PROMPT.exec(path)
@@ -78,11 +92,14 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
   const settled = SESSION_SETTLED.exec(path)
   if (method === 'POST' && settled !== null) {
     const body = SettleRequestSchema.parse(await request.json()) as SettleRequest
-    return json({ settled: deps.prompts.settleLocally(param(settled), body.scope) })
+    const result = { settled: deps.prompts.settleLocally(param(settled), body.scope) }
+    sessionSeen(deps, param(settled))
+    return json(result)
   }
 
   if (method === 'POST' && path === '/reports') {
     const body = ReportRequestSchema.parse(await request.json()) as ReportRequest
+    sessionSeen(deps, body.session.sessionId)
     if (body.report.kind === 'turn_complete') {
       try {
         deps.prompts.settleLocally(body.session.sessionId, { kind: 'all' })
@@ -99,11 +116,13 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
   if (method === 'POST' && path === '/titles') {
     const body = TitleRequestSchema.parse(await request.json()) as TitleRequest
     await deps.notifier.updateTitle(body)
+    sessionSeen(deps, body.session.sessionId)
     return empty(204)
   }
 
   const instructions = SESSION_INSTRUCTIONS.exec(path)
   if (method === 'GET' && instructions !== null) {
+    sessionSeen(deps, param(instructions))
     return json(deps.store.listPendingInstructions(param(instructions)))
   }
 
