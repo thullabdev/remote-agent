@@ -210,9 +210,9 @@ async function startedSession(): Promise<{ id: string; thread: string }> {
 
 test('/end exits gracefully and closes the thread', async () => {
   const { id, thread } = await startedSession()
-  expect(await spawner.end(thread)).toBeNull()
+  expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
+  await flush()
   expect(tmux.commands()).toEqual(['launch', 'has-session', 'send-keys', 'has-session'])
-  expect(channel.texts.some(text => text.text === '⏹ Ending the session…')).toBe(true)
   expect(store.getSession(id)?.endedAt).not.toBeNull()
   expect(channel.threads[0]?.closed).toBe(true)
 })
@@ -221,25 +221,28 @@ test('/end kills the session when /exit does not work within the grace period', 
   const { id, thread } = await startedSession()
   tmux.exitWorks = false
   await spawner.end(thread)
+  await flush()
   expect(tmux.commands()).toEqual(['launch', 'has-session', 'send-keys', 'has-session', 'kill-session'])
   expect(tmux.alive.size).toBe(0)
   expect(store.getSession(id)?.endedAt).not.toBeNull()
 })
 
 test('a second /end during the grace period is refused', async () => {
-  const { thread } = await startedSession()
+  const { id, thread } = await startedSession()
   let release = (): void => {}
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
   const notifier = new Notifier(store, channel, new AwayMode(false), () => {})
   spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ configPath, home, projects }), log: () => {}, schedule, sleep: () => gate })
-  const first = spawner.end(thread)
+  expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
   await flush()
   expect(await spawner.end(thread)).toBe('⏹ Already ending.')
+  expect(store.getSession(id)?.endedAt).toBeNull()
   release()
-  await first
+  await flush()
   expect(tmux.commands().filter(command => command === 'send-keys')).toHaveLength(1)
+  expect(store.getSession(id)?.endedAt).not.toBeNull()
 })
 
 test('/end when tmux is already gone just closes the session', async () => {
@@ -277,7 +280,8 @@ test('reconcile closes dead sessions and re-arms the timer for alive ones that n
 test('/end still closes the session when sending /exit fails', async () => {
   const { id, thread } = await startedSession()
   tmux.sendKeysFails = 'tmux exploded'
-  expect(await spawner.end(thread)).toBeNull()
+  expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
+  await flush()
   expect(store.getSession(id)?.endedAt).not.toBeNull()
   expect(channel.threads[0]?.closed).toBe(true)
 })
@@ -286,7 +290,8 @@ test('/end still closes the session when /exit does not work and kill fails', as
   const { id, thread } = await startedSession()
   tmux.exitWorks = false
   tmux.killFails = 'permission denied'
-  expect(await spawner.end(thread)).toBeNull()
+  expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
+  await flush()
   expect(store.getSession(id)?.endedAt).not.toBeNull()
   expect(channel.threads[0]?.closed).toBe(true)
 })

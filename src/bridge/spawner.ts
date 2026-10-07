@@ -110,12 +110,12 @@ export class Spawner {
     await this.deps.channel.sendText(session.threadId, READY, null)
   }
 
-  /** `/end` in a Thread: `/exit`, then kill after the grace period. Returns the reply, or null when the Thread got its own message. */
-  async end(thread: ThreadRef | null): Promise<string | null> {
+  /** `/end` in a Thread: `/exit`, then kill after the grace period, which runs in the background. Returns the reply. */
+  async end(thread: ThreadRef | null): Promise<string> {
     if (thread === null) {
       return 'Send /end inside a session topic.'
     }
-    const { store, channel, launcher, notifier, log } = this.deps
+    const { store, launcher, notifier, log } = this.deps
     const session = store.findSessionByThread(thread)
     if (session === undefined || session.endedAt !== null) {
       return 'This session has ended.'
@@ -126,28 +126,41 @@ export class Spawner {
     if (this.ending.has(session.id)) {
       return '⏹ Already ending.'
     }
+    const tmuxName = session.tmuxName
     this.ending.add(session.id)
+    let background = false
     try {
       this.cancelTimer(session.id)
-      if (!(await launcher.exists(session.tmuxName))) {
+      if (!(await launcher.exists(tmuxName))) {
         await notifier.closeSession(session.id)
         return '⚪ The session was already gone.'
       }
-      await channel.sendText(thread, '⏹ Ending the session…', null)
-      try {
-        await launcher.sendExit(session.tmuxName)
-        await this.sleep(END_GRACE_MS)
-        if (await launcher.exists(session.tmuxName)) {
-          await launcher.kill(session.tmuxName)
+      background = true
+      // The grace period must not block the Channel's update loop, so the rest runs after the reply.
+      void (async () => {
+        try {
+          await launcher.sendExit(tmuxName)
+          await this.sleep(END_GRACE_MS)
+          if (await launcher.exists(tmuxName)) {
+            await launcher.kill(tmuxName)
+          }
+        } catch (error) {
+          log(`ending ${tmuxName} failed`, error)
         }
-      } catch (error) {
-        log(`ending ${session.tmuxName} failed`, error)
-      }
-      // A graceful exit usually already closed it through the session_ended Report; closeSession is then a no-op.
-      await notifier.closeSession(session.id)
-      return null
+        // A graceful exit usually already closed it through the session_ended Report; closeSession is then a no-op.
+        await notifier.closeSession(session.id)
+      })()
+        .catch(error => {
+          log(`closing ${session.id} failed`, error)
+        })
+        .finally(() => {
+          this.ending.delete(session.id)
+        })
+      return '⏹ Ending the session…'
     } finally {
-      this.ending.delete(session.id)
+      if (!background) {
+        this.ending.delete(session.id)
+      }
     }
   }
 
