@@ -8,6 +8,13 @@ Lets a single user watch and steer their active Claude Code sessions from a mess
 One Claude Code conversation on the user's machine, identified by its Claude `session_id`.
 _Avoid_: agent, run, instance
 
+**Spawned Session**:
+A Session the Bridge started on the user's request from the Channel, running in a detached tmux session the user can attach to. Only Spawned Sessions can be ended from the Channel.
+_Avoid_: remote session, bot session
+
+**Trusted folder**:
+A directory where the user accepted Claude Code's trust dialog. The only places a Spawned Session may start.
+
 **Prompt**:
 Anything a Session is blocked on that needs a human decision. Either a Question or a Permission Request.
 _Avoid_: ask, request (unqualified)
