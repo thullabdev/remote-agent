@@ -1,6 +1,6 @@
 # Web Channel — Design Spec
 
-Date: 2026-11-04 · Status: APPROVED 2026-11-04 (defaults in "Decisions for the user" accepted; single-user machine assumed) · Glossary: [`CONTEXT.md`](../../../CONTEXT.md) · Builds on: [Remote Agent design](2026-10-06-remote-agent-design.md), [Spawn from Channel](2026-10-07-spawn-session-from-channel-design.md) · UI contract: [Web Channel UI handoff](2026-11-04-web-channel-ui-handoff.md)
+Date: 2026-11-04 · Status: IMPLEMENTED (see plan ledger) · Glossary: [`CONTEXT.md`](../../../CONTEXT.md) · Builds on: [Remote Agent design](2026-10-06-remote-agent-design.md), [Spawn from Channel](2026-10-07-spawn-session-from-channel-design.md) · UI contract: [Web Channel UI handoff](2026-11-04-web-channel-ui-handoff.md)
 
 ## Intent
 
@@ -134,7 +134,9 @@ Follow the existing style: `bun test`, fakes in `test/support/`. Cover: ChatLog 
 
 ## Decisions for the user (still open)
 
-These come from comparing the prototype with the Bridge. They are listed with my proposed default so the builder is not blocked, and are **not yet agreed**.
+These come from comparing the prototype with the Bridge. They are listed with my proposed default so the builder is not blocked.
+
+**Outcome (2026-11-04):** the defaults below were accepted and built, with one exception. **Item 3 (skills) was NOT built:** a skill sent as `/<skill>` text through `$.prompt.submit` is refused by Claude Code (spike), so skills are dropped for now and the handoff lists no skills endpoint. Items 1, 2, 4, 5, 6 and 7 are built as their defaults describe (per-Session settings read-only, `/clear` hides history for all devices without clearing Claude's context, whole-session fork, trusted projects only, General as a command surface, client-side title search).
 
 1. **Per-Session settings (model / effort / cwd) and `/model`, `/effort`, `/cwd`.** The Bridge can set the model only when it spawns a Session; it cannot change cwd or model of a running one. Default: show them **read-only** in the info panel; remove those slash configs. Alternative: forward `/model x` as an Instruction if the mod's `prompt.submit` runs slash commands (spike).
 2. **`/clear`.** Default: hide history **in the UI only** (per chat, stored server-side so all devices agree); it does not clear Claude's context.
