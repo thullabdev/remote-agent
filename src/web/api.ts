@@ -1,4 +1,4 @@
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { AwayMode } from '../bridge/notifier.ts'
 import { BadRequest } from '../bridge/errors.ts'
 import type { Log } from '../bridge/prompts.ts'
@@ -7,7 +7,8 @@ import type { SessionRow, Store } from '../bridge/store.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../channel/types.ts'
 import type { ChatLog } from './chat-log.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat } from './protocol.ts'
+import type { PushService } from './push.ts'
+import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -22,7 +23,26 @@ export type ApiDeps = {
   away: AwayMode
   spawner: Pick<Spawner, 'end'>
   sink: Pick<ChatSink, 'instructionQueued'>
+  /** Absent when push is not configured; the push routes then answer 404. */
+  push?: Pick<PushService, 'publicKey' | 'subscribe' | 'unsubscribe'>
   log: Log
+}
+
+const PushSubscribeSchema = z.object({
+  subscription: z.object({
+    endpoint: z.string().refine(isHttpsUrl, 'endpoint must be an https URL'),
+    keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+  }),
+})
+
+const PushUnsubscribeSchema = z.object({ endpoint: z.string().min(1) })
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 class ApiError extends Error {
@@ -47,6 +67,9 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'read'], run: ({ deps, request }, id) => markRead(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'PUT', pattern: ['away'], run: ({ deps, request }) => setAway(deps, request) },
+  { method: 'GET', pattern: ['push', 'key'], run: ({ deps }) => pushKey(deps) },
+  { method: 'POST', pattern: ['push', 'subscriptions'], run: ({ deps, request }) => subscribePush(deps, request) },
+  { method: 'DELETE', pattern: ['push', 'subscriptions'], run: ({ deps, request }) => unsubscribePush(deps, request) },
 ]
 
 /**
@@ -272,6 +295,32 @@ async function endChat(deps: ApiDeps, chatId: string): Promise<unknown> {
     throw new ApiError(409, 'This session has ended.')
   }
   return { toast: await deps.spawner.end(session.threadId) }
+}
+
+function requirePush(deps: ApiDeps): NonNullable<ApiDeps['push']> {
+  if (deps.push === undefined) {
+    throw new ApiError(404, 'Push is not configured.')
+  }
+  return deps.push
+}
+
+function pushKey(deps: ApiDeps): unknown {
+  return { key: requirePush(deps).publicKey() }
+}
+
+async function subscribePush(deps: ApiDeps, request: Request): Promise<unknown> {
+  const push = requirePush(deps)
+  const body = await readBody(request, PushSubscribeSchema)
+  const subscription: PushSubscriptionRecord = body.subscription
+  push.subscribe(subscription)
+  return { ok: true }
+}
+
+async function unsubscribePush(deps: ApiDeps, request: Request): Promise<unknown> {
+  const push = requirePush(deps)
+  const body = await readBody(request, PushUnsubscribeSchema)
+  push.unsubscribe(body.endpoint)
+  return { ok: true }
 }
 
 async function setAway(deps: ApiDeps, request: Request): Promise<unknown> {

@@ -78,6 +78,19 @@ const TelegramEnvSchema = z.object({
   TELEGRAM_ALLOWED_USER_ID: z.coerce.number({ required_error: 'TELEGRAM_ALLOWED_USER_ID is required' }).int().positive(),
 })
 
+/** A VAPID subject is a contact URI: `mailto:` or `https:`. Empty or blank means the default. */
+const VapidSubjectSchema = z.string().optional().transform((raw, ctx) => {
+  const trimmed = raw?.trim() ?? ''
+  if (trimmed === '') {
+    return DEFAULT_VAPID_SUBJECT
+  }
+  if (!/^(mailto|https):/i.test(trimmed)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must start with mailto: or https: (for example mailto:you@example.com)' })
+    return trimmed
+  }
+  return trimmed
+})
+
 const WebEnvSchema = z.object({
   REMOTE_AGENT_WEB_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   REMOTE_AGENT_WEB_ALLOWED_LOGIN: z.string({ required_error: 'REMOTE_AGENT_WEB_ALLOWED_LOGIN is required' }).trim().min(1, 'REMOTE_AGENT_WEB_ALLOWED_LOGIN is required'),
@@ -86,7 +99,7 @@ const WebEnvSchema = z.object({
     .pipe(z.array(z.string()).min(1, 'REMOTE_AGENT_WEB_ORIGINS is required')),
   REMOTE_AGENT_WEB_TOKEN: optionalText,
   REMOTE_AGENT_WEB_STATIC: optionalText,
-  REMOTE_AGENT_VAPID_SUBJECT: z.string().default(DEFAULT_VAPID_SUBJECT),
+  REMOTE_AGENT_VAPID_SUBJECT: VapidSubjectSchema,
 })
 
 function describeIssues(error: z.ZodError): string[] {

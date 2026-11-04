@@ -109,3 +109,13 @@ test('unknown channel name is rejected', () => {
 test('error message names the missing variable', () => {
   expect(() => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ALLOWED_LOGIN: '' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
 })
+
+test('an empty VAPID subject falls back to the default and a non-mailto/https subject is rejected', () => {
+  const withSubject = (value: string) => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_VAPID_SUBJECT: value })
+  expect(withSubject('').web?.vapidSubject).toBe('mailto:remote-agent@localhost')
+  expect(withSubject('   ').web?.vapidSubject).toBe('mailto:remote-agent@localhost')
+  expect(withSubject('mailto:ops@example.com').web?.vapidSubject).toBe('mailto:ops@example.com')
+  expect(withSubject('https://example.com').web?.vapidSubject).toBe('https://example.com')
+  expect(() => withSubject('ops@example.com')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+  expect(() => withSubject('http://example.com')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+})

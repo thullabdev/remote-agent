@@ -8,9 +8,11 @@ import { PromptService } from '../../src/bridge/prompts.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { ChatLog } from '../../src/web/chat-log.ts'
 import { WebChannel } from '../../src/web/web-channel.ts'
+import type { PushSubscriptionRecord } from '../../src/web/protocol.ts'
 import { flush } from '../support/fake-channel.ts'
 
 type Api = ReturnType<typeof createApi>
+type ApiDeps = Parameters<typeof createApi>[0]
 
 let clock = 1_000
 let store: Store
@@ -19,6 +21,8 @@ let channel: WebChannel
 let away: AwayMode
 let api: Api
 let handlers: ChannelHandlers | null
+let pushDeps: ApiDeps['push']
+const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
 const spawnerCalls: (string | null)[] = []
 const handled: { buttons: ButtonData[]; texts: InboundText[]; commands: InboundCommand[] } = { buttons: [], texts: [], commands: [] }
@@ -58,6 +62,7 @@ function build(): void {
     log: message => {
       logged.push(message)
     },
+    push: pushDeps,
   })
 }
 
@@ -105,6 +110,9 @@ beforeEach(() => {
   channel = new WebChannel(chatLog, message => logged.push(message), store)
   away = new AwayMode(false)
   handlers = fakeHandlers()
+  pushDeps = undefined
+  pushCalls.subscribed.length = 0
+  pushCalls.unsubscribed.length = 0
   build()
 })
 
@@ -351,4 +359,45 @@ test('an unknown /api route answers JSON 404', async () => {
 
   expect(status).toBe(404)
   expect(typeof body.error).toBe('string')
+})
+
+const pushSubscription = { endpoint: 'https://push.example/device', keys: { p256dh: 'p256', auth: 'auth' } }
+
+function usePush(): void {
+  pushDeps = {
+    publicKey: () => 'vapid-public',
+    subscribe: sub => {
+      pushCalls.subscribed.push(sub)
+    },
+    unsubscribe: endpoint => {
+      pushCalls.unsubscribed.push(endpoint)
+    },
+  }
+  build()
+}
+
+test('routes answer 404 when push is not configured', async () => {
+  expect((await call('GET', '/api/push/key')).status).toBe(404)
+  expect((await call('POST', '/api/push/subscriptions', { subscription: pushSubscription })).status).toBe(404)
+  expect((await call('DELETE', '/api/push/subscriptions', { endpoint: pushSubscription.endpoint })).status).toBe(404)
+})
+
+test('push routes return the key, register and unregister a device', async () => {
+  usePush()
+  expect(await call('GET', '/api/push/key')).toEqual({ status: 200, body: { key: 'vapid-public' } })
+  const subscribed = await call('POST', '/api/push/subscriptions', { subscription: { ...pushSubscription, expirationTime: null } })
+  expect(subscribed).toEqual({ status: 200, body: { ok: true } })
+  expect(pushCalls.subscribed).toEqual([pushSubscription])
+  const removed = await call('DELETE', '/api/push/subscriptions', { endpoint: pushSubscription.endpoint })
+  expect(removed).toEqual({ status: 200, body: { ok: true } })
+  expect(pushCalls.unsubscribed).toEqual([pushSubscription.endpoint])
+})
+
+test('a non-https subscription is rejected with 400', async () => {
+  usePush()
+  const response = await call('POST', '/api/push/subscriptions', {
+    subscription: { endpoint: 'http://push.example/device', keys: { p256dh: 'p256', auth: 'auth' } },
+  })
+  expect(response.status).toBe(400)
+  expect(pushCalls.subscribed).toEqual([])
 })
