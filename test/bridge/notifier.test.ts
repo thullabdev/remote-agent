@@ -372,3 +372,100 @@ test('AwayMode.subscribe fires only on change and survives a throwing listener',
   expect(seen).toEqual([true])
   expect(away.isAway()).toBe(false)
 })
+
+function sinkNotifier(sink: ChatSink, logged: string[] = []): Notifier {
+  return new Notifier(store, channel, new AwayMode(true), message => {
+    logged.push(message)
+  }, sink)
+}
+
+test('endSession closes the thread even when the sink throws', async () => {
+  const sink = new RecordingSink()
+  notifier = sinkNotifier(sink)
+  await notifier.ensureThread(session.sessionId)
+  sink.report = () => {
+    throw new Error('sink report down')
+  }
+  sink.chatEnded = () => {
+    throw new Error('sink chatEnded down')
+  }
+  await notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })
+  expect(channel.threads[0]!.closed).toBe(true)
+  const ended = store.getSession(session.sessionId)!
+  expect(ended.threadId).toBeNull()
+  expect(ended.endedAt).not.toBeNull()
+})
+
+test('a throwing sink.report does not stop the Telegram-style flow', async () => {
+  const sink = new RecordingSink()
+  const logged: string[] = []
+  notifier = sinkNotifier(sink, logged)
+  sink.report = () => {
+    throw new Error('sink report down')
+  }
+  await expect(notifier.report({ session, report: { kind: 'turn_complete', text: 'ok', durationMs: 1_000, isAborted: false } })).resolves.toBeUndefined()
+  await notifier.promptCreated(addPrompt('p:1'))
+  expect(sink.calls).toContain('promptCreated p:1')
+  expect(store.listPromptMessageRefs('p:1')).toEqual(['m-q1'])
+  expect(logged).toEqual(['chat sink report failed'])
+})
+
+test('a throwing sink.instructionDelivered is logged and does not throw', async () => {
+  const sink = new RecordingSink()
+  const logged: string[] = []
+  notifier = sinkNotifier(sink, logged)
+  sink.instructionDelivered = () => {
+    throw new Error('sink down')
+  }
+  const instruction = store.enqueueInstruction(session.sessionId, 'add tests')
+  await expect(notifier.instructionDelivered(instruction)).resolves.toBeUndefined()
+  expect(logged).toEqual(['chat sink instructionDelivered failed'])
+})
+
+test('a throwing sink.promptResolved is logged and the prompt is not handed over twice', async () => {
+  const sink = new RecordingSink()
+  const logged: string[] = []
+  notifier = sinkNotifier(sink, logged)
+  await notifier.promptCreated(addPrompt('p:1'))
+  store.resolvePrompt('p:1', { kind: 'permission', decision: 'allow' }, 'local')
+  let calls = 0
+  sink.promptResolved = () => {
+    calls += 1
+    throw new Error('sink down')
+  }
+  await expect(notifier.promptResolved(store.getPrompt('p:1')!)).resolves.toBeUndefined()
+  await notifier.promptResolved(store.getPrompt('p:1')!)
+  expect(calls).toBe(1)
+  expect(logged).toEqual(['chat sink promptResolved failed'])
+})
+
+test('a throwing sink.sessionSeen does not fail ensureThread, and the thread is stored', async () => {
+  const sink = new RecordingSink()
+  const logged: string[] = []
+  notifier = sinkNotifier(sink, logged)
+  sink.sessionSeen = () => {
+    throw new Error('sink down')
+  }
+  await expect(notifier.ensureThread(session.sessionId)).resolves.toBe('t1')
+  expect(store.getSession(session.sessionId)?.threadId).toBe('t1')
+  expect(logged).toEqual(['chat sink sessionSeen failed'])
+})
+
+test('a throwing sink.promptCreated propagates and stores no refs, so redelivery can retry', async () => {
+  const sink = new RecordingSink()
+  notifier = sinkNotifier(sink)
+  let failing = true
+  const created = sink.promptCreated.bind(sink)
+  sink.promptCreated = (prompt, sessionRow) => {
+    if (failing) {
+      throw new Error('sink down')
+    }
+    return created(prompt, sessionRow)
+  }
+  addPrompt('p:1')
+  await expect(notifier.promptCreated(store.getPrompt('p:1')!)).rejects.toThrow('sink down')
+  expect(store.listPromptMessageRefs('p:1')).toEqual([])
+  failing = false
+  await notifier.redeliverUndelivered()
+  expect(store.listPromptMessageRefs('p:1')).toHaveLength(1)
+})

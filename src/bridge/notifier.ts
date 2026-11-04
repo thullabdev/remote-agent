@@ -65,11 +65,16 @@ export class Notifier implements PromptEvents {
       this.store.setSessionThread(sessionId, existing)
       return existing
     }
+    const sink = this.sink
     const created = this.channel
       .createThread(threadTitle(session))
       .then(threadId => {
         this.store.setSessionThread(sessionId, threadId)
-        this.sink?.sessionSeen(this.requireSession(sessionId))
+        if (sink !== undefined) {
+          this.sinkStep('sessionSeen', () => {
+            sink.sessionSeen(this.requireSession(sessionId))
+          })
+        }
         return threadId
       })
       .finally(() => {
@@ -169,9 +174,12 @@ export class Notifier implements PromptEvents {
     if (refs.length === 0 || session === undefined) {
       return
     }
-    if (this.sink !== undefined) {
+    const sink = this.sink
+    if (sink !== undefined) {
       this.resolvedNotified.add(prompt.id)
-      this.sink.promptResolved(prompt, refs)
+      this.sinkStep('promptResolved', () => {
+        sink.promptResolved(prompt, refs)
+      })
       return
     }
     if (session.threadId === null) {
@@ -186,8 +194,11 @@ export class Notifier implements PromptEvents {
     if (session === undefined || session.threadId === null) {
       return
     }
-    if (this.sink !== undefined) {
-      this.sink.promptReminder(prompt, session)
+    const sink = this.sink
+    if (sink !== undefined) {
+      this.sinkStep('promptReminder', () => {
+        sink.promptReminder(prompt, session)
+      })
       return
     }
     const refs = this.store.listPromptMessageRefs(prompt.id)
@@ -200,9 +211,12 @@ export class Notifier implements PromptEvents {
       await this.endSession(session, reportText(request.report, session), request.report)
       return
     }
-    if (this.sink !== undefined) {
+    const sink = this.sink
+    if (sink !== undefined) {
       if (!this.isEndedSpawned(session)) {
-        this.sink.report(session, request.report)
+        this.sinkStep('report', () => {
+          sink.report(session, request.report)
+        })
       }
       return
     }
@@ -214,8 +228,11 @@ export class Notifier implements PromptEvents {
   }
 
   async instructionDelivered(instruction: Instruction): Promise<void> {
-    if (this.sink !== undefined) {
-      this.sink.instructionDelivered(instruction.id)
+    const sink = this.sink
+    if (sink !== undefined) {
+      this.sinkStep('instructionDelivered', () => {
+        sink.instructionDelivered(instruction.id)
+      })
       return
     }
     const session = this.store.getSession(instruction.sessionId)
@@ -261,9 +278,13 @@ export class Notifier implements PromptEvents {
 
   private async endSinkChat(sink: ChatSink, session: SessionRow, report: Report | null, late: boolean): Promise<void> {
     if (report !== null && !late) {
-      sink.report(session, report)
+      this.sinkStep('report', () => {
+        sink.report(session, report)
+      })
     }
-    sink.chatEnded(session)
+    this.sinkStep('chatEnded', () => {
+      sink.chatEnded(session)
+    })
     const threadId = this.store.getSession(session.id)?.threadId ?? null
     if (threadId === null) {
       return
@@ -272,6 +293,18 @@ export class Notifier implements PromptEvents {
       await this.channel.closeThread(threadId)
     } finally {
       this.store.setSessionThread(session.id, null)
+    }
+  }
+
+  /**
+   * Runs one call into the ChatSink. A failure is logged and never stops the Notifier's remaining steps
+   * (closing the Thread, dismissing Prompts). Not used for promptCreated, which must propagate so redelivery can retry.
+   */
+  private sinkStep(what: string, step: () => void): void {
+    try {
+      step()
+    } catch (error) {
+      this.log(`chat sink ${what} failed`, error)
     }
   }
 
