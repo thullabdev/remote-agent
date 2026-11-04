@@ -254,15 +254,18 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   chatEnded(session: SessionRow): void {
-    this.busyChanged(session.id, false)
     const chatId = this.chatIdOf(session.id)
     if (chatId === null || this.chatLog.getChat(chatId) === undefined) {
       return
     }
-    this.chatLog.updateChat(chatId, { status: 'ended' })
+    this.chatLog.updateChat(chatId, { status: 'ended', busy: false })
   }
 
-  /** The single place that flips a chat's busy flag. A value that is already set emits nothing. */
+  /**
+   * The single place that flips a chat's busy flag. A value that is already set emits nothing, and an ended chat never becomes busy.
+   * Busy is a stand-in driven by instruction delivery and turn_complete; the transcript reader (a later task) becomes the real source.
+   * Until then a delivered instruction with no turn_complete (e.g. an Esc interrupt) leaves the chat busy until the session ends.
+   */
   busyChanged(sessionId: string, busy: boolean): void {
     const chatId = this.chatIdOf(sessionId)
     if (chatId === null) {
@@ -270,6 +273,9 @@ export class WebChannel implements Channel, ChatSink {
     }
     const chat = this.chatLog.getChat(chatId)
     if (chat === undefined || chat.busy === busy) {
+      return
+    }
+    if (busy && chat.status === 'ended') {
       return
     }
     this.chatLog.updateChat(chatId, { busy })

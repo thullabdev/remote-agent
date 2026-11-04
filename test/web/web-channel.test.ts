@@ -423,3 +423,40 @@ test('an instruction delivered for an unknown instruction id is a no-op', () => 
   expect(() => channel.instructionDelivered('no-such-instruction')).not.toThrow()
   expect(events).toEqual([])
 })
+
+test('a late instruction delivery after chatEnded leaves the chat not busy', () => {
+  const session = seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'late')
+  channel.instructionQueued(instruction, session)
+  channel.chatEnded(session)
+  const busyEvents: boolean[] = []
+  chatLog.subscribe(event => {
+    if (event.type === 'chat.updated' && event.chat.busy) {
+      busyEvents.push(event.chat.busy)
+    }
+  })
+
+  channel.instructionDelivered(instruction.id)
+
+  expect(busyOf(webSession.sessionId)).toBe(false)
+  expect(busyEvents).toEqual([])
+})
+
+test('ending a busy session emits one chat.updated', () => {
+  const session = seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'add tests')
+  channel.instructionQueued(instruction, session)
+  channel.instructionDelivered(instruction.id)
+  expect(busyOf(webSession.sessionId)).toBe(true)
+  const chatUpdates: boolean[] = []
+  chatLog.subscribe(event => {
+    if (event.type === 'chat.updated') {
+      chatUpdates.push(event.chat.busy)
+    }
+  })
+
+  channel.chatEnded(session)
+
+  expect(chatUpdates).toEqual([false])
+  expect(busyOf(webSession.sessionId)).toBe(false)
+})
