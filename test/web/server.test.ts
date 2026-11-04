@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,10 @@ let staticDir: string
 let root: string
 let running: Running | null
 let api: ReturnType<typeof mock<(request: Request) => Promise<Response | null>>>
+let logs: { message: string; error: unknown }[]
+const log = (message: string, error?: unknown): void => {
+  logs.push({ message, error })
+}
 
 function configFor(staticPath: string | null): WebConfig {
   return {
@@ -39,7 +43,7 @@ function start(staticPath: string | null = staticDir): Running {
     chatLog,
     api,
     hub,
-    log: () => {},
+    log,
     port: 0,
   })
   return running
@@ -122,6 +126,7 @@ beforeEach(async () => {
   await writeFile(join(staticDir, 'app.js'), 'console.log("app")')
   await writeFile(join(root, 'secret.txt'), 'top secret')
   api = mock(async () => null)
+  logs = []
   running = null
 })
 
@@ -293,4 +298,87 @@ test('an unauthenticated /api request is 401/403 and does not reach the api', as
 
   expect([401, 403]).toContain(response.status)
   expect(api).not.toHaveBeenCalled()
+})
+
+test('an api handler that throws gives a generic 500 and is logged', async () => {
+  const failure = new Error('db exploded')
+  api = mock(async () => {
+    throw failure
+  })
+  start()
+
+  const response = await fetch(url('/api/state'), { headers })
+
+  expect(response.status).toBe(500)
+  const body = await response.text()
+  expect(JSON.parse(body)).toEqual({ error: 'internal error' })
+  expect(body).not.toContain('db exploded')
+  expect(logs).toEqual([{ message: 'web request failed', error: failure }])
+})
+
+test('a throwing static read gives a generic 500', async () => {
+  start()
+  const read = spyOn(Bun, 'file').mockImplementation(() => {
+    throw new Error('disk gone')
+  })
+  try {
+    const response = await fetch(url('/app.js'), { headers })
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'internal error' })
+    expect(logs.map(entry => entry.message)).toEqual(['web request failed'])
+  } finally {
+    read.mockRestore()
+  }
+})
+
+test('a failing replay in open closes the socket and leaves no client in the hub', async () => {
+  start()
+  const replay = spyOn(chatLog, 'eventsAfter').mockImplementation(() => {
+    throw new Error('db gone')
+  })
+  try {
+    const socket = new WebSocket(url(`/ws?after=${chatLog.currentSeq()}`).replace('http://', 'ws://'), {
+      headers,
+    } as unknown as string[])
+    const closed = new Promise<number>(resolve => {
+      socket.onclose = event => resolve(event.code)
+    })
+
+    expect(await closed).toBe(1011)
+    expect(hub.clientCount()).toBe(0)
+    expect(logs.map(entry => entry.message)).toEqual(['web socket handshake failed'])
+  } finally {
+    replay.mockRestore()
+  }
+})
+
+test('a broadcast failure never propagates to the ChatLog writer', () => {
+  class ThrowingHub extends Hub {
+    override broadcast(): void {
+      throw new Error('hub broke')
+    }
+  }
+  hub = new ThrowingHub(chatLog, () => clock)
+  start()
+
+  const message = chatLog.appendMessage('general', { kind: 'system', text: 'still saved' })
+
+  expect(message.seq).toBeGreaterThan(0)
+  expect(logs.map(entry => entry.message)).toContain('web broadcast failed')
+})
+
+test('a failed Bun.serve leaves no subscription or timer', () => {
+  const first = start()
+  const subscribe = spyOn(chatLog, 'subscribe')
+  const timer = spyOn(globalThis, 'setInterval')
+  try {
+    expect(() => startWebServer({ config: configFor(staticDir), chatLog, api, hub, log, port: first.port })).toThrow()
+
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(timer).not.toHaveBeenCalled()
+  } finally {
+    subscribe.mockRestore()
+    timer.mockRestore()
+  }
 })

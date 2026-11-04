@@ -14,7 +14,17 @@ export type Presence = { visible: boolean; focused: boolean; chatId: string | nu
 /** A client whose unsent bytes pass this is dropped rather than buffered. */
 export const SLOW_CLIENT_BYTES = 8 * 1024 * 1024
 const SLOW_CLOSE_CODE = 1013
+const SEND_FAILED_CLOSE_CODE = 1011
 const STALE_CLOSE_CODE = 1000
+
+/** Closes a socket, swallowing any error: the caller has already dropped the client. */
+export function closeQuietly(socket: HubSocket, code: number, reason: string): void {
+  try {
+    socket.close(code, reason)
+  } catch {
+    // The socket is already gone; nothing else to do.
+  }
+}
 
 type Client = { id: ClientId; socket: HubSocket; presence: Presence; lastSeen: number }
 
@@ -33,6 +43,10 @@ export class Hub {
     this.nextId += 1
     this.clients.set(id, { id, socket, presence: { visible: false, focused: false, chatId: null }, lastSeen: this.now() })
     return id
+  }
+
+  clientCount(): number {
+    return this.clients.size
   }
 
   remove(id: ClientId): void {
@@ -83,8 +97,7 @@ export class Hub {
     let reaped = 0
     for (const client of [...this.clients.values()]) {
       if (client.lastSeen < cutoff) {
-        this.clients.delete(client.id)
-        client.socket.close(STALE_CLOSE_CODE, 'no ping answered')
+        this.drop(client, STALE_CLOSE_CODE, 'no ping answered')
         reaped += 1
       }
     }
@@ -96,17 +109,22 @@ export class Hub {
     if (client === undefined) {
       return false
     }
-    if (client.socket.getBufferedAmount() > SLOW_CLIENT_BYTES) {
-      this.clients.delete(id)
-      client.socket.close(SLOW_CLOSE_CODE, 'client too slow')
-      return false
-    }
     try {
+      if (client.socket.getBufferedAmount() > SLOW_CLIENT_BYTES) {
+        this.drop(client, SLOW_CLOSE_CODE, 'client too slow')
+        return false
+      }
       client.socket.send(JSON.stringify(payload))
       return true
     } catch {
-      this.clients.delete(id)
+      this.drop(client, SEND_FAILED_CLOSE_CODE, 'send failed')
       return false
     }
+  }
+
+  /** Removes a client and closes its socket so it does not stay connected while missing events. */
+  private drop(client: Client, code: number, reason: string): void {
+    this.clients.delete(client.id)
+    closeQuietly(client.socket, code, reason)
   }
 }

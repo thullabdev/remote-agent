@@ -9,6 +9,7 @@ class FakeSocket implements HubSocket {
   closed: { code: number | undefined; reason: string | undefined } | null = null
   buffered = 0
   throwOnSend = false
+  throwOnClose = false
 
   send(data: string): void {
     if (this.throwOnSend) {
@@ -18,6 +19,9 @@ class FakeSocket implements HubSocket {
   }
 
   close(code?: number, reason?: string): void {
+    if (this.throwOnClose) {
+      throw new Error('close failed')
+    }
     this.closed = { code, reason }
   }
 
@@ -131,4 +135,34 @@ test('a client that misses pings is dropped', () => {
   expect(silent.closed).not.toBeNull()
   expect(answering.closed).toBeNull()
   expect(hub.reapStale(90_000)).toBe(0)
+})
+
+test('a socket whose close throws does not break broadcast to other clients', () => {
+  const slow = new FakeSocket()
+  slow.buffered = 8 * 1024 * 1024 + 1
+  slow.throwOnClose = true
+  const healthy = new FakeSocket()
+  hub.add(slow)
+  hub.add(healthy)
+
+  expect(() => hub.broadcast({ type: 'away.updated', seq: 1, away: true })).not.toThrow()
+  expect(healthy.sent.length).toBe(1)
+
+  const stale = new FakeSocket()
+  stale.throwOnClose = true
+  hub.add(stale)
+  clock += 200_000
+  expect(() => hub.reapStale(90_000)).not.toThrow()
+  expect(hub.clientCount()).toBe(0)
+})
+
+test('a throwing send removes the client and closes its socket', () => {
+  const broken = new FakeSocket()
+  broken.throwOnSend = true
+  hub.add(broken)
+
+  hub.broadcast({ type: 'away.updated', seq: 1, away: true })
+
+  expect(broken.closed).toEqual({ code: 1011, reason: expect.any(String) })
+  expect(hub.clientCount()).toBe(0)
 })

@@ -1,10 +1,11 @@
 import { stat } from 'node:fs/promises'
+import type { Server, ServerWebSocket } from 'bun'
 import { extname, join, resolve, sep } from 'node:path'
 import type { WebConfig } from '../bridge/config.ts'
 import type { Log } from '../bridge/prompts.ts'
 import { authorize } from './auth.ts'
 import type { ChatLog } from './chat-log.ts'
-import { Hub } from './hub.ts'
+import { closeQuietly, Hub } from './hub.ts'
 import { ClientEventSchema } from './protocol.ts'
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
@@ -29,6 +30,12 @@ export type WebServer = { port: number; hostname: string; stop(): void }
 
 function json(body: unknown, status: number): Response {
   return Response.json(body, { status })
+}
+
+/** The only thing a client sees of an internal failure; the detail goes to the log. */
+function internalError(log: Log, message: string, error: unknown): Response {
+  log(message, error)
+  return json({ error: 'internal error' }, 500)
 }
 
 /** Parses the `after` query value; null when it is missing or not a whole number. */
@@ -100,15 +107,39 @@ function frameText(raw: string | Buffer): string {
 
 /** Starts the HTTP and WebSocket server on loopback: auth, then /ws, then the API, then static files. */
 export function startWebServer(deps: WebServerDeps): WebServer {
-  const { config, chatLog, hub } = deps
+  const { config, chatLog, hub, log } = deps
   const staleAfterMs = deps.idleMs ?? STALE_AFTER_MS
-  const sockets = new Set<{ data: SocketData; close(code?: number, reason?: string): void }>()
-  const unsubscribe = chatLog.subscribe(event => {
-    hub.broadcast(event)
-  })
-  const reaper = setInterval(() => {
-    hub.reapStale(staleAfterMs)
-  }, REAP_INTERVAL_MS)
+  const sockets = new Set<ServerWebSocket<SocketData>>()
+
+  /** Routes one request; any throw becomes the generic 500 in `fetch`. */
+  async function handle(request: Request, server: Server<SocketData>): Promise<Response | undefined> {
+    const auth = authorize(request, { allowedLogin: config.allowedLogin, origins: config.origins, token: config.token })
+    if (!auth.ok) {
+      return json({ error: auth.reason }, auth.status)
+    }
+    const url = new URL(request.url)
+    if (url.pathname === '/ws') {
+      if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+        return json({ error: 'expected a WebSocket upgrade' }, 400)
+      }
+      const after = parseAfter(url.searchParams.get('after')) ?? chatLog.currentSeq()
+      if (server.upgrade(request, { data: { after, id: null } })) {
+        return undefined
+      }
+      return json({ error: 'expected a WebSocket upgrade' }, 400)
+    }
+    const handled = await deps.api(request)
+    if (handled !== null) {
+      return handled
+    }
+    if (url.pathname.startsWith('/api/')) {
+      return json({ error: 'not found' }, 404)
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return json({ error: 'not found' }, 404)
+    }
+    return serveStatic(config.staticDir, url.pathname)
+  }
 
   const server = Bun.serve<SocketData, string>({
     hostname: '127.0.0.1',
@@ -120,75 +151,90 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       sendPings: true,
       open(ws) {
         sockets.add(ws)
-        // Synchronous from hello to registration, so no live event can land between replay and the client joining.
-        ws.send(JSON.stringify({ type: 'hello', seq: chatLog.currentSeq() }))
-        ws.data.id = hub.add(ws)
-        hub.replay(ws.data.id, ws.data.after)
+        try {
+          // Synchronous from hello to registration, so no live event can land between replay and the client joining.
+          ws.send(JSON.stringify({ type: 'hello', seq: chatLog.currentSeq() }))
+          ws.data.id = hub.add(ws)
+          hub.replay(ws.data.id, ws.data.after)
+        } catch (error) {
+          log('web socket handshake failed', error)
+          if (ws.data.id !== null) {
+            hub.remove(ws.data.id)
+            ws.data.id = null
+          }
+          closeQuietly(ws, 1011, 'handshake failed')
+        }
       },
       message(ws, raw) {
-        const id = ws.data.id
-        if (id === null) {
-          return
-        }
-        hub.touch(id)
-        let parsed: unknown
         try {
-          parsed = JSON.parse(frameText(raw))
-        } catch {
-          return
-        }
-        const event = ClientEventSchema.safeParse(parsed)
-        if (!event.success) {
-          return
-        }
-        if (event.data.type === 'presence') {
-          hub.setPresence(id, { visible: event.data.visible, focused: event.data.focused, chatId: event.data.chatId })
-        } else {
-          ws.send(JSON.stringify({ type: 'pong' }))
+          const id = ws.data.id
+          if (id === null) {
+            return
+          }
+          hub.touch(id)
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(frameText(raw))
+          } catch {
+            return
+          }
+          const event = ClientEventSchema.safeParse(parsed)
+          if (!event.success) {
+            return
+          }
+          if (event.data.type === 'presence') {
+            hub.setPresence(id, { visible: event.data.visible, focused: event.data.focused, chatId: event.data.chatId })
+          } else {
+            ws.send(JSON.stringify({ type: 'pong' }))
+          }
+        } catch (error) {
+          log('web socket frame failed', error)
         }
       },
       pong(ws) {
-        if (ws.data.id !== null) {
-          hub.touch(ws.data.id)
+        try {
+          if (ws.data.id !== null) {
+            hub.touch(ws.data.id)
+          }
+        } catch (error) {
+          log('web socket pong failed', error)
         }
       },
       close(ws) {
-        sockets.delete(ws)
-        if (ws.data.id !== null) {
-          hub.remove(ws.data.id)
-          ws.data.id = null
+        try {
+          sockets.delete(ws)
+          if (ws.data.id !== null) {
+            hub.remove(ws.data.id)
+            ws.data.id = null
+          }
+        } catch (error) {
+          log('web socket close failed', error)
         }
       },
     },
-    async fetch(request, server) {
-      const auth = authorize(request, { allowedLogin: config.allowedLogin, origins: config.origins, token: config.token })
-      if (!auth.ok) {
-        return json({ error: auth.reason }, auth.status)
-      }
-      const url = new URL(request.url)
-      if (url.pathname === '/ws') {
-        if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-          return json({ error: 'expected a WebSocket upgrade' }, 400)
-        }
-        const after = parseAfter(url.searchParams.get('after')) ?? chatLog.currentSeq()
-        if (server.upgrade(request, { data: { after, id: null } })) {
-          return undefined
-        }
-        return json({ error: 'expected a WebSocket upgrade' }, 400)
-      }
-      const handled = await deps.api(request)
-      if (handled !== null) {
-        return handled
-      }
-      if (url.pathname.startsWith('/api/')) {
-        return json({ error: 'not found' }, 404)
-      }
-      if (request.method !== 'GET' && request.method !== 'HEAD') {
-        return json({ error: 'not found' }, 404)
-      }
-      return serveStatic(config.staticDir, url.pathname)
+    fetch(request, server) {
+      return handle(request, server).catch(error => internalError(log, 'web request failed', error))
+    },
+    error(error) {
+      return internalError(log, 'web request failed', error)
     },
   })
+
+  // Subscribed only once the port is bound, so a failed bind leaks no subscription or timer.
+  const unsubscribe = chatLog.subscribe(event => {
+    try {
+      hub.broadcast(event)
+    } catch (error) {
+      log('web broadcast failed', error)
+    }
+  })
+  const reaper = setInterval(() => {
+    try {
+      hub.reapStale(staleAfterMs)
+    } catch (error) {
+      log('web stale-client sweep failed', error)
+    }
+  }, REAP_INTERVAL_MS)
 
   return {
     port: server.port ?? 0,
@@ -197,7 +243,7 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       unsubscribe()
       clearInterval(reaper)
       for (const socket of sockets) {
-        socket.close(1001, 'server stopping')
+        closeQuietly(socket, 1001, 'server stopping')
       }
       sockets.clear()
       server.stop(true)
