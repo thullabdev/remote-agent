@@ -13,6 +13,8 @@ const GENERAL_ID = 'general'
 export class WebChannel implements Channel, ChatSink {
   private current: ChannelHandlers | null = null
   private transcriptActive: (sessionId: string) => boolean = () => false
+  private transcriptAttach: (sessionId: string) => void = () => {}
+  private transcriptDetach: (sessionId: string) => void = () => {}
 
   constructor(
     private readonly chatLog: ChatLog,
@@ -23,6 +25,12 @@ export class WebChannel implements Channel, ChatSink {
   /** Tells whether the transcript reader is active for a Session; its turn text then comes from the reader, not from the Report. */
   setTranscriptProbe(probe: (sessionId: string) => boolean): void {
     this.transcriptActive = probe
+  }
+
+  /** Starts the transcript reader when a Session's chat is linked, and stops it when the chat ends. */
+  setTranscriptAttacher(attach: (sessionId: string) => void, detach: (sessionId: string) => void = () => {}): void {
+    this.transcriptAttach = attach
+    this.transcriptDetach = detach
   }
 
   get handlers(): ChannelHandlers | null {
@@ -144,6 +152,7 @@ export class WebChannel implements Channel, ChatSink {
 
   sessionSeen(session: SessionRow): void {
     this.chatFor(session)
+    this.transcriptAttach(session.id)
   }
 
   promptCreated(prompt: PromptRow, session: SessionRow): string[] {
@@ -254,6 +263,7 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   chatEnded(session: SessionRow): void {
+    this.transcriptDetach(session.id)
     const chatId = this.chatIdOf(session.id)
     if (chatId === null || this.chatLog.getChat(chatId) === undefined) {
       return

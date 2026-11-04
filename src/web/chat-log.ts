@@ -243,6 +243,18 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  /** The texts of the chat's newest user_text messages that came from an Instruction, newest first. */
+  recentInstructionTexts(chatId: string, limit: number): string[] {
+    return this.db
+      .query<{ text: string }, [string, number]>(
+        `SELECT json_extract(body, '$.text') AS text FROM messages
+         WHERE chat_id = ? AND kind = 'user_text' AND json_extract(body, '$.instructionId') IS NOT NULL
+         ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(chatId, limit)
+      .map(record => record.text)
+  }
+
   /** The user_text message created for an Instruction, whatever source id it was appended with. */
   findByInstructionId(instructionId: string): Message | undefined {
     const record = this.db

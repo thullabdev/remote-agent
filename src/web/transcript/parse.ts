@@ -1,0 +1,138 @@
+// Parses one line of a Claude Code transcript (.jsonl). Unknown or malformed input yields no entries; this never throws.
+
+export type TranscriptItem =
+  | { kind: 'agent_text'; markdown: string }
+  | { kind: 'tool_use'; toolUseId: string; tool: string; input: unknown }
+  | { kind: 'tool_result'; toolUseId: string; text: string; isError: boolean }
+  | { kind: 'user_text'; text: string }
+  | { kind: 'turn_end' }
+
+/** sourceId is `<uuid>:<blockIndex>` for text and turn markers, and `tool:<toolUseId>` for tool_use and tool_result. */
+export type TranscriptEntry = { sourceId: string; at: number; item: TranscriptItem }
+
+type Json = Record<string, unknown>
+
+const ASK_USER_QUESTION = 'AskUserQuestion'
+
+function isObject(value: unknown): value is Json {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function timeOf(value: unknown): number {
+  if (typeof value !== 'string') {
+    return 0
+  }
+  const ms = Date.parse(value)
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+// A tool_result's text: a plain string, or the text blocks of a list. Anything else has no text.
+function resultText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+  if (Array.isArray(content)) {
+    return content
+      .flatMap(block => (isObject(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
+      .join('\n')
+  }
+  return ''
+}
+
+// The answer to an AskUserQuestion comes back with its questions and answers on toolUseResult.
+function isQuestionAnswer(entry: Json): boolean {
+  return isObject(entry.toolUseResult) && ('questions' in entry.toolUseResult || 'answers' in entry.toolUseResult)
+}
+
+function parseUser(entry: Json, uuid: string | null, at: number, message: Json): TranscriptEntry[] {
+  const content = message.content
+  if (typeof content === 'string') {
+    if (uuid === null || content.trim() === '') {
+      return []
+    }
+    return [{ sourceId: `${uuid}:0`, at, item: { kind: 'user_text', text: content } }]
+  }
+  if (!Array.isArray(content)) {
+    return []
+  }
+  const entries: TranscriptEntry[] = []
+  for (const [index, block] of content.entries()) {
+    if (!isObject(block)) {
+      continue
+    }
+    if (block.type === 'tool_result') {
+      if (typeof block.tool_use_id !== 'string' || isQuestionAnswer(entry)) {
+        continue
+      }
+      entries.push({
+        sourceId: `tool:${block.tool_use_id}`,
+        at,
+        item: { kind: 'tool_result', toolUseId: block.tool_use_id, text: resultText(block.content), isError: block.is_error === true },
+      })
+    } else if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' && uuid !== null) {
+      entries.push({ sourceId: `${uuid}:${index}`, at, item: { kind: 'user_text', text: block.text } })
+    }
+  }
+  return entries
+}
+
+function parseAssistant(uuid: string | null, at: number, message: Json): TranscriptEntry[] {
+  if (!Array.isArray(message.content)) {
+    return []
+  }
+  const entries: TranscriptEntry[] = []
+  for (const [index, block] of message.content.entries()) {
+    if (!isObject(block)) {
+      continue
+    }
+    if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' && uuid !== null) {
+      entries.push({ sourceId: `${uuid}:${index}`, at, item: { kind: 'agent_text', markdown: block.text } })
+    } else if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
+      if (block.name === ASK_USER_QUESTION) {
+        continue
+      }
+      entries.push({
+        sourceId: `tool:${block.id}`,
+        at,
+        item: { kind: 'tool_use', toolUseId: block.id, tool: block.name, input: block.input ?? null },
+      })
+    }
+  }
+  return entries
+}
+
+function parseEntry(value: unknown): TranscriptEntry[] {
+  if (!isObject(value)) {
+    return []
+  }
+  // Sidechain and meta lines are internal (a sub-agent's work, or injected context), not the chat's conversation.
+  if (value.isSidechain === true || value.isMeta === true) {
+    return []
+  }
+  const uuid = typeof value.uuid === 'string' ? value.uuid : null
+  const at = timeOf(value.timestamp)
+  if (value.type === 'system') {
+    if (value.subtype === 'turn_duration' && uuid !== null) {
+      return [{ sourceId: `${uuid}:0`, at, item: { kind: 'turn_end' } }]
+    }
+    return []
+  }
+  if (!isObject(value.message)) {
+    return []
+  }
+  if (value.type === 'user') {
+    return parseUser(value, uuid, at, value.message)
+  }
+  if (value.type === 'assistant') {
+    return parseAssistant(uuid, at, value.message)
+  }
+  return []
+}
+
+export function parseTranscriptLine(line: string): TranscriptEntry[] {
+  try {
+    return parseEntry(JSON.parse(line))
+  } catch {
+    return []
+  }
+}

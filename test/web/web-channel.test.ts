@@ -460,3 +460,25 @@ test('ending a busy session emits one chat.updated', () => {
   expect(chatUpdates).toEqual([false])
   expect(busyOf(webSession.sessionId)).toBe(false)
 })
+
+test('sessionSeen attaches the transcript reader and chatEnded detaches it', () => {
+  const attached: string[] = []
+  const detached: string[] = []
+  channel.setTranscriptAttacher(
+    sessionId => {
+      attached.push(sessionId)
+    },
+    sessionId => {
+      detached.push(sessionId)
+    },
+  )
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+
+  channel.sessionSeen(session)
+  expect(attached).toEqual([webSession.sessionId])
+  expect(store.getSession(webSession.sessionId)?.chatId).not.toBeNull()
+
+  channel.chatEnded(store.getSession(webSession.sessionId)!)
+  expect(detached).toEqual([webSession.sessionId])
+})

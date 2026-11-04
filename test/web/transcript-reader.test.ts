@@ -1,0 +1,411 @@
+import { beforeEach, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { Store } from '../../src/bridge/store.ts'
+import { ChatLog, TOOL_RESULT_MAX } from '../../src/web/chat-log.ts'
+import type { Message, ServerEvent } from '../../src/web/protocol.ts'
+import { TranscriptReader } from '../../src/web/transcript/reader.ts'
+import { transcriptPath } from '../../src/web/transcript/path.ts'
+import { WebChannel } from '../../src/web/web-channel.ts'
+
+const HOME = '/home/u'
+const CWD = '/home/u/app'
+const SID = 'sess-reader-1'
+const PATH = transcriptPath(HOME, CWD, SID)
+const encoder = new TextEncoder()
+const turn = { kind: 'turn_complete' as const, text: '', durationMs: 1_000, isAborted: false }
+
+let clock = 1_000
+let logged: string[]
+
+beforeEach(() => {
+  clock = 1_000
+  logged = []
+})
+
+function iso(second: number): string {
+  return new Date(Date.UTC(2026, 0, 1, 10, 0, second)).toISOString()
+}
+
+const line = (value: object): string => `${JSON.stringify(value)}\n`
+const prompt = (uuid: string, text: string, second = 0) => line({ type: 'user', uuid, timestamp: iso(second), message: { role: 'user', content: text } })
+const assistantText = (uuid: string, text: string, second = 0) =>
+  line({ type: 'assistant', uuid, timestamp: iso(second), message: { role: 'assistant', content: [{ type: 'text', text }] } })
+const toolUse = (uuid: string, id: string, second = 0) =>
+  line({
+    type: 'assistant',
+    uuid,
+    timestamp: iso(second),
+    message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'ls' } }] },
+  })
+const toolResult = (uuid: string, id: string, text: string, second = 0, isError = false) =>
+  line({
+    type: 'user',
+    uuid,
+    timestamp: iso(second),
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text, is_error: isError }] },
+  })
+const turnEnd = (uuid: string, second = 0) => line({ type: 'system', subtype: 'turn_duration', durationMs: 1000, uuid, timestamp: iso(second) })
+const fixture = (name: string): string => readFileSync(join(import.meta.dir, '../support/transcripts', name), 'utf8')
+
+function setup() {
+  const store = new Store(':memory:', () => clock)
+  const chatLog = new ChatLog(store, () => clock)
+  const channel = new WebChannel(
+    chatLog,
+    message => {
+      logged.push(message)
+    },
+    store,
+  )
+  const files = new Map<string, Uint8Array>()
+  const busy: boolean[] = []
+  const reader = new TranscriptReader({
+    chatLog,
+    store,
+    home: HOME,
+    log: message => {
+      logged.push(message)
+    },
+    onBusy: (sessionId, value) => {
+      busy.push(value)
+      channel.busyChanged(sessionId, value)
+    },
+    poll: () => () => {},
+    readFrom: async (path, offset) => {
+      const content = files.get(path)
+      return content === undefined ? null : content.slice(offset)
+    },
+    statSize: async path => files.get(path)?.length ?? null,
+  })
+  channel.setTranscriptProbe(sessionId => reader.isActive(sessionId))
+  return { store, chatLog, channel, files, reader, busy }
+}
+
+type Harness = ReturnType<typeof setup>
+
+/** A Session with its chat, as sessionSeen makes it; the reader is attached to it. */
+function startSession(h: Harness): string {
+  h.store.upsertSession({ sessionId: SID, cwd: CWD })
+  h.channel.sessionSeen(h.store.getSession(SID)!)
+  h.reader.attach(SID)
+  return h.store.getSession(SID)!.chatId!
+}
+
+function messagesOf(h: Harness, chatId: string): Message[] {
+  return h.chatLog.listMessages(chatId, { limit: 1_000 }).messages
+}
+
+function write(h: Harness, text: string): void {
+  h.files.set(PATH, encoder.encode(text))
+}
+
+test('attach backfills the whole file once', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'first') + assistantText('a-1', 'second') + assistantText('a-2', 'third'))
+
+  await h.reader.ingestOnce(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text', 'agent_text'])
+  expect(h.reader.isActive(SID)).toBe(true)
+})
+
+test('a line without a trailing newline is not ingested until completed', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const complete = prompt('p-1', 'done line')
+  const partial = assistantText('a-1', 'still typing')
+  write(h, complete + partial.slice(0, -1))
+
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text'])
+
+  write(h, complete + partial)
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+})
+
+test('detach then attach again (Bridge restart) adds no duplicate messages', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'hello') + toolUse('a-1', 'toolu_r') + toolResult('u-2', 'toolu_r', 'out', 3) + assistantText('a-2', 'bye'))
+  await h.reader.ingestOnce(SID)
+  const before = messagesOf(h, chatId)
+  const events: ServerEvent[] = []
+  h.chatLog.subscribe(event => {
+    events.push(event)
+  })
+
+  h.reader.detach(SID)
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId)).toEqual(before)
+  expect(events.filter(event => event.type === 'message.created' || event.type === 'message.updated')).toEqual([])
+})
+
+test('tool_use then tool_result updates one tool_run message', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, toolUse('a-1', 'toolu_x', 1))
+
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'tool_run', tool: 'Bash', status: 'running', result: null, durationMs: null }])
+
+  write(h, toolUse('a-1', 'toolu_x', 1) + toolResult('u-1', 'toolu_x', 'listing', 4))
+  await h.reader.ingestOnce(SID)
+
+  const runs = messagesOf(h, chatId)
+  expect(runs).toHaveLength(1)
+  expect(runs[0]).toMatchObject({ kind: 'tool_run', status: 'done', result: 'listing', resultTruncated: false, durationMs: 3_000 })
+})
+
+test('a tool_result whose tool_use was never seen is stored as a finished unknown tool run', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, toolResult('u-1', 'toolu_orphan', 'late output', 2, true))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'tool_run', tool: 'unknown', status: 'error', result: 'late output' }])
+})
+
+test('a 1 MB tool_result is stored capped at 20 000 chars with resultTruncated', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, toolUse('a-1', 'toolu_big') + toolResult('u-1', 'toolu_big', 'x'.repeat(1_000_000), 2))
+
+  await h.reader.ingestOnce(SID)
+
+  const [run] = messagesOf(h, chatId)
+  expect(run).toMatchObject({ kind: 'tool_run', status: 'done', resultTruncated: true })
+  expect(run?.kind === 'tool_run' ? run.result?.startsWith('x'.repeat(TOOL_RESULT_MAX)) : false).toBe(true)
+  expect(run?.kind === 'tool_run' ? (run.result?.length ?? 0) : 0).toBeLessThan(TOOL_RESULT_MAX + 100)
+})
+
+test('one transcript line with text and two tool_use blocks yields three messages', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(
+    h,
+    line({
+      type: 'assistant',
+      uuid: 'a-multi',
+      timestamp: iso(1),
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Two checks' },
+          { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'a' } },
+          { type: 'tool_use', id: 'toolu_2', name: 'Grep', input: { pattern: 'b' } },
+        ],
+      },
+    }),
+  )
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['agent_text', 'tool_run', 'tool_run'])
+})
+
+test('busy turns true on a user entry and false on turn_end', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'go', 1))
+
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(true)
+
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3))
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+})
+
+test('an old finished transcript backfills to idle', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.channel.busyChanged(SID, true)
+  write(h, fixture('finished-session.jsonl'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+})
+
+test('a mid-turn transcript backfills to busy', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, fixture('mid-turn.jsonl'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(true)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'tool_run'])
+})
+
+test('AskUserQuestion entries are skipped', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, fixture('finished-session.jsonl'))
+
+  await h.reader.ingestOnce(SID)
+
+  const messages = messagesOf(h, chatId)
+  expect(messages.map(message => message.kind)).toEqual(['user_text', 'agent_text', 'tool_run', 'agent_text'])
+  expect(messages.some(message => message.kind === 'tool_run' && message.tool === 'unknown')).toBe(false)
+  expect(messages.some(message => message.kind === 'tool_run' && message.tool === 'AskUserQuestion')).toBe(false)
+  expect(messages[2]).toMatchObject({ kind: 'tool_run', tool: 'Bash', status: 'done', result: 'a.txt\nb.txt', durationMs: 1_000 })
+})
+
+test('a user line matching a delivered Instruction is not duplicated', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(
+    chatId,
+    { kind: 'user_text', text: 'add tests', status: 'delivered', instructionId: 'ins-1' },
+    { sourceId: 'ins-1' },
+  )
+  write(h, prompt('p-1', 'add tests') + prompt('p-2', 'typed in the terminal'))
+
+  await h.reader.ingestOnce(SID)
+
+  const texts = messagesOf(h, chatId).map(message => (message.kind === 'user_text' ? message.text : null))
+  expect(texts).toEqual(['add tests', 'typed in the terminal'])
+})
+
+test('file shrinking resets the offset without duplicates', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const first = assistantText('a-1', 'one')
+  const second = assistantText('a-2', 'two')
+  const third = assistantText('a-3', 'three')
+  write(h, first + second + third)
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId)).toHaveLength(3)
+
+  write(h, first)
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId)).toHaveLength(3)
+
+  // Regrown past the old offset with new lines that sit before it: only a reset to 0 reads them.
+  write(h, first + assistantText('a-4', 'four') + assistantText('a-5', 'five') + assistantText('a-6', 'six') + assistantText('a-7', 'seven'))
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual([
+    'one',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+  ])
+})
+
+test('concurrent ticks do not double-ingest', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'once') + assistantText('a-1', 'twice'))
+  let reads = 0
+  const slowReader = new TranscriptReader({
+    chatLog: h.chatLog,
+    store: h.store,
+    home: HOME,
+    log: () => {},
+    onBusy: () => {},
+    poll: () => () => {},
+    readFrom: async (path, offset) => {
+      reads += 1
+      await new Promise(resolve => setTimeout(resolve, 5))
+      return h.files.get(path)?.slice(offset) ?? null
+    },
+    statSize: async path => h.files.get(path)?.length ?? null,
+  })
+  slowReader.attach(SID)
+
+  await Promise.all([slowReader.ingestOnce(SID), slowReader.ingestOnce(SID), slowReader.ingestOnce(SID)])
+
+  expect(reads).toBe(1)
+  expect(messagesOf(h, chatId)).toHaveLength(2)
+})
+
+test('a session with no chat yet is retried on the next tick', async () => {
+  const h = setup()
+  h.store.upsertSession({ sessionId: SID, cwd: CWD })
+  h.reader.attach(SID)
+  write(h, prompt('p-1', 'early bird'))
+
+  await h.reader.ingestOnce(SID)
+  expect(h.reader.isActive(SID)).toBe(false)
+
+  h.channel.sessionSeen(h.store.getSession(SID)!)
+  const chatId = h.store.getSession(SID)!.chatId!
+  await h.reader.ingestOnce(SID)
+
+  expect(h.reader.isActive(SID)).toBe(true)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text'])
+})
+
+test('a multi-byte character split across reads is decoded correctly', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const complete = prompt('p-1', 'first line')
+  const second = assistantText('a-1', 'emoji 🙂 and café')
+  const full = encoder.encode(complete + second)
+  const emojiAt = full.indexOf(0xf0)
+  h.files.set(PATH, full.slice(0, emojiAt + 2))
+
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text'])
+
+  h.files.set(PATH, full)
+  await h.reader.ingestOnce(SID)
+  const messages = messagesOf(h, chatId)
+  expect(messages.map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+  expect(messages[1]).toMatchObject({ kind: 'agent_text', markdown: 'emoji 🙂 and café' })
+})
+
+test('missing file: isActive false, and turn_complete Report text is used instead', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  await h.reader.ingestOnce(SID)
+  expect(h.reader.isActive(SID)).toBe(false)
+
+  h.channel.report(h.store.getSession(SID)!, { ...turn, text: 'Report fallback' })
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'agent_text', markdown: 'Report fallback' }])
+
+  write(h, assistantText('a-1', 'From the transcript'))
+  await h.reader.ingestOnce(SID)
+  expect(h.reader.isActive(SID)).toBe(true)
+
+  h.channel.report(h.store.getSession(SID)!, { ...turn, text: 'Ignored now' })
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual([
+    'Report fallback',
+    'From the transcript',
+  ])
+})
+
+test('secrets in transcript text are redacted in the log', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, assistantText('a-1', 'the key is sk-ant-api03-abcdefghijklmnop and TOKEN=hunter2222'))
+
+  await h.reader.ingestOnce(SID)
+
+  const [message] = messagesOf(h, chatId)
+  expect(message?.kind === 'agent_text' ? message.markdown : '').not.toContain('sk-ant-api03-abcdefghijklmnop')
+  expect(message?.kind === 'agent_text' ? message.markdown : '').not.toContain('hunter2222')
+})
+
+test('the reader stops appending once detached', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.reader.detach(SID)
+  write(h, assistantText('a-1', 'after detach'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.reader.isActive(SID)).toBe(false)
+  expect(messagesOf(h, chatId)).toEqual([])
+})
