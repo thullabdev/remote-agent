@@ -98,7 +98,7 @@ Today the Bridge sees only Prompts, turn-complete Reports (which do carry the **
 - Routes: JSON API + one WebSocket + static files from `REMOTE_AGENT_WEB_STATIC` (the future UI build) with SPA fallback. Exact contract: see the handoff document.
 - **Auth (all HTTP and the WebSocket upgrade):**
   1. `Tailscale-User-Login` (added by `tailscale serve`) must equal `REMOTE_AGENT_WEB_ALLOWED_LOGIN`.
-  2. **`Origin` must match the allowed host list** (`REMOTE_AGENT_WEB_ORIGINS`) on every request and upgrade. This is mandatory: a hostile page open in the user's own browser on the tailnet would otherwise reach the server with the identity header attached (cross-site WebSocket / request forgery).
+  2. **`Origin` must match the allowed host list** (`REMOTE_AGENT_WEB_ORIGINS`) on every WebSocket upgrade and every non-GET/HEAD request; GET/HEAD must carry a matching `Origin` or `Sec-Fetch-Site: same-origin|none` (browsers omit `Origin` on same-origin GETs; curl-style clients without either are rejected). This is mandatory: a hostile page open in the user's own browser on the tailnet would otherwise reach the server with the identity header attached (cross-site WebSocket / request forgery).
   3. State-changing requests require `Content-Type: application/json`.
   4. Optional fallback `REMOTE_AGENT_WEB_TOKEN` (bearer) for access not going through `tailscale serve`.
   Anything else gets 401/403 and is logged without echoing the credentials.

@@ -16,7 +16,7 @@
 - Web server binds `127.0.0.1` only; default port `8787` (`REMOTE_AGENT_WEB_PORT`).
 - New env vars exactly: `REMOTE_AGENT_CHANNELS` (comma list, default `web`), `REMOTE_AGENT_WEB_PORT`, `REMOTE_AGENT_WEB_ALLOWED_LOGIN`, `REMOTE_AGENT_WEB_ORIGINS`, `REMOTE_AGENT_WEB_TOKEN` (optional), `REMOTE_AGENT_WEB_STATIC`, `REMOTE_AGENT_VAPID_SUBJECT`. Telegram vars are required only when `telegram` is in `REMOTE_AGENT_CHANNELS`.
 - **No truncation** of conversation content stored in or sent by the Web Channel (agent text, Instructions, Prompts, tool inputs). **Exception: tool results are capped at 20 000 characters** — a longer result is stored as its first 20 000 characters + `… [+N chars]`, with `resultTruncated: true` on the `tool_run` message. Push notification previews are short. `redactSecrets` is applied once, on write into the ChatLog (before the cap).
-- Auth on every HTTP request and the WebSocket upgrade: `Tailscale-User-Login` equals the allowed login; `Origin` must be on the allow list (mandatory, including WS upgrade); state-changing requests need `Content-Type: application/json`; optional bearer token fallback.
+- Auth on every HTTP request and the WebSocket upgrade: `Tailscale-User-Login` equals the allowed login; `Origin` must be on the allow list for WebSocket upgrades and all non-GET/HEAD requests (mandatory); GET/HEAD need a matching `Origin` or `Sec-Fetch-Site: same-origin|none` (amended 2026-11-04: browsers omit Origin on same-origin GETs); state-changing requests need `Content-Type: application/json`; optional bearer token fallback.
 - `message.seq` is assigned at creation and immutable; each feed event carries its own `seq`; clients replace updated messages by `id`.
 - Unread counts messages with seq > read cursor of kind `agent_text`, `prompt`, `system` only. One **global** read cursor per chat.
 - Push rules: Prompts always; Reports only in Away mode; nothing while any client reports `visible && focused`.
@@ -31,7 +31,7 @@
 2. Two devices answering the same Prompt at once: first wins, the second gets "Already answered.", both clients see the same final `prompt` message. Pinned in Task 7.
 3. WebSocket `after` older than retained, or **greater** than the server's current seq (database replaced/reset): server sends `resync`, never silence. Pinned in Task 8.
 4. A transcript line half-written when read, and a Bridge restart mid-session: no partial JSON message, no duplicated messages after re-attach. Pinned in Task 11.
-5. Requests without an `Origin` header (curl, a non-browser script) and with a mismatching one, on both HTTP and WS upgrade: rejected with 403. Pinned in Task 5.
+5. Requests without an `Origin` header (curl, a non-browser script) and with a mismatching one: WS upgrade and non-GET always 403; GET 403 unless `Sec-Fetch-Site` is same-origin/none. Pinned in Task 5.
 
 ---
 
