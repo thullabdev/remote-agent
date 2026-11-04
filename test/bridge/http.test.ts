@@ -5,6 +5,7 @@ import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { ChatLog } from '../../src/web/chat-log.ts'
+import type { ServerEvent } from '../../src/web/protocol.ts'
 import { WebChannel } from '../../src/web/web-channel.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
 
@@ -203,4 +204,46 @@ test('a mod request that names a known session creates its web chat eagerly, onc
   const chats = chatLog.listChats().filter(chat => chat.id !== 'general')
   expect(chats).toHaveLength(1)
   expect(store.getSession('s1')?.chatId).toBe(chats[0]!.id)
+})
+
+test('sending in a session chat then POST /instructions/:id/delivered flips the user_text to delivered and broadcasts message.updated', async () => {
+  const chatLog = new ChatLog(store)
+  const webChannel = new WebChannel(chatLog, () => {}, store)
+  const notifier = new Notifier(store, webChannel, new AwayMode(false), () => {}, webChannel)
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message) })
+  store.upsertSession(session)
+  webChannel.sessionSeen(store.getSession('s1')!)
+  const instruction = store.enqueueInstruction('s1', 'run the tests')
+  const sent = webChannel.instructionQueued(instruction, store.getSession('s1')!)
+  const events: ServerEvent[] = []
+  chatLog.subscribe(event => events.push(event))
+
+  expect((await call('POST', `/instructions/${instruction.id}/delivered`)).status).toBe(204)
+  await flush()
+
+  expect(chatLog.findMessage(sent.id)).toMatchObject({ kind: 'user_text', status: 'delivered', instructionId: instruction.id })
+  expect(events.filter(event => event.type === 'message.updated')).toEqual([
+    { type: 'message.updated', seq: expect.any(Number), message: expect.objectContaining({ id: sent.id, status: 'delivered' }) },
+  ])
+})
+
+test('delivering twice is idempotent', async () => {
+  const chatLog = new ChatLog(store)
+  const webChannel = new WebChannel(chatLog, () => {}, store)
+  const notifier = new Notifier(store, webChannel, new AwayMode(false), () => {}, webChannel)
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message) })
+  store.upsertSession(session)
+  webChannel.sessionSeen(store.getSession('s1')!)
+  const instruction = store.enqueueInstruction('s1', 'run the tests')
+  webChannel.instructionQueued(instruction, store.getSession('s1')!)
+  const events: ServerEvent[] = []
+  chatLog.subscribe(event => events.push(event))
+
+  expect((await call('POST', `/instructions/${instruction.id}/delivered`)).status).toBe(204)
+  expect((await call('POST', `/instructions/${instruction.id}/delivered`)).status).toBe(204)
+  await flush()
+
+  expect(events.filter(event => event.type === 'message.updated')).toHaveLength(1)
 })
