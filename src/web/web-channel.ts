@@ -220,6 +220,11 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   instructionDelivered(instructionId: string): void {
+    const instruction = this.store.getInstruction(instructionId)
+    if (instruction === undefined) {
+      return
+    }
+    this.busyChanged(instruction.sessionId, true)
     const current = this.chatLog.findByInstructionId(instructionId)
     if (current === undefined || current.kind !== 'user_text') {
       return
@@ -231,6 +236,9 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   report(session: SessionRow, report: Report): void {
+    if (report.kind === 'turn_complete') {
+      this.busyChanged(session.id, false)
+    }
     if (report.kind === 'session_started') {
       this.appendSystem(session, `Session started in ${session.cwd}`)
       return
@@ -246,6 +254,7 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   chatEnded(session: SessionRow): void {
+    this.busyChanged(session.id, false)
     const chatId = this.chatIdOf(session.id)
     if (chatId === null || this.chatLog.getChat(chatId) === undefined) {
       return
@@ -253,9 +262,14 @@ export class WebChannel implements Channel, ChatSink {
     this.chatLog.updateChat(chatId, { status: 'ended' })
   }
 
+  /** The single place that flips a chat's busy flag. A value that is already set emits nothing. */
   busyChanged(sessionId: string, busy: boolean): void {
     const chatId = this.chatIdOf(sessionId)
-    if (chatId === null || this.chatLog.getChat(chatId) === undefined) {
+    if (chatId === null) {
+      return
+    }
+    const chat = this.chatLog.getChat(chatId)
+    if (chat === undefined || chat.busy === busy) {
       return
     }
     this.chatLog.updateChat(chatId, { busy })

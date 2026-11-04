@@ -328,3 +328,23 @@ test('no sink: notifier behaviour is unchanged and prompts still go through the 
   expect(channel.prompts.map(sent => sent.thread)).toEqual(['t1'])
   expect(store.listPromptMessageRefs('p:1')).toEqual(channel.prompts[0]!.refs)
 })
+
+test('AwayMode.subscribe fires only on change and survives a throwing listener', () => {
+  const away = new AwayMode(false)
+  const seen: boolean[] = []
+  away.subscribe(() => {
+    throw new Error('boom')
+  })
+  const unsubscribe = away.subscribe(value => {
+    seen.push(value)
+  })
+
+  away.set(false)
+  away.set(true)
+  away.set(true)
+  unsubscribe()
+  away.set(false)
+
+  expect(seen).toEqual([true])
+  expect(away.isAway()).toBe(false)
+})

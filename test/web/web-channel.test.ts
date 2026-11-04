@@ -340,3 +340,86 @@ test('a late request for an ended spawned session creates no chat and keeps it e
   expect(chatsWithoutGeneral()).toHaveLength(chatsBefore)
   expect(chatsWithoutGeneral().every(chat => chat.status === 'ended')).toBe(true)
 })
+
+function seenSession() {
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+  channel.sessionSeen(session)
+  return session
+}
+
+function busyOf(sessionId: string): boolean | undefined {
+  const chatId = store.getSession(sessionId)?.chatId
+  return chatId === null || chatId === undefined ? undefined : chatLog.getChat(chatId)?.busy
+}
+
+test('busy flips true on instructionDelivered and false on turn_complete and on session end', () => {
+  const session = seenSession()
+  const first = store.enqueueInstruction(webSession.sessionId, 'add tests')
+  channel.instructionQueued(first, session)
+
+  channel.instructionDelivered(first.id)
+  expect(busyOf(webSession.sessionId)).toBe(true)
+
+  channel.report(session, turn('done'))
+  expect(busyOf(webSession.sessionId)).toBe(false)
+
+  const second = store.enqueueInstruction(webSession.sessionId, 'one more')
+  channel.instructionQueued(second, session)
+  channel.instructionDelivered(second.id)
+  expect(busyOf(webSession.sessionId)).toBe(true)
+
+  channel.chatEnded(session)
+  expect(busyOf(webSession.sessionId)).toBe(false)
+})
+
+test('busy also turns on for an instruction queued outside the web channel', () => {
+  seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'from telegram')
+
+  channel.instructionDelivered(instruction.id)
+
+  expect(busyOf(webSession.sessionId)).toBe(true)
+})
+
+test('a repeated busy value emits no chat.updated', () => {
+  seenSession()
+  const events: string[] = []
+  chatLog.subscribe(event => events.push(event.type))
+
+  channel.busyChanged(webSession.sessionId, true)
+  channel.busyChanged(webSession.sessionId, true)
+  channel.busyChanged(webSession.sessionId, false)
+  channel.busyChanged(webSession.sessionId, false)
+
+  expect(events.filter(type => type === 'chat.updated')).toHaveLength(2)
+})
+
+test('busyChanged for an unknown session is a no-op', () => {
+  const events: string[] = []
+  chatLog.subscribe(event => events.push(event.type))
+
+  expect(() => channel.busyChanged('no-such-session', true)).not.toThrow()
+  expect(events).toEqual([])
+})
+
+test('delivering an instruction twice is idempotent (one message.updated)', () => {
+  const session = seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'add tests')
+  channel.instructionQueued(instruction, session)
+  const events: string[] = []
+  chatLog.subscribe(event => events.push(event.type))
+
+  channel.instructionDelivered(instruction.id)
+  channel.instructionDelivered(instruction.id)
+
+  expect(events.filter(type => type === 'message.updated')).toHaveLength(1)
+})
+
+test('an instruction delivered for an unknown instruction id is a no-op', () => {
+  const events: string[] = []
+  chatLog.subscribe(event => events.push(event.type))
+
+  expect(() => channel.instructionDelivered('no-such-instruction')).not.toThrow()
+  expect(events).toEqual([])
+})

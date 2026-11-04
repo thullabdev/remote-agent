@@ -296,6 +296,14 @@ export class ChatLog {
     })
   }
 
+  /** Appends an away.updated event for a change of away mode (events only, no table of its own). */
+  recordAway(away: boolean): ServerEvent {
+    return this.write(() => {
+      const event = this.emit('away.updated', { away })
+      return { value: event, events: [event] }
+    })
+  }
+
   /** Latest event seq: what GET /api/state and /ws?after= use. */
   currentSeq(): number {
     return this.maxSeq('events')
@@ -393,6 +401,7 @@ export class ChatLog {
   private emit(type: 'message.created' | 'message.updated', payload: { message: Message }): ServerEvent
   private emit(type: 'chat.updated', payload: { chat: Chat }): ServerEvent
   private emit(type: 'chat.cleared', payload: { chatId: string; beforeSeq: number }): ServerEvent
+  private emit(type: 'away.updated', payload: { away: boolean }): ServerEvent
   private emit(type: string, payload: object): ServerEvent {
     const row = this.db
       .query<{ seq: number }, [string, string]>('INSERT INTO events (type, payload) VALUES (?, ?) RETURNING seq')

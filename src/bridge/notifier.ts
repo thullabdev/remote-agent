@@ -7,14 +7,34 @@ import type { PromptRow, SessionRow, Store } from './store.ts'
 import { cleanSessionName, promptView, reportText, resolutionNote, sessionLabel, threadTitle } from './views.ts'
 
 export class AwayMode {
+  private readonly listeners = new Set<(away: boolean) => void>()
+
   constructor(private on: boolean) {}
 
   isAway(): boolean {
     return this.on
   }
 
+  /** Calls the listener with the new value whenever it changes. A listener that throws does not stop the others. */
   set(on: boolean): void {
+    if (this.on === on) {
+      return
+    }
     this.on = on
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(on)
+      } catch (error) {
+        console.error('AwayMode listener failed', error)
+      }
+    }
+  }
+
+  subscribe(listener: (away: boolean) => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 }
 
