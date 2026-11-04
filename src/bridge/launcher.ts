@@ -29,12 +29,21 @@ function failure(result: RunResult): LaunchError {
   return new LaunchError(truncate(redactSecrets(text), ERROR_MAX))
 }
 
+/** Ids come from Claude Code and the Bridge, but a leading dash would let one be read as a flag. */
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
 /** Every tmux and systemd-run call a Spawned Session needs. */
 export class Launcher {
   constructor(private readonly run: Run = runCommand) {}
 
   /** The scope keeps tmux (and claude) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
   async launch(spec: { sessionId: string; cwd: string; model?: string | null; resumeFrom?: string }): Promise<{ tmuxName: string }> {
+    if (!SAFE_ID.test(spec.sessionId)) {
+      throw new LaunchError(`refusing to launch: session id "${spec.sessionId}" is not a safe id`)
+    }
+    if (spec.resumeFrom !== undefined && !SAFE_ID.test(spec.resumeFrom)) {
+      throw new LaunchError(`refusing to launch: resume id "${spec.resumeFrom}" is not a safe id`)
+    }
     const tmuxName = tmuxNameFor(spec.sessionId)
     // A fork resumes the old transcript into a new session id, so the old session's transcript is left as it was.
     const identity = spec.resumeFrom === undefined ? ['--session-id', spec.sessionId] : ['--resume', spec.resumeFrom, '--fork-session', '--session-id', spec.sessionId]

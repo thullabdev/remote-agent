@@ -49,6 +49,21 @@ test('a failed launch throws a redacted LaunchError', async () => {
   await expect(failure).rejects.toThrow('token=[REDACTED]')
 })
 
+test('launch refuses a session id or resume id that could read as a flag, before starting anything', async () => {
+  const resumed = '9b1c2d3e-0000-4000-8000-000000000000'
+  await expect(launcher.launch({ sessionId: '--help', cwd: '/x' })).rejects.toBeInstanceOf(LaunchError)
+  await expect(launcher.launch({ sessionId: '-x', cwd: '/x' })).rejects.toBeInstanceOf(LaunchError)
+  await expect(launcher.launch({ sessionId: 'has space', cwd: '/x' })).rejects.toBeInstanceOf(LaunchError)
+  await expect(launcher.launch({ sessionId: '', cwd: '/x' })).rejects.toBeInstanceOf(LaunchError)
+  await expect(launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: '--dangerous' })).rejects.toBeInstanceOf(LaunchError)
+  await expect(launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: resumed })).resolves.toEqual({ tmuxName: 'ra-3f2a9c1b' })
+  expect(tmux.calls.length).toBe(1)
+})
+
+test('launch accepts short ids such as s1', async () => {
+  expect(await launcher.launch({ sessionId: 's1', cwd: '/x' })).toEqual({ tmuxName: 'ra-s1' })
+})
+
 test('exists, sendExit, kill and capture address the exact session', async () => {
   tmux.alive.add('ra-3f2a9c1b')
   tmux.screen = 'one\ntwo\nthree\n\n\n'
