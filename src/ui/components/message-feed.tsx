@@ -1,7 +1,7 @@
 import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Wrench } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
-import { formatTime, groupMessages, promptQuestionIndex, toolInputText } from '../presentation.ts'
+import { formatTime, groupMessages, isInterruptedToolGroup, promptQuestionIndex, toolInputText } from '../presentation.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
@@ -84,7 +84,7 @@ export function MessageFeed({
             <ToolRunGroup
               key={entry.messages[0]?.id ?? index}
               messages={entry.messages}
-              interrupted={grouped.slice(index + 1).some(later => later.kind === 'message')}
+              interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
             />
           ) : (
             <MessageCard

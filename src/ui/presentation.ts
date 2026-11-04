@@ -19,6 +19,13 @@ export function groupMessages(messages: Message[]): MessageGroup[] {
   return groups
 }
 
+export function isInterruptedToolGroup(
+  messages: Extract<Message, { kind: 'tool_run' }>[],
+  hasLaterMessage: boolean,
+): boolean {
+  return hasLaterMessage && messages.some(message => message.status === 'running')
+}
+
 export function promptQuestionIndex(messages: Message[], messageId: string): number {
   const targetIndex = messages.findIndex(message => message.id === messageId)
   if (targetIndex < 0) {

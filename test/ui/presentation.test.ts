@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '../../src/channel/web/protocol.ts'
-import { groupMessages, promptQuestionIndex } from '../../src/ui/presentation.ts'
+import { groupMessages, isInterruptedToolGroup, promptQuestionIndex } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -33,6 +33,15 @@ describe('chat message presentation', () => {
       { kind: 'message', message: messages[2]! },
       { kind: 'tool-group', messages: [fourth] },
     ])
+  })
+
+  test('marks only running tool groups followed by another message as interrupted', () => {
+    const completed = tool('m_1', 1)
+    const running = { ...tool('m_2', 2), status: 'running' as const }
+
+    expect(isInterruptedToolGroup([completed], true)).toBe(false)
+    expect(isInterruptedToolGroup([running], false)).toBe(false)
+    expect(isInterruptedToolGroup([running], true)).toBe(true)
   })
 
   test('derives a prompt question index from its order among messages with the same prompt id', () => {
