@@ -186,6 +186,28 @@ test('lastMessage previews the newest visible message in at most 140 chars', () 
   expect(log.getChat('c1')?.lastMessage).toEqual({ seq: message.seq, at: clock, preview: 'x'.repeat(140) })
 })
 
+test('a backlog over the event limit resyncs', () => {
+  const small = new ChatLog(new Store(':memory:', () => clock), () => clock, { maxReplayEvents: 3 })
+  small.appendMessage('general', agent('one'))
+  small.appendMessage('general', agent('two'))
+  expect(small.eventsAfter(0)).toBe('resync')
+})
+
+test('a backlog over the byte limit resyncs', () => {
+  const small = new ChatLog(new Store(':memory:', () => clock), () => clock, { maxReplayBytes: 500 })
+  small.appendMessage('general', agent('x'.repeat(2_000)))
+  expect(small.eventsAfter(0)).toBe('resync')
+})
+
+test('a small backlog still replays in order', () => {
+  const small = new ChatLog(new Store(':memory:', () => clock), () => clock, { maxReplayEvents: 100, maxReplayBytes: 100_000 })
+  small.appendMessage('general', agent('one'))
+  const events = small.eventsAfter(0)
+  expect(events).not.toBe('resync')
+  const seqs = (events as ServerEvent[]).map(event => ('seq' in event ? event.seq : -1))
+  expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
+})
+
 test('eventsAfter returns events in seq order, and resync when after is greater than currentSeq', () => {
   const before = log.currentSeq()
   log.appendMessage('c1', agent('one'))

@@ -88,7 +88,7 @@ Rendering notes from the prototype mapping:
 
 ## 5. WebSocket `/ws?after=<seq>`
 
-Connect after `GET /api/state` with `after` set to its `seq` so nothing is missed. Without `after` the server replays nothing and streams from its current seq. A `resync` is sent when `after` is ahead of the server or older than the kept events.
+Connect after `GET /api/state` with `after` set to its `seq` so nothing is missed. Without `after` the server replays nothing and streams from its current seq. A `resync` is sent when `after` is ahead of the server, older than the kept events, or further behind than the replay limit (more than 5 000 events or 4 MiB of stored events).
 
 Server → client:
 ```ts
@@ -98,7 +98,7 @@ Server → client:
 { type: 'chat.updated'; seq: number; chat: Chat }                   // title, busy, unread, lastMessage, ended
 { type: 'chat.cleared'; seq: number; chatId: string; beforeSeq: number }  // drop messages of that chat with seq <= beforeSeq
 { type: 'away.updated'; seq: number; away: boolean }
-{ type: 'resync' }                                                  // too far behind: refetch /api/state and reopen
+{ type: 'resync' }                                                  // too far behind, or the backlog is too large: refetch /api/state and reopen with after=<its seq>
 ```
 Client → server:
 ```ts

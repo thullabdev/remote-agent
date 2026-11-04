@@ -4,6 +4,11 @@ import { redactSecrets, truncate } from '../core/text.ts'
 import type { Chat, Message, MessageBody, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
+/** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
+export const MAX_REPLAY_EVENTS = 5_000
+export const MAX_REPLAY_BYTES = 4 * 1024 * 1024
+
+export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number }
 
 const PREVIEW_MAX = 140
 const GENERAL_ID = 'general'
@@ -116,11 +121,16 @@ export class ChatLog {
   private readonly listeners = new Set<(event: ServerEvent) => void>()
   private readonly outbox: ServerEvent[] = []
   private dispatching = false
+  private readonly maxReplayEvents: number
+  private readonly maxReplayBytes: number
 
   constructor(
     private readonly store: Store,
     private readonly now: () => number = Date.now,
+    limits: ChatLogLimits = {},
   ) {
+    this.maxReplayEvents = limits.maxReplayEvents ?? MAX_REPLAY_EVENTS
+    this.maxReplayBytes = limits.maxReplayBytes ?? MAX_REPLAY_BYTES
     this.db = store.database
     this.db.exec(SCHEMA)
     this.write(() => {
@@ -350,6 +360,13 @@ export class ChatLog {
     }
     const oldest = this.db.query<{ seq: number | null }, []>('SELECT MIN(seq) AS seq FROM events').get()?.seq ?? null
     if (oldest !== null && seq < oldest - 1) {
+      return 'resync'
+    }
+    // Counted before any row is loaded, so a long-offline client costs one query, not the whole feed in memory.
+    const backlog = this.db
+      .query<{ count: number; bytes: number }, [number]>('SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(payload)), 0) AS bytes FROM events WHERE seq > ?')
+      .get(seq)
+    if (backlog !== null && (backlog.count > this.maxReplayEvents || backlog.bytes > this.maxReplayBytes)) {
       return 'resync'
     }
     const hidden = new Map<string, number>()

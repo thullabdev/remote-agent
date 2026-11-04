@@ -190,6 +190,25 @@ test('connect with after older replays missed events in order', async () => {
   inbox.socket.close()
 })
 
+test('a reconnect far behind receives resync and then works with after=<current seq>', async () => {
+  chatLog = new ChatLog(new Store(':memory:', () => clock), () => clock, { maxReplayEvents: 2 })
+  hub = new Hub(chatLog, () => clock)
+  chatLog.appendMessage('general', { kind: 'system', text: 'one' })
+  chatLog.appendMessage('general', { kind: 'system', text: 'two' })
+  start()
+
+  const far = await connect('/ws?after=0')
+  expect((await far.next()).type).toBe('hello')
+  expect(await far.next()).toEqual({ type: 'resync' })
+  far.socket.close()
+
+  const inbox = await connect(`/ws?after=${chatLog.currentSeq()}`)
+  expect((await inbox.next()).type).toBe('hello')
+  chatLog.appendMessage('general', { kind: 'system', text: 'live' })
+  expect((await nextMessage(inbox)).message.text).toBe('live')
+  inbox.socket.close()
+})
+
 test('connect with after greater than the server seq receives resync', async () => {
   start()
   const inbox = await connect(`/ws?after=${chatLog.currentSeq() + 1_000}`)
