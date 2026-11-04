@@ -103,7 +103,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
 - Sessions started with `/new` run with your default permission mode and only in folders you trusted in Claude Code. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
 - Sessions started with `/new` survive a Bridge restart, and a logout too if lingering is enabled (`loginctl enable-linger`), but never a reboot.
-- `/end` works only for Sessions started from Telegram.
+- `/end` works only for Sessions the Bridge started (`/new` or a project start, from Telegram or the web chat).
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
 ## 9. Development

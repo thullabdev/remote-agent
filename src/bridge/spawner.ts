@@ -14,7 +14,7 @@ export const CONFIG_UNREADABLE = "Can't read Claude Code's trusted folders."
 export const USAGE = 'Usage: /new [--model <model>] <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
-export const NOT_SPAWNED = 'Only sessions started from Telegram can be ended remotely.'
+export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended remotely.'
 export const UNKNOWN_SESSION = 'Unknown session.'
 
 const CAPTURE_LINES = 15

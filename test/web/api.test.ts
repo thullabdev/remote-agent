@@ -346,7 +346,7 @@ test('end on a non-spawned session returns 409', async () => {
   const { status, body } = await call('POST', `/api/chats/${chatId}/end`)
 
   expect(status).toBe(409)
-  expect(body.error).toBe('Only sessions started from Telegram can be ended remotely.')
+  expect(body.error).toBe('Only sessions started by the Bridge can be ended remotely.')
   expect(spawnerCalls).toHaveLength(0)
 })
 
