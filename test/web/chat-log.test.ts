@@ -289,3 +289,10 @@ test('updateMessage on a cleared message emits no message.updated', () => {
   expect(markdownOf(log.findMessage(old.id))).toBe('edited')
   expect(eventsSince(before)).toEqual([])
 })
+
+test('claim records a key once per chat and reports whether it was new', () => {
+  expect(log.claim('general', 'instr:m_1')).toBe(true)
+  expect(log.claim('general', 'instr:m_1')).toBe(false)
+  expect(log.isClaimed('general', 'instr:m_1')).toBe(true)
+  expect(log.isClaimed('general', 'instr:m_2')).toBe(false)
+})

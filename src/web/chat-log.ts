@@ -24,6 +24,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS messages_chat_source ON messages (chat_id, sou
 CREATE TABLE IF NOT EXISTS events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS source_claims (
+  chat_id TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (chat_id, key)
+);
 CREATE TABLE IF NOT EXISTS read_cursors (
   chat_id TEXT PRIMARY KEY REFERENCES chats(id), seq INTEGER NOT NULL
 );
@@ -243,16 +246,30 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
-  /** The texts of the chat's newest user_text messages that came from an Instruction, newest first. */
-  recentInstructionTexts(chatId: string, limit: number): string[] {
-    return this.db
-      .query<{ text: string }, [string, number]>(
-        `SELECT json_extract(body, '$.text') AS text FROM messages
-         WHERE chat_id = ? AND kind = 'user_text' AND json_extract(body, '$.instructionId') IS NOT NULL
-         ORDER BY seq DESC LIMIT ?`,
+  /** Records a key for a chat (a transcript entry handled, or an instruction matched). True only when the key was new. */
+  claim(chatId: string, key: string): boolean {
+    return this.write(() => {
+      const inserted = this.db.query('INSERT OR IGNORE INTO source_claims (chat_id, key) VALUES (?, ?)').run(chatId, key)
+      return { value: inserted.changes === 1, events: [] }
+    })
+  }
+
+  isClaimed(chatId: string, key: string): boolean {
+    return this.db.query<{ found: number }, [string, string]>('SELECT 1 AS found FROM source_claims WHERE chat_id = ? AND key = ?').get(chatId, key) !== null
+  }
+
+  /** The oldest Instruction-made user_text of the chat with this text that no transcript line has claimed yet. */
+  findUnclaimedInstruction(chatId: string, text: string): Message | undefined {
+    const record = this.db
+      .query<MessageRecord, [string, string]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages m
+         WHERE m.chat_id = ? AND m.kind = 'user_text' AND json_extract(m.body, '$.instructionId') IS NOT NULL
+           AND json_extract(m.body, '$.text') = ?
+           AND NOT EXISTS (SELECT 1 FROM source_claims s WHERE s.chat_id = m.chat_id AND s.key = 'instr:' || m.id)
+         ORDER BY m.seq LIMIT 1`,
       )
-      .all(chatId, limit)
-      .map(record => record.text)
+      .get(chatId, text)
+    return record === null ? undefined : toMessage(record)
   }
 
   /** The user_text message created for an Instruction, whatever source id it was appended with. */

@@ -6,6 +6,8 @@ export type TranscriptItem =
   | { kind: 'tool_result'; toolUseId: string; text: string; isError: boolean }
   | { kind: 'user_text'; text: string }
   | { kind: 'turn_end' }
+  /** An AskUserQuestion tool_use: not shown, but its result must be dropped too. */
+  | { kind: 'ignored_tool_use'; toolUseId: string }
 
 /** sourceId is `<uuid>:<blockIndex>` for text and turn markers, and `tool:<toolUseId>` for tool_use and tool_result. */
 export type TranscriptEntry = { sourceId: string; at: number; item: TranscriptItem }
@@ -13,6 +15,26 @@ export type TranscriptEntry = { sourceId: string; at: number; item: TranscriptIt
 type Json = Record<string, unknown>
 
 const ASK_USER_QUESTION = 'AskUserQuestion'
+
+// Local slash commands, task notifications and their output are bookkeeping, not conversation: they show nothing and never mark a turn open.
+const NOISE_PREFIXES = ['<command-name>', '<command-message>', '<command-args>', '<local-command-', '<task-notification>']
+// An interrupt (Esc) writes no turn_duration, so the marker itself ends the turn.
+const INTERRUPT_MARKERS = new Set(['[Request interrupted by user]', '[Request interrupted by user for tool use]'])
+
+/** What a user text line means: a prompt, a turn end (interrupt), or nothing shown. */
+function userTextItem(text: string): TranscriptItem | null {
+  const trimmed = text.trim()
+  if (trimmed === '') {
+    return null
+  }
+  if (INTERRUPT_MARKERS.has(trimmed)) {
+    return { kind: 'turn_end' }
+  }
+  if (NOISE_PREFIXES.some(prefix => trimmed.startsWith(prefix))) {
+    return null
+  }
+  return { kind: 'user_text', text }
+}
 
 function isObject(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -47,10 +69,11 @@ function isQuestionAnswer(entry: Json): boolean {
 function parseUser(entry: Json, uuid: string | null, at: number, message: Json): TranscriptEntry[] {
   const content = message.content
   if (typeof content === 'string') {
-    if (uuid === null || content.trim() === '') {
+    const item = userTextItem(content)
+    if (uuid === null || item === null) {
       return []
     }
-    return [{ sourceId: `${uuid}:0`, at, item: { kind: 'user_text', text: content } }]
+    return [{ sourceId: `${uuid}:0`, at, item }]
   }
   if (!Array.isArray(content)) {
     return []
@@ -69,8 +92,11 @@ function parseUser(entry: Json, uuid: string | null, at: number, message: Json):
         at,
         item: { kind: 'tool_result', toolUseId: block.tool_use_id, text: resultText(block.content), isError: block.is_error === true },
       })
-    } else if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' && uuid !== null) {
-      entries.push({ sourceId: `${uuid}:${index}`, at, item: { kind: 'user_text', text: block.text } })
+    } else if (block.type === 'text' && typeof block.text === 'string' && uuid !== null) {
+      const item = userTextItem(block.text)
+      if (item !== null) {
+        entries.push({ sourceId: `${uuid}:${index}`, at, item })
+      }
     }
   }
   return entries
@@ -88,14 +114,11 @@ function parseAssistant(uuid: string | null, at: number, message: Json): Transcr
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' && uuid !== null) {
       entries.push({ sourceId: `${uuid}:${index}`, at, item: { kind: 'agent_text', markdown: block.text } })
     } else if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
-      if (block.name === ASK_USER_QUESTION) {
-        continue
-      }
-      entries.push({
-        sourceId: `tool:${block.id}`,
-        at,
-        item: { kind: 'tool_use', toolUseId: block.id, tool: block.name, input: block.input ?? null },
-      })
+      const item: TranscriptItem =
+        block.name === ASK_USER_QUESTION
+          ? { kind: 'ignored_tool_use', toolUseId: block.id }
+          : { kind: 'tool_use', toolUseId: block.id, tool: block.name, input: block.input ?? null }
+      entries.push({ sourceId: `tool:${block.id}`, at, item })
     }
   }
   return entries

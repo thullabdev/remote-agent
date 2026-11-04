@@ -4,12 +4,13 @@ import type { Store } from '../../bridge/store.ts'
 import { redactSecrets } from '../../core/text.ts'
 import type { ChatLog } from '../chat-log.ts'
 import type { MessageBody } from '../protocol.ts'
-import { parseTranscriptLine, type TranscriptEntry } from './parse.ts'
+import { parseTranscriptLine, type TranscriptEntry, type TranscriptItem } from './parse.ts'
 import { transcriptPath } from './path.ts'
 
 const BATCH_LINES = 200
 const POLL_MS = 500
-const INSTRUCTION_WINDOW = 20
+const DEFAULT_WINDOW_BYTES = 4 * 1024 * 1024
+const DEFAULT_MAX_LINE_BYTES = 64 * 1024 * 1024
 const NEWLINE = 0x0a
 const ENOENT = 'ENOENT'
 
@@ -18,11 +19,16 @@ export type TranscriptReaderDeps = {
   store: Store
   home: string
   log: Log
-  /** Called with the new busy value whenever the transcript's busy state changes (the first report always fires). */
+  /** Called once per read with the new busy value, only when it changed (the first report always fires). */
   onBusy: (sessionId: string, busy: boolean) => void
   poll?: (run: () => void, ms: number) => () => void
-  readFrom?: (path: string, offset: number) => Promise<Uint8Array | null>
+  /** Bytes from offset, at most length of them (fewer at end of file). */
+  readFrom?: (path: string, offset: number, length: number) => Promise<Uint8Array | null>
   statSize?: (path: string) => Promise<number | null>
+  /** The most bytes requested in one read. Tests lower it. */
+  windowBytes?: number
+  /** A line longer than this is logged and skipped. */
+  maxLineBytes?: number
 }
 
 type Tail = {
@@ -32,11 +38,15 @@ type Tail = {
   offset: number
   found: boolean
   inFlight: boolean
-  /** True while a turn is open: relevant entries came after the last turn_duration marker. */
+  /** True while skipping the rest of an oversized line, up to its newline. */
+  skipping: boolean
+  /** True while a turn is open: relevant entries came after the last turn_duration or interrupt marker. */
   open: boolean
   busy: boolean | null
   /** Start times of tool_use entries still waiting for their tool_result, for durationMs. */
   toolStarts: Map<string, number>
+  /** AskUserQuestion tool_use ids: their tool_result is dropped. Rebuilt from offset 0 after a restart. */
+  ignored: Set<string>
   stop: () => void
 }
 
@@ -47,12 +57,12 @@ function defaultPoll(run: () => void, ms: number): () => void {
   }
 }
 
-async function readFromFile(path: string, offset: number): Promise<Uint8Array | null> {
+async function readFromFile(path: string, offset: number, length: number): Promise<Uint8Array | null> {
   const file = Bun.file(path)
   if (!(await file.exists())) {
     return null
   }
-  return new Uint8Array(await file.slice(offset).arrayBuffer())
+  return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer())
 }
 
 async function statFileSize(path: string): Promise<number | null> {
@@ -68,18 +78,22 @@ async function statFileSize(path: string): Promise<number | null> {
 
 /**
  * Tails each attached Session's transcript file into its chat. Entries are idempotent by source id, so re-reading after a restart or a shrink adds nothing twice.
- * A line without its newline is held back until it is complete, so a half-written line is never stored.
+ * The file is read in windows; only whole lines (up to a newline) are processed, so a half-written line is never stored.
  */
 export class TranscriptReader {
   private readonly tails = new Map<string, Tail>()
   private readonly poll: (run: () => void, ms: number) => () => void
-  private readonly readFrom: (path: string, offset: number) => Promise<Uint8Array | null>
+  private readonly readFrom: (path: string, offset: number, length: number) => Promise<Uint8Array | null>
   private readonly statSize: (path: string) => Promise<number | null>
+  private readonly windowBytes: number
+  private readonly maxLineBytes: number
 
   constructor(private readonly deps: TranscriptReaderDeps) {
     this.poll = deps.poll ?? defaultPoll
     this.readFrom = deps.readFrom ?? readFromFile
     this.statSize = deps.statSize ?? statFileSize
+    this.windowBytes = deps.windowBytes ?? DEFAULT_WINDOW_BYTES
+    this.maxLineBytes = deps.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES
   }
 
   /** Starts tailing a Session from the top of its file. Idempotent. The tail waits for the chat and the file if they are not there yet. */
@@ -94,9 +108,11 @@ export class TranscriptReader {
       offset: 0,
       found: false,
       inFlight: false,
+      skipping: false,
       open: false,
       busy: null,
       toolStarts: new Map(),
+      ignored: new Set(),
       stop: () => {},
     }
     tail.stop = this.poll(() => {
@@ -111,6 +127,8 @@ export class TranscriptReader {
       return
     }
     tail.stop()
+    tail.toolStarts.clear()
+    tail.ignored.clear()
     this.tails.delete(sessionId)
   }
 
@@ -119,7 +137,7 @@ export class TranscriptReader {
     return this.tails.get(sessionId)?.found === true
   }
 
-  /** Reads what is new in the Session's transcript. A tick that overlaps a running one does nothing. */
+  /** Reads everything new in the Session's transcript. A tick that overlaps a running one does nothing. */
   async ingestOnce(sessionId: string): Promise<void> {
     const tail = this.tails.get(sessionId)
     if (tail === undefined || tail.inFlight) {
@@ -150,42 +168,84 @@ export class TranscriptReader {
     if (tail.path === null) {
       tail.path = transcriptPath(this.deps.home, session.cwd, tail.sessionId)
     }
-    const size = await this.statSize(tail.path)
+    const path = tail.path
+    const size = await this.statSize(path)
     if (size === null) {
       return
     }
     tail.found = true
     if (size < tail.offset) {
       tail.offset = 0
+      tail.skipping = false
     }
-    if (size === tail.offset) {
-      return
-    }
-    const bytes = await this.readFrom(tail.path, tail.offset)
-    if (bytes === null) {
-      return
-    }
-    // Only whole lines: everything up to the last newline. A newline byte never sits inside a multi-byte character.
-    const end = bytes.lastIndexOf(NEWLINE)
-    if (end === -1) {
-      return
-    }
-    const lines = new TextDecoder().decode(bytes.subarray(0, end)).split('\n')
-    for (let start = 0; start < lines.length; start += BATCH_LINES) {
+    let windowLength = this.windowBytes
+    let read = false
+    while (tail.offset < size) {
       if (this.tails.get(tail.sessionId) !== tail) {
         return
       }
+      const bytes = await this.readFrom(path, tail.offset, windowLength)
+      if (bytes === null || bytes.length === 0) {
+        break
+      }
+      if (tail.skipping) {
+        const newline = bytes.indexOf(NEWLINE)
+        if (newline === -1) {
+          tail.offset += bytes.length
+        } else {
+          tail.offset += newline + 1
+          tail.skipping = false
+          windowLength = this.windowBytes
+        }
+        continue
+      }
+      const end = bytes.lastIndexOf(NEWLINE)
+      if (end === -1) {
+        if (tail.offset + bytes.length >= size) {
+          break
+        }
+        if (windowLength < this.maxLineBytes) {
+          windowLength = Math.min(windowLength * 2, this.maxLineBytes)
+          continue
+        }
+        this.deps.log(`Transcript line at byte ${tail.offset} of session ${tail.sessionId} is over ${this.maxLineBytes} bytes; skipped`)
+        tail.skipping = true
+        tail.offset += bytes.length
+        continue
+      }
+      const complete = await this.applyLines(tail, chatId, new TextDecoder().decode(bytes.subarray(0, end)).split('\n'))
+      if (!complete) {
+        return
+      }
+      tail.offset += end + 1
+      windowLength = this.windowBytes
+      read = true
+    }
+    if (read) {
+      this.reportBusy(tail)
+    }
+  }
+
+  /** Applies the lines in batches, yielding between them. False when the Session was detached meanwhile. */
+  private async applyLines(tail: Tail, chatId: string, lines: string[]): Promise<boolean> {
+    for (let start = 0; start < lines.length; start += BATCH_LINES) {
+      if (this.tails.get(tail.sessionId) !== tail) {
+        return false
+      }
       for (const line of lines.slice(start, start + BATCH_LINES)) {
         for (const entry of parseTranscriptLine(line)) {
-          this.apply(tail, chatId, entry)
+          try {
+            this.apply(tail, chatId, entry)
+          } catch (error) {
+            this.deps.log(`Transcript entry ${entry.sourceId} could not be stored; skipped`, error)
+          }
         }
       }
-      this.reportBusy(tail)
       if (start + BATCH_LINES < lines.length) {
         await Bun.sleep(0)
       }
     }
-    tail.offset += end + 1
+    return true
   }
 
   private apply(tail: Tail, chatId: string, entry: TranscriptEntry): void {
@@ -204,6 +264,10 @@ export class TranscriptReader {
       this.applyUserText(chatId, sourceId, item.text)
       return
     }
+    if (item.kind === 'ignored_tool_use') {
+      tail.ignored.add(item.toolUseId)
+      return
+    }
     if (item.kind === 'tool_use') {
       if (at > 0) {
         tail.toolStarts.set(item.toolUseId, at)
@@ -215,16 +279,29 @@ export class TranscriptReader {
       )
       return
     }
+    if (tail.ignored.delete(item.toolUseId)) {
+      return
+    }
     this.applyResult(tail, chatId, entry, item)
   }
 
-  // An Instruction the web UI already shows is not shown twice; the transcript holds the same text as the instruction.
+  /**
+   * A transcript user line is either a prompt typed in the terminal, or the echo of an Instruction the web UI already shows.
+   * Each Instruction matches at most one line, the oldest first; a line handled once (by its source id) is never handled again.
+   */
   private applyUserText(chatId: string, sourceId: string, text: string): void {
     const { chatLog } = this.deps
-    if (chatLog.recentInstructionTexts(chatId, INSTRUCTION_WINDOW).includes(redactSecrets(text))) {
+    if (chatLog.isClaimed(chatId, sourceId)) {
+      return
+    }
+    const instruction = chatLog.findUnclaimedInstruction(chatId, redactSecrets(text))
+    if (instruction !== undefined) {
+      chatLog.claim(chatId, `instr:${instruction.id}`)
+      chatLog.claim(chatId, sourceId)
       return
     }
     chatLog.appendMessage(chatId, { kind: 'user_text', text, status: 'delivered', instructionId: null }, { sourceId })
+    chatLog.claim(chatId, sourceId)
   }
 
   private applyResult(tail: Tail, chatId: string, entry: TranscriptEntry, item: { toolUseId: string; text: string; isError: boolean }): void {

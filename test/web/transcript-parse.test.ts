@@ -68,7 +68,7 @@ test('parse skips AskUserQuestion entries', () => {
     toolUseResult: { questions: [{ question: 'Which?' }], answers: { 'Which?': 'a' } },
   })
 
-  expect(parseTranscriptLine(question)).toEqual([])
+  expect(parseTranscriptLine(question)).toEqual([{ sourceId: 'tool:toolu_q', at: MS, item: { kind: 'ignored_tool_use', toolUseId: 'toolu_q' } }])
   expect(parseTranscriptLine(answer)).toEqual([])
 })
 
@@ -104,5 +104,16 @@ test('the synthetic finished-session fixture parses into its prompts, tool runs,
   const lines = readFileSync(join(import.meta.dir, '../support/transcripts/finished-session.jsonl'), 'utf8').split('\n').filter(Boolean)
   const kinds = lines.flatMap(line => parseTranscriptLine(line).map(entry => entry.item.kind))
 
-  expect(kinds).toEqual(['user_text', 'agent_text', 'tool_use', 'tool_result', 'agent_text', 'turn_end'])
+  expect(kinds).toEqual(['user_text', 'agent_text', 'tool_use', 'tool_result', 'ignored_tool_use', 'agent_text', 'turn_end'])
+})
+
+test('local command, task-notification and noise user lines yield no entries; interrupt markers yield turn_end', () => {
+  const user = (uuid: string, content: string) => JSON.stringify({ type: 'user', uuid, timestamp: AT, message: { role: 'user', content } })
+  expect(parseTranscriptLine(user('n-1', '<command-name>/cost</command-name>'))).toEqual([])
+  expect(parseTranscriptLine(user('n-2', '<local-command-stdout>ok</local-command-stdout>'))).toEqual([])
+  expect(parseTranscriptLine(user('n-3', '<task-notification>done</task-notification>'))).toEqual([])
+  expect(parseTranscriptLine(user('i-1', '[Request interrupted by user]'))).toEqual([{ sourceId: 'i-1:0', at: MS, item: { kind: 'turn_end' } }])
+  expect(parseTranscriptLine(user('i-2', '[Request interrupted by user for tool use]'))).toEqual([
+    { sourceId: 'i-2:0', at: MS, item: { kind: 'turn_end' } },
+  ])
 })

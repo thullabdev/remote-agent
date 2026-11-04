@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { Store } from '../../src/bridge/store.ts'
 import { ChatLog, TOOL_RESULT_MAX } from '../../src/web/chat-log.ts'
 import type { Message, ServerEvent } from '../../src/web/protocol.ts'
-import { TranscriptReader } from '../../src/web/transcript/reader.ts'
+import { TranscriptReader, type TranscriptReaderDeps } from '../../src/web/transcript/reader.ts'
 import { transcriptPath } from '../../src/web/transcript/path.ts'
 import { WebChannel } from '../../src/web/web-channel.ts'
 
@@ -48,7 +48,10 @@ const toolResult = (uuid: string, id: string, text: string, second = 0, isError 
 const turnEnd = (uuid: string, second = 0) => line({ type: 'system', subtype: 'turn_duration', durationMs: 1000, uuid, timestamp: iso(second) })
 const fixture = (name: string): string => readFileSync(join(import.meta.dir, '../support/transcripts', name), 'utf8')
 
-function setup() {
+type Overrides = Partial<TranscriptReaderDeps> & { files?: Map<string, Uint8Array> }
+
+function setup(overrides: Overrides = {}) {
+  const { files: providedFiles, ...deps } = overrides
   const store = new Store(':memory:', () => clock)
   const chatLog = new ChatLog(store, () => clock)
   const channel = new WebChannel(
@@ -58,7 +61,7 @@ function setup() {
     },
     store,
   )
-  const files = new Map<string, Uint8Array>()
+  const files = providedFiles ?? new Map<string, Uint8Array>()
   const busy: boolean[] = []
   const reader = new TranscriptReader({
     chatLog,
@@ -72,11 +75,12 @@ function setup() {
       channel.busyChanged(sessionId, value)
     },
     poll: () => () => {},
-    readFrom: async (path, offset) => {
+    readFrom: async (path, offset, length) => {
       const content = files.get(path)
-      return content === undefined ? null : content.slice(offset)
+      return content === undefined ? null : content.slice(offset, offset + length)
     },
     statSize: async path => files.get(path)?.length ?? null,
+    ...deps,
   })
   channel.setTranscriptProbe(sessionId => reader.isActive(sessionId))
   return { store, chatLog, channel, files, reader, busy }
@@ -93,7 +97,7 @@ function startSession(h: Harness): string {
 }
 
 function messagesOf(h: Harness, chatId: string): Message[] {
-  return h.chatLog.listMessages(chatId, { limit: 1_000 }).messages
+  return h.chatLog.listMessages(chatId, { limit: 20_000 }).messages
 }
 
 function write(h: Harness, text: string): void {
@@ -315,10 +319,10 @@ test('concurrent ticks do not double-ingest', async () => {
     log: () => {},
     onBusy: () => {},
     poll: () => () => {},
-    readFrom: async (path, offset) => {
+    readFrom: async (path, offset, length) => {
       reads += 1
       await new Promise(resolve => setTimeout(resolve, 5))
-      return h.files.get(path)?.slice(offset) ?? null
+      return h.files.get(path)?.slice(offset, offset + length) ?? null
     },
     statSize: async path => h.files.get(path)?.length ?? null,
   })
@@ -407,5 +411,193 @@ test('the reader stops appending once detached', async () => {
   await h.reader.ingestOnce(SID)
 
   expect(h.reader.isActive(SID)).toBe(false)
+  expect(messagesOf(h, chatId)).toEqual([])
+})
+
+test('a file larger than the window is ingested in several reads without holding it all', async () => {
+  const files = new Map<string, Uint8Array>()
+  const requests: number[] = []
+  const h = setup({
+    files,
+    readFrom: async (path, offset, length) => {
+      requests.push(length)
+      return files.get(path)?.slice(offset, offset + length) ?? null
+    },
+  })
+  const chatId = startSession(h)
+  let text = ''
+  for (let index = 0; index < 1_100; index += 1) {
+    text += assistantText(`a-${index}`, 'x'.repeat(4_000), index)
+  }
+  write(h, text)
+
+  await h.reader.ingestOnce(SID)
+
+  expect(requests.length).toBeGreaterThan(1)
+  expect(Math.max(...requests)).toBeLessThanOrEqual(4 * 1024 * 1024)
+  expect(messagesOf(h, chatId)).toHaveLength(1_100)
+})
+
+test('a single line larger than the window is still read', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, assistantText('a-big', 'y'.repeat(5 * 1024 * 1024)))
+
+  await h.reader.ingestOnce(SID)
+
+  const [message] = messagesOf(h, chatId)
+  expect(message?.kind === 'agent_text' ? message.markdown.length : 0).toBe(5 * 1024 * 1024)
+})
+
+test('a line larger than the maximum line size is logged and skipped, and the next line is read', async () => {
+  const h = setup({ windowBytes: 64, maxLineBytes: 1_024 })
+  const chatId = startSession(h)
+  write(h, assistantText('a-huge', 'z'.repeat(3_000)) + assistantText('a-next', 'after the huge line'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'agent_text', markdown: 'after the huge line' }])
+  expect(logged.some(message => message.includes('skipped'))).toBe(true)
+})
+
+test('backfill reports busy once after the whole read', async () => {
+  const h = setup({ windowBytes: 200 })
+  startSession(h)
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.busy).toEqual([false])
+})
+
+test('a poison line is skipped and later lines are still ingested', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const original = h.chatLog.appendMessage.bind(h.chatLog)
+  h.chatLog.appendMessage = (id, body, options) => {
+    if (body.kind === 'agent_text' && body.markdown.includes('poison')) {
+      throw new Error('disk full')
+    }
+    return original(id, body, options)
+  }
+  write(h, assistantText('a-poison', 'poison text') + assistantText('a-ok', 'after the failure'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'agent_text', markdown: 'after the failure' }])
+  expect(logged.some(message => message.includes('a-poison:0'))).toBe(true)
+  expect(logged.some(message => message.includes('poison text'))).toBe(false)
+  expect(h.reader.isActive(SID)).toBe(true)
+})
+
+test('after a restart a web instruction older than 20 others is still not duplicated', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(chatId, { kind: 'user_text', text: 'old one', status: 'delivered', instructionId: 'ins-old' }, { sourceId: 'ins-old' })
+  for (let index = 0; index < 25; index += 1) {
+    h.chatLog.appendMessage(
+      chatId,
+      { kind: 'user_text', text: `newer ${index}`, status: 'delivered', instructionId: `ins-${index}` },
+      { sourceId: `ins-${index}` },
+    )
+  }
+  write(h, prompt('p-old', 'old one'))
+  await h.reader.ingestOnce(SID)
+
+  h.reader.detach(SID)
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  const olds = messagesOf(h, chatId).filter(message => message.kind === 'user_text' && message.text === 'old one')
+  expect(olds).toHaveLength(1)
+})
+
+test('two identical instructions match two transcript lines one-to-one', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(chatId, { kind: 'user_text', text: 'same', status: 'delivered', instructionId: 'ins-a' }, { sourceId: 'ins-a' })
+  h.chatLog.appendMessage(chatId, { kind: 'user_text', text: 'same', status: 'delivered', instructionId: 'ins-b' }, { sourceId: 'ins-b' })
+  write(h, prompt('p-1', 'same') + prompt('p-2', 'same') + prompt('p-3', 'same'))
+
+  await h.reader.ingestOnce(SID)
+
+  const users = messagesOf(h, chatId).flatMap(message => (message.kind === 'user_text' ? [message] : []))
+  expect(users).toHaveLength(3)
+  expect(users.filter(message => message.instructionId === null)).toHaveLength(1)
+})
+
+test('a terminal prompt equal to an already-matched instruction is shown', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(chatId, { kind: 'user_text', text: 'run it', status: 'delivered', instructionId: 'ins-1' }, { sourceId: 'ins-1' })
+  write(h, prompt('p-1', 'run it'))
+  await h.reader.ingestOnce(SID)
+
+  write(h, prompt('p-1', 'run it') + prompt('p-2', 'run it'))
+  await h.reader.ingestOnce(SID)
+
+  const users = messagesOf(h, chatId).flatMap(message => (message.kind === 'user_text' ? [message] : []))
+  expect(users.map(message => message.instructionId)).toEqual(['ins-1', null])
+})
+
+test('a local slash command while idle does not make the chat busy', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', '<command-name>/cost</command-name>\n<command-message>cost</command-message>'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+  expect(h.busy).not.toContain(true)
+  expect(messagesOf(h, chatId)).toEqual([])
+})
+
+test('an interrupt marker ends the busy state', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'go'))
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(true)
+
+  write(h, prompt('p-1', 'go') + prompt('p-2', '[Request interrupted by user]'))
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text'])
+})
+
+test('a task-notification line is not shown and does not affect busy', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('n-1', '<task-notification>\n<task-id>x</task-id>\n</task-notification>'))
+  await h.reader.ingestOnce(SID)
+  expect(messagesOf(h, chatId)).toEqual([])
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+
+  write(
+    h,
+    prompt('n-1', '<task-notification>\n<task-id>x</task-id>\n</task-notification>') +
+      prompt('p-1', 'go') +
+      prompt('n-2', '<task-notification>done</task-notification>'),
+  )
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(true)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text'])
+})
+
+test('a declined AskUserQuestion result is dropped even without answers', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const question = line({
+    type: 'assistant',
+    uuid: 'a-q',
+    timestamp: iso(1),
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_decl', name: 'AskUserQuestion', input: { questions: [] } }] },
+  })
+  write(h, question + toolResult('u-q', 'toolu_decl', 'The user declined to answer', 2))
+
+  await h.reader.ingestOnce(SID)
+
   expect(messagesOf(h, chatId)).toEqual([])
 })
