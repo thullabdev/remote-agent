@@ -3,14 +3,18 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
-    "types": ["bun"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["bun", "vite/client"],
+    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@/*": ["./src/ui/*"]
+    }
   },
-  "include": ["src", "test", "scripts", "mod/remote-agent/hooks", "mod/remote-agent/bin"],
+  "include": ["src", "test", "scripts", "vite.config.ts", "mod/remote-agent/hooks", "mod/remote-agent/bin"],
   "exclude": ["mod/remote-agent/hooks/register.ts"]
 }

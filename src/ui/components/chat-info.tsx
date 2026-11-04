@@ -1,0 +1,148 @@
+import { AlertTriangle, Check, Copy, GitFork, Info, Trash2, X } from 'lucide-react'
+import { useState } from 'react'
+import type { Chat } from '../../channel/web/protocol.ts'
+import { Badge } from './ui/badge.tsx'
+import { Button } from './ui/button.tsx'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
+import { Separator } from './ui/separator.tsx'
+
+type ChatInfoProps = {
+  chat: Chat
+  messageCount: number
+  onClose(): void
+  onEnd(): Promise<void>
+  onClear(): Promise<void>
+  onFork(): Promise<void>
+}
+
+type Action = 'end' | 'clear' | 'fork'
+
+export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }: ChatInfoProps) {
+  const [confirm, setConfirm] = useState<Action | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const copyPath = async () => {
+    if (chat.cwd === null || !navigator.clipboard) {
+      return
+    }
+    await navigator.clipboard.writeText(chat.cwd)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
+
+  const runAction = async () => {
+    const action = confirm
+    if (action === null) {
+      return
+    }
+    setConfirm(null)
+    if (action === 'end') {
+      await onEnd()
+    } else if (action === 'clear') {
+      await onClear()
+    } else {
+      await onFork()
+    }
+  }
+
+  const description = confirm === 'end'
+    ? 'The Bridge will end this Spawned Session. Its history will remain available.'
+    : confirm === 'clear'
+      ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
+      : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
+
+  return (
+    <>
+      <aside className="fixed inset-0 z-30 flex justify-end bg-black/30 md:static md:z-auto md:w-80 md:shrink-0 md:bg-transparent">
+        <button className="absolute inset-0 md:hidden" onClick={onClose} aria-label="Close session information" />
+        <div className="relative flex h-full w-[min(88vw,22rem)] flex-col border-l border-border bg-background shadow-2xl md:w-80 md:shadow-none xl:border-l-0">
+          <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-border/70 px-4">
+            <div className="flex items-center gap-2 font-display font-semibold">
+              <Info className="size-4 text-muted-foreground" aria-hidden="true" />
+              Session details
+            </div>
+            <Button variant="ghost" size="icon-sm" aria-label="Close session information" onClick={onClose}>
+              <X aria-hidden="true" />
+            </Button>
+          </header>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+            <section>
+              <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Session</p>
+              <h2 className="mt-1 break-words font-display text-lg font-semibold">{chat.title}</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Badge>{chat.status}</Badge>
+                {chat.spawned && <Badge>Spawned</Badge>}
+                {chat.busy && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">Working</Badge>}
+              </div>
+            </section>
+
+            <Separator />
+            <InfoRow label="Project" value={chat.project ?? (chat.id === 'general' ? 'General' : 'Not available')} />
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Working directory</p>
+              <div className="mt-1 flex items-start gap-2">
+                <code className="min-w-0 flex-1 break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">{chat.cwd ?? 'Not available'}</code>
+                {chat.cwd && (
+                  <Button variant="ghost" size="icon-sm" aria-label="Copy working directory" onClick={() => void copyPath()}>
+                    {copied ? <Check /> : <Copy />}
+                  </Button>
+                )}
+              </div>
+            </div>
+            <InfoRow label="Messages" value={String(messageCount)} />
+            {chat.tmuxName && (
+              <div className="rounded-2xl border border-border bg-card p-3">
+                <p className="text-xs font-medium">Attach from a terminal</p>
+                <code className="mt-2 block break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-[11px]">tmux attach -t {chat.tmuxName}</code>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">This hint is available for Spawned Sessions only.</p>
+              </div>
+            )}
+            <Separator />
+            <div className="grid gap-2">
+              {chat.spawned && chat.status === 'active' && (
+                <Button variant="outline" className="justify-start" onClick={() => setConfirm('end')}>
+                  <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
+                  End Spawned Session
+                </Button>
+              )}
+              {chat.id !== 'general' && (
+                <Button variant="outline" className="justify-start" onClick={() => setConfirm('fork')}>
+                  <GitFork aria-hidden="true" />
+                  Fork this Session
+                </Button>
+              )}
+              <Button variant="outline" className="justify-start text-red-700 hover:text-red-800 dark:text-red-300" onClick={() => setConfirm('clear')}>
+                <Trash2 aria-hidden="true" />
+                Clear chat history
+              </Button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <Dialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirm === 'end' ? 'End this Session?' : confirm === 'clear' ? 'Clear chat history?' : 'Fork this Session?'}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant={confirm === 'end' || confirm === 'clear' ? 'destructive' : 'default'} onClick={() => void runAction()}>
+              {confirm === 'end' ? 'End Session' : confirm === 'clear' ? 'Clear history' : 'Fork Session'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm">{value}</p>
+    </div>
+  )
+}

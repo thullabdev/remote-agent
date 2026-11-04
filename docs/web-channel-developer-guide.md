@@ -63,6 +63,39 @@ The bearer token works instead of the login header: `-H 'Authorization: Bearer d
 
 **Serving the client from a different dev server** (Vite, webpack…) means cross-origin, and the server sends no CORS headers. Two ways to work: build your UI into `REMOTE_AGENT_WEB_STATIC` and rebuild, or run your dev server with a proxy to `127.0.0.1:8787` that injects the identity header (or the bearer token) and add the dev server's origin (for example `http://localhost:5173`) to `REMOTE_AGENT_WEB_ORIGINS`. Proxying is the usual approach but is not exercised by this repo's tests; the WebSocket path needs the proxy's WebSocket option enabled.
 
+### 1.1.1 Run the React client in this repository
+
+The client uses React, Vite, Tailwind CSS and local shadcn/ui-style primitives. For isolated local development, run a throwaway Bridge and the Vite server in separate terminals. The Bridge must allow the dev origin:
+
+```bash
+REMOTE_AGENT_CHANNELS=web \
+REMOTE_AGENT_WEB_ALLOWED_LOGIN=dev@example.com \
+REMOTE_AGENT_WEB_ORIGINS=http://127.0.0.1:5173 \
+REMOTE_AGENT_WEB_PORT=8787 \
+REMOTE_AGENT_DB=/tmp/ra-dev/bridge.db \
+REMOTE_AGENT_SOCKET=/tmp/ra-dev/bridge.sock \
+bun run bridge
+```
+
+In the other terminal, run Vite with the identity value the Bridge expects:
+
+```bash
+REMOTE_AGENT_WEB_DEV_LOGIN=dev@example.com \
+VITE_WEB_CHANNEL_TARGET=http://127.0.0.1:8787 \
+bun run dev
+```
+
+Open `http://127.0.0.1:5173`. Vite proxies `/api` and `/ws` to the Bridge and adds `Tailscale-User-Login` from `REMOTE_AGENT_WEB_DEV_LOGIN`. If the Bridge uses a local bearer token instead, set `REMOTE_AGENT_WEB_TOKEN` on the Bridge and `REMOTE_AGENT_WEB_DEV_TOKEN` on Vite, and omit the dev login. These variables are read only by Vite's Node process; never put credentials in a `VITE_*` variable or in client code. `VITE_WEB_CHANNEL_TARGET` changes the upstream Bridge address.
+
+For production, build the static UI and point the Bridge at its output:
+
+```bash
+bun run build
+REMOTE_AGENT_WEB_STATIC="$PWD/dist/web-channel" bun run bridge
+```
+
+The build is served from the Bridge's same origin, including the SPA fallback. The generated `dist/` directory is not committed. The UI registers `/sw.js` only when a user enables Push notifications.
+
 ### 1.2 Authentication in one paragraph
 
 Every HTTP request and the WebSocket upgrade go through the same gate, in this order:
