@@ -7,7 +7,7 @@ This document is the contract between the Web Channel server and the chat UI. Th
 ## 1. Access
 
 - The server listens on `127.0.0.1:8787` (configurable). Devices reach it through `tailscale serve` (HTTPS). The UI is served from the same origin, so there is no CORS: use relative URLs (`/api/...`, `/ws`).
-- The server rejects any request whose `Origin` is not on its allow list and any request not from the allowed Tailscale login. The UI needs no login screen. A 401/403 means "not allowed": show a plain "access denied" state.
+- WebSocket upgrades and all non-GET requests must carry an allowed Origin (browsers do this automatically); GET/HEAD must carry an allowed Origin or `Sec-Fetch-Site: same-origin`. The server also rejects any request not from the allowed Tailscale login. The UI needs no login screen. A 401/403 means "not allowed": show a plain "access denied" state.
 - Send `Content-Type: application/json` on every POST/PUT/DELETE.
 
 ## 2. Concepts

@@ -20,6 +20,44 @@ const websocketUpgrade = (headers: Record<string, string>): Record<string, strin
   ...headers,
 })
 
+test('GET without Origin but Sec-Fetch-Site same-origin is allowed', () => {
+  const result = authorize(request({ headers: { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'same-origin' } }), config)
+  expect(result).toEqual({ ok: true })
+})
+
+test('GET without Origin and without Sec-Fetch-Site is 403', () => {
+  const result = authorize(request({ headers: { 'Tailscale-User-Login': LOGIN } }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('GET without Origin and Sec-Fetch-Site cross-site is 403', () => {
+  const result = authorize(request({ headers: { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'cross-site' } }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('GET without Origin and Sec-Fetch-Site same-site is 403', () => {
+  const result = authorize(request({ headers: { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'same-site' } }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('GET with a mismatching Origin is 403 even if Sec-Fetch-Site is same-origin', () => {
+  const headers = { 'Tailscale-User-Login': LOGIN, Origin: 'https://evil.example.com', 'Sec-Fetch-Site': 'same-origin' }
+  const result = authorize(request({ headers }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('WebSocket upgrade without Origin is 403 even with Sec-Fetch-Site same-origin', () => {
+  const headers = websocketUpgrade({ 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'same-origin' })
+  const result = authorize(request({ headers }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('POST without Origin is 403 even with Sec-Fetch-Site same-origin', () => {
+  const headers = { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json' }
+  const result = authorize(request({ method: 'POST', headers }), config)
+  expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
 test('allows the configured login with a matching Origin', () => {
   const result = authorize(request({ headers: { 'Tailscale-User-Login': LOGIN, Origin: ORIGIN } }), config)
   expect(result).toEqual({ ok: true })

@@ -24,10 +24,32 @@ function constantTimeEqual(a: string, b: string): boolean {
   return timingSafeEqual(left, right)
 }
 
+function isWebSocketUpgrade(request: Request): boolean {
+  return request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
+}
+
+function isSafeMethod(request: Request): boolean {
+  const method = request.method.toUpperCase()
+  return method === 'GET' || method === 'HEAD'
+}
+
+/**
+ * Browsers send no Origin on same-origin GET/HEAD page and asset loads, but do send it on WebSocket
+ * upgrades and state-changing requests. So those GET/HEAD requests may omit Origin when Fetch Metadata
+ * says the request came from this origin.
+ */
+function originAbsentButSameOrigin(request: Request): boolean {
+  if (!isSafeMethod(request) || isWebSocketUpgrade(request)) {
+    return false
+  }
+  const site = request.headers.get('Sec-Fetch-Site')
+  return site === 'same-origin' || site === 'none'
+}
+
 function originAllowed(request: Request, config: AuthConfig): boolean {
   const header = request.headers.get('Origin')
   if (header === null) {
-    return false
+    return originAbsentButSameOrigin(request)
   }
   const origin = normalizeOrigin(header)
   if (origin === null) {
@@ -63,8 +85,9 @@ function contentTypeAllowed(request: Request): boolean {
 }
 
 /**
- * Gate for every HTTP request and WebSocket upgrade. Checks Origin first, then identity
- * (Tailscale login or bearer token), then the content type of state-changing methods.
+ * Gate for every HTTP request and WebSocket upgrade. Checks Origin first (mandatory for WebSocket
+ * upgrades and non-GET/HEAD; for GET/HEAD it may be absent only with a same-origin Sec-Fetch-Site),
+ * then identity (Tailscale login or bearer token), then the content type of state-changing methods.
  */
 export function authorize(request: Request, config: AuthConfig): AuthResult {
   if (!originAllowed(request, config)) {

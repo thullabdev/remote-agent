@@ -264,6 +264,15 @@ test('static file is served and unknown path falls back to index.html', async ()
   expect(await route.text()).toContain('<title>app</title>')
 })
 
+test('a static GET with Sec-Fetch-Site same-origin and no Origin returns the file', async () => {
+  start()
+
+  const response = await fetch(url('/app.js'), { headers: { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'same-origin' } })
+
+  expect(response.status).toBe(200)
+  expect(await response.text()).toBe('console.log("app")')
+})
+
 test('static path traversal is rejected', async () => {
   start()
 
