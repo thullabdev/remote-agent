@@ -38,6 +38,10 @@ Telegram is off by default. Add `telegram` to `REMOTE_AGENT_CHANNELS` to use it;
 4. Turn off "Remain anonymous" for your own admin account. Anonymous posts arrive from the group, not from you, and the allowlist drops them.
 5. Get the chat id and your user id: put `TELEGRAM_BOT_TOKEN` in `.env`, send a message in the group (Bridge stopped), then run `bun run telegram:ids`. It lists each chat (use the supergroup with Topics, id starts with `-100`) and each user (use your own id). Manual alternative: `curl "https://api.telegram.org/bot<TOKEN>/getUpdates"` and read `message.chat.id` and `message.from.id`.
 
+### Upgrading from the Telegram-only Bridge
+
+The default channel is now `web`. An existing Telegram deployment that keeps its env file unchanged will not start: the Bridge refuses with `Invalid configuration` and names the missing `REMOTE_AGENT_WEB_*` variable. Either add `REMOTE_AGENT_CHANNELS=telegram` to `~/.config/remote-agent/env` to keep Telegram only, or add the web variables (section 2) to run the web channel.
+
 ## 4. Run the Bridge
 
 Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. Set `REMOTE_AGENT_PROJECTS` in the env file to get one button per project.

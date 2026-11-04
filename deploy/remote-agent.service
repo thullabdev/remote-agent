@@ -5,6 +5,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/Sites/remote-agent
+# Upgrading from Telegram-only? Set REMOTE_AGENT_CHANNELS=telegram in that file (the default is now web).
 EnvironmentFile=%h/.config/remote-agent/env
 # claude (~/.local/bin), bun for the mod's hooks (~/.bun/bin), tmux and systemd-run (/usr/bin).
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
