@@ -47,7 +47,7 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - Permission Request: Allow / Deny buttons. Replying `allow`/`yes` allows, `deny`/`no` denies, and any other reply denies with that text as feedback to the agent.
 - On resolution, the buttons are removed and a note is posted as a reply (for example `✅ Allowed (local)`).
 - Any other text in a Session's Thread is an Instruction. It is queued if the Session is busy and delivered when the Session is idle.
-- `/new` shows one button per project in `REMOTE_AGENT_PROJECTS`; `/new <path>` starts in any folder you trusted in Claude Code (exact folder, not a subfolder). The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
+- `/new` shows one button per project in `REMOTE_AGENT_PROJECTS`; `/new <path>` starts only in a folder listed in `REMOTE_AGENT_PROJECTS` (exact folder, not a subfolder). The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
 - `/new --model <model> [path]` (or `-m`) starts the Session with that model instead of your default: `opus`, `sonnet`, `haiku`, `opusplan` or a full id like `claude-sonnet-5-5`. With no path, the project buttons it posts all use that model.
 - Attach in a terminal with the command shown in the Thread and in `/status` (`tmux attach -t ra-xxxxxxxx`); detach with `Ctrl-b d`. Telegram keeps working while you are attached.
 - `/end` in the Thread of a Session started from Telegram sends `/exit` and kills it after 5 seconds if it is still running.

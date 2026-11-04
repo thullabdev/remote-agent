@@ -19,14 +19,12 @@ test('loads a valid environment with defaults', () => {
     reminderAfterMs: 30 * 60_000,
     home: '/home/u',
     projects: [],
-    claudeConfigPath: '/home/u/.claude.json',
   })
 })
 
-test('reads the project list and the Claude config path', () => {
-  const config = loadConfig({ ...base, REMOTE_AGENT_PROJECTS: ' ~/Sites/api , /srv/app,, ', CLAUDE_CONFIG_PATH: '/tmp/claude.json' })
+test('reads the project list', () => {
+  const config = loadConfig({ ...base, REMOTE_AGENT_PROJECTS: ' ~/Sites/api , /srv/app,, ' })
   expect(config.projects).toEqual(['~/Sites/api', '/srv/app'])
-  expect(config.claudeConfigPath).toBe('/tmp/claude.json')
 })
 
 test('honours explicit overrides', () => {

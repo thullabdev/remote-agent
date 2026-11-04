@@ -1,9 +1,9 @@
 import { beforeEach, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { BAD_MODEL, CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
+import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
@@ -17,7 +17,6 @@ let channel: FakeChannel
 let tmux: FakeTmux
 let timers: Timer[]
 let projects: string[]
-let configPath: string
 let spawner: Spawner
 let ids: number
 
@@ -40,7 +39,7 @@ function build(): Spawner {
     channel,
     notifier,
     launcher: new Launcher(tmux.run),
-    trusted: new TrustedFolders({ configPath, home, projects }),
+    trusted: new TrustedFolders({ home, projects }),
     log: () => {},
     schedule,
     sleep: async () => {},
@@ -53,13 +52,7 @@ beforeEach(async () => {
   await mkdir(`${home}/Sites/api`, { recursive: true })
   await mkdir(`${home}/Sites/My Projects/app`, { recursive: true })
   await mkdir(`${home}/Sites/secret`, { recursive: true })
-  configPath = `${home}/.claude.json`
-  await writeFile(configPath, JSON.stringify({ projects: {
-    [`${home}/Sites/api`]: { hasTrustDialogAccepted: true },
-    [`${home}/Sites/My Projects/app`]: { hasTrustDialogAccepted: true },
-    [`${home}/Sites/secret`]: { hasTrustDialogAccepted: false },
-  } }))
-  projects = ['~/Sites/api', '~/Sites/secret']
+  projects = ['~/Sites/api', '~/Sites/gone']
   store = new Store(':memory:')
   channel = new FakeChannel()
   tmux = new FakeTmux()
@@ -68,7 +61,7 @@ beforeEach(async () => {
   spawner = build()
 })
 
-test('/new posts one button per trusted configured project', async () => {
+test('/new posts one button per existing listed project', async () => {
   expect(await spawner.newCommand(null, '')).toBeNull()
   expect(channel.buttons).toEqual([{
     thread: null,
@@ -130,12 +123,13 @@ test('the picker remembers the model given to /new', async () => {
   expect(tmux.calls[0]?.slice(-2)).toEqual(['--model', 'sonnet'])
 })
 
-test('/new with a trusted path containing spaces launches there', async () => {
+test('/new with a listed path containing spaces launches there', async () => {
+  projects.push('~/Sites/My Projects/app')
   expect(await spawner.newCommand('t9', '~/Sites/My Projects/app')).toBe('🚀 Starting app. Open its topic.')
   expect(tmux.calls[0]).toContain(`${home}/Sites/My Projects/app`)
 })
 
-test('untrusted, subfolder and relative paths are refused without launching', async () => {
+test('unlisted, subfolder and relative paths are refused without launching', async () => {
   expect(await spawner.newCommand(null, '~/Sites/secret')).toBe(NOT_TRUSTED)
   expect(await spawner.newCommand(null, '~/Sites')).toBe(NOT_TRUSTED)
   expect(await spawner.newCommand(null, 'Sites/api')).toBe(NOT_TRUSTED)
@@ -153,12 +147,6 @@ test('an unknown picker is stale', async () => {
   expect(await spawner.startFromPicker('deadbeef', 0)).toBe(STALE_PICKER)
   await spawner.newCommand(null, '')
   expect(await spawner.startFromPicker('00000001', 5)).toBe(STALE_PICKER)
-})
-
-test('an unreadable claude config is reported', async () => {
-  await writeFile(configPath, '{oops')
-  expect(await spawner.newCommand(null, '')).toBe(CONFIG_UNREADABLE)
-  expect(await spawner.newCommand(null, '~/Sites/api')).toBe(CONFIG_UNREADABLE)
 })
 
 test('the first mod request posts Ready once, even when several arrive together', async () => {
@@ -270,7 +258,7 @@ test('a second /end during the grace period is refused', async () => {
     release = resolve
   })
   const notifier = new Notifier(store, channel, new AwayMode(false), () => {})
-  spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ configPath, home, projects }), log: () => {}, schedule, sleep: () => gate })
+  spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ home, projects }), log: () => {}, schedule, sleep: () => gate })
   expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
   await flush()
   expect(await spawner.end(thread)).toBe('⏹ Already ending.')

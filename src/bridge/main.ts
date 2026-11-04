@@ -9,7 +9,7 @@ import { AwayMode, Notifier } from './notifier.ts'
 import { PromptService, type Log } from './prompts.ts'
 import { Spawner } from './spawner.ts'
 import { Store } from './store.ts'
-import { TrustedFolders, TrustedFoldersUnavailable } from './trusted.ts'
+import { TrustedFolders } from './trusted.ts'
 
 const log: Log = (message, error) => {
   if (error === undefined) {
@@ -31,7 +31,7 @@ const store = new Store(config.dbPath)
 const channel = new TelegramChannel(config, log)
 const notifier = new Notifier(store, channel, new AwayMode(true), log)
 const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
-const trusted = new TrustedFolders({ configPath: config.claudeConfigPath, home: config.home, projects: config.projects })
+const trusted = new TrustedFolders({ home: config.home, projects: config.projects })
 const spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(), trusted, log })
 const inbound = new Inbound(store, prompts, notifier, spawner)
 
@@ -47,16 +47,8 @@ await channel.start(inbound)
 await spawner.reconcile().catch(error => {
   log('reconciling spawned sessions failed', error)
 })
-try {
-  for (const entry of await trusted.untrustedProjects()) {
-    log(`REMOTE_AGENT_PROJECTS entry is not a trusted folder and is left out of /new: ${entry}`)
-  }
-} catch (error) {
-  if (error instanceof TrustedFoldersUnavailable) {
-    log('cannot read Claude Code trusted folders; /new will refuse every folder', error)
-  } else {
-    log('checking REMOTE_AGENT_PROJECTS against the trusted folders failed', error)
-  }
+for (const entry of await trusted.unusableProjects()) {
+  log(`REMOTE_AGENT_PROJECTS entry is not an existing absolute folder and is left out of /new: ${entry}`)
 }
 const retryUndelivered = (): void => {
   void notifier.redeliverUndelivered().catch(error => {

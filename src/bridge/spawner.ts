@@ -6,11 +6,10 @@ import { tmuxNameFor, type Launcher } from './launcher.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log } from './prompts.ts'
 import type { Store } from './store.ts'
-import { TrustedFoldersUnavailable, type Project, type TrustedFolders } from './trusted.ts'
+import type { Project, TrustedFolders } from './trusted.ts'
 
-export const NOT_TRUSTED = 'Not a trusted folder. Open it once in Claude Code locally and accept the trust dialog.'
+export const NOT_TRUSTED = 'Not a trusted folder. Add it to REMOTE_AGENT_PROJECTS.'
 export const STALE_PICKER = 'Project list changed. Send /new again.'
-export const CONFIG_UNREADABLE = "Can't read Claude Code's trusted folders."
 export const USAGE = 'Usage: /new [--model <model>] <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
@@ -89,18 +88,10 @@ export class Spawner {
     if (parsed === null) {
       return BAD_MODEL
     }
-    try {
-      if (parsed.path !== '') {
-        return await this.startAt(parsed.path, parsed.model)
-      }
-      return await this.postPicker(thread, parsed.model)
-    } catch (error) {
-      if (error instanceof TrustedFoldersUnavailable) {
-        this.deps.log('reading trusted folders failed', error)
-        return CONFIG_UNREADABLE
-      }
-      throw error
+    if (parsed.path !== '') {
+      return await this.startAt(parsed.path, parsed.model)
     }
+    return await this.postPicker(thread, parsed.model)
   }
 
   /** A tap on a picker button. Returns the toast. */
@@ -110,15 +101,7 @@ export class Spawner {
     if (picker === undefined || project === undefined) {
       return STALE_PICKER
     }
-    try {
-      return await this.startAt(project.cwd, picker.model)
-    } catch (error) {
-      if (error instanceof TrustedFoldersUnavailable) {
-        this.deps.log('reading trusted folders failed', error)
-        return CONFIG_UNREADABLE
-      }
-      throw error
-    }
+    return await this.startAt(project.cwd, picker.model)
   }
 
   /** Called for every mod request that names a Session; the first one for a Spawned Session marks it ready. */
