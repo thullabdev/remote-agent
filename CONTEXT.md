@@ -1,6 +1,6 @@
 # Remote Agent
 
-Lets a single user watch and steer their active Claude Code sessions from a messaging app, answering the agent's questions and permission requests remotely so the session continues.
+Lets a single user watch and steer their active Claude Code sessions from a web chat (or a messaging app), answering the agent's questions and permission requests remotely so the session continues.
 
 ## Language
 
@@ -42,22 +42,26 @@ The long-running local process that connects Sessions to the Channel and holds p
 _Avoid_: server, daemon, bot
 
 **Channel**:
-The messaging service the user is reached through (Telegram first).
+The place the user is reached through: the web chat first; Telegram kept switchable (`REMOTE_AGENT_CHANNELS`).
 _Avoid_: provider, platform
 
+**Chat**:
+The web Channel's place for one Session, or for General (commands and the `/new` picker). Created when the Bridge first hears of the Session, marked ended when it ends, and its history stays readable.
+_Avoid_: thread (in the web Channel), room, conversation
+
 **Thread**:
-The place in the Channel dedicated to one Session (a Telegram forum topic). Created on the Session's first message, closed when the Session ends.
+The Telegram form of a **Chat**: a forum topic dedicated to one Session, created on the Session's first message and closed when the Session ends.
 _Avoid_: topic, room, conversation
 
 **Away mode**:
-User-toggled state deciding whether Reports are pushed to the Channel. Prompts are always pushed. On when the Bridge starts.
+User-toggled state deciding whether Reports are pushed to the Channel. Prompts are always pushed. On when the Bridge starts. In the web Channel it gates Web Push of Reports in the same way.
 
 ## Relationships
 
 - A **Session** raises zero or more **Prompts**; each **Prompt** gets at most one **Answer**
 - A **Session** emits **Reports**; only an idle **Session** accepts an **Instruction**
-- The **Bridge** serves exactly one user over one or more **Channels**
-- Each **Session** has at most one **Thread**
+- The **Bridge** serves exactly one user over one **Channel** (web by default; Telegram when selected)
+- Each **Session** has at most one **Thread** (Telegram) or one **Chat** (web)
 - In a **Thread**, a reply to a **Prompt** message is an **Answer**; any other text is an **Instruction**
 - An **Instruction** sent while the **Session** is busy is queued and delivered when it becomes idle
 - An unanswered **Prompt** waits indefinitely; the user gets one reminder after 30 minutes

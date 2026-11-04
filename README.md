@@ -2,13 +2,35 @@
 
 ## 1. What it is
 
-Watch and steer every active Claude Code Session on this machine from Telegram: receive Prompts (Questions and Permission Requests) and Reports, answer Prompts remotely, and send Instructions to idle Sessions so they continue. A local Bun Bridge talks to Telegram, and a Claude Code mod connects each Session to the Bridge.
+Watch and steer every active Claude Code Session on this machine from a web chat (or Telegram): receive Prompts (Questions and Permission Requests) and Reports, answer Prompts remotely, and send Instructions to idle Sessions so they continue. A local Bun Bridge serves the web chat (or talks to Telegram), and a Claude Code mod connects each Session to the Bridge.
 
 - Glossary: [`CONTEXT.md`](CONTEXT.md)
-- Decision: [ADR-0001](docs/adr/0001-mod-as-session-client.md)
+- Decisions: [ADR-0001](docs/adr/0001-mod-as-session-client.md), [ADR-0004 (web channel)](docs/adr/0004-web-channel.md)
 - Research: [`references/`](references/README.md)
 
-## 2. Telegram setup
+## 2. Web channel
+
+The web channel is the default (`REMOTE_AGENT_CHANNELS=web`). It serves a JSON API, a WebSocket and, when `REMOTE_AGENT_WEB_STATIC` is set, a built UI, all on `127.0.0.1:$REMOTE_AGENT_WEB_PORT` (default 8787). Nothing listens on a public interface, so devices reach it through Tailscale.
+
+1. Set the two required values in `~/.config/remote-agent/env`:
+   ```bash
+   REMOTE_AGENT_WEB_ALLOWED_LOGIN=you@example.com        # your Tailscale login
+   REMOTE_AGENT_WEB_ORIGINS=https://box.tail1234.ts.net  # your MagicDNS https URL, exactly (scheme and host)
+   ```
+2. Publish the port over HTTPS on your tailnet: `tailscale serve --bg 8787`. `tailscale serve status` shows the URL to use for `REMOTE_AGENT_WEB_ORIGINS`.
+3. Open that URL on a device in your tailnet. Tailscale adds the `Tailscale-User-Login` header, which the Bridge checks against `REMOTE_AGENT_WEB_ALLOWED_LOGIN`.
+
+`REMOTE_AGENT_WEB_ORIGINS` must hold the MagicDNS URL with `https://`. A bare host such as `box.tail1234.ts.net` never matches a browser's `Origin`, and every write from the browser is refused. Same-origin GET and HEAD requests may omit `Origin` when the browser sends `Sec-Fetch-Site: same-origin`.
+
+- **UI build:** point `REMOTE_AGENT_WEB_STATIC` at the built UI directory. Its files are served with an `index.html` fallback. Without it the Bridge serves only the API and the WebSocket.
+- **Push on iPhone and iPad:** Web Push works only for a page added to the Home Screen (Share, then Add to Home Screen) and opened from there. It also needs HTTPS, which `tailscale serve` provides.
+- **Push subject:** set `REMOTE_AGENT_VAPID_SUBJECT` to a `mailto:` address of yours. Push services such as Apple's may reject the default. The VAPID key pair is created once in `vapid.json` next to the database.
+- **Away mode and push:** Prompts are always pushed. Reports (turn finished, session ended) are pushed only while Away mode is on, which it is when the Bridge starts (`/away`, `/back`). Nothing is pushed while a client is visible and focused.
+
+## 3. Telegram setup (optional)
+
+Telegram is off by default. Add `telegram` to `REMOTE_AGENT_CHANNELS` to use it; its three `TELEGRAM_*` variables are then required. Listing both `web` and `telegram` is not a composite: the Bridge logs `both channels selected; starting the web channel only` and runs the web channel alone.
+
 
 1. In @BotFather: `/newbot`, then copy the token.
 2. Create a private group, open its settings, enable **Topics** (this converts it to a supergroup).
@@ -16,9 +38,9 @@ Watch and steer every active Claude Code Session on this machine from Telegram: 
 4. Turn off "Remain anonymous" for your own admin account. Anonymous posts arrive from the group, not from you, and the allowlist drops them.
 5. Get the chat id and your user id: put `TELEGRAM_BOT_TOKEN` in `.env`, send a message in the group (Bridge stopped), then run `bun run telegram:ids`. It lists each chat (use the supergroup with Topics, id starts with `-100`) and each user (use your own id). Manual alternative: `curl "https://api.telegram.org/bot<TOKEN>/getUpdates"` and read `message.chat.id` and `message.from.id`.
 
-## 3. Run the Bridge
+## 4. Run the Bridge
 
-Starting Sessions from Telegram (`/new`) needs tmux: `sudo apt install tmux`. Set `REMOTE_AGENT_PROJECTS` in the env file to get one button per project.
+Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. Set `REMOTE_AGENT_PROJECTS` in the env file to get one button per project.
 
 ```bash
 mkdir -p ~/.config/remote-agent && cp .env.example ~/.config/remote-agent/env && chmod 600 ~/.config/remote-agent/env
@@ -30,7 +52,7 @@ journalctl --user -u remote-agent -f
 
 After changing `deploy/remote-agent.service`, copy it again and run `systemctl --user daemon-reload && systemctl --user restart remote-agent`.
 
-## 4. Install the mod
+## 5. Install the mod
 
 ```bash
 claude plugin marketplace add /home/giganotosaurus/Sites/remote-agent/mod
@@ -40,7 +62,9 @@ claude plugin list
 
 Already-running sessions pick it up after `/reload-plugins`. The plugin also installs a `PermissionRequest` hook that carries Permission Requests to Telegram.
 
-## 5. Using it
+## 6. Using it
+
+The rules below are the same in the web chat, where a Session's Thread is its Chat. The wording is Telegram's.
 
 - Each Session gets its own Thread, titled `<project> · <first 8 chars of session id>`. It is created lazily on the first message for a Session, and closed (and forgotten) when the Session ends.
 - Question: one message per question. Single-select questions get one button per option. Multi-select questions are answered by replying with numbers (`1,3`). Any reply text that is not option numbers is a free-text ("Other") Answer.
@@ -53,14 +77,15 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - `/end` in the Thread of a Session started from Telegram sends `/exit` and kills it after 5 seconds if it is still running.
 - Commands: `/new`, `/end`, `/away` turns Away mode on (Reports are pushed), `/back` turns it off, `/status` lists Sessions and pending Prompts.
 
-## 6. Security notes
+## 7. Security notes
 
 - The socket is user-only (0600).
-- Only one chat and one user are accepted. Everything else is ignored.
+- Web: the port is loopback only. Access needs the allowed Tailscale login and an allowed Origin (see section 2); the optional `REMOTE_AGENT_WEB_TOKEN` is a bearer fallback for access not through `tailscale serve`.
+- Telegram: only one chat and one user are accepted. Everything else is ignored.
 - Text is redacted and truncated, but Telegram bot chats are **not** end-to-end encrypted.
 - The mod runs with your permissions and never approves anything without an Answer.
 
-## 7. Known limitations
+## 8. Known limitations
 
 - Headless (`-p`/SDK) sessions are not bridged.
 - When Telegram answers a **Question** first, the terminal's question dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a). Permission dialogs close by themselves.
@@ -77,17 +102,33 @@ Already-running sessions pick it up after `/reload-plugins`. The plugin also ins
 - `/end` works only for Sessions started from Telegram.
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
-## 8. Development
+## 9. Development
 
 Run the Bridge in the foreground instead of as a systemd service:
 
 ```bash
-cp .env.example .env          # fill in the three TELEGRAM_* values; .env is git-ignored
+cp .env.example .env          # fill in the values for your channel; .env is git-ignored
 bun run bridge                # Ctrl+C stops it and removes the socket
 bun --watch run src/bridge/main.ts   # or: restart on every file change
 ```
 
 Bun loads `.env` from the working directory automatically. To use the service's config file instead, run `set -a; source ~/.config/remote-agent/env; set +a` first.
+
+Settings (the variables read by `src/bridge/config.ts`):
+
+| Variable | Default | Meaning |
+| :- | :- | :- |
+| `REMOTE_AGENT_CHANNELS` | `web` | Comma list of `web` and `telegram`. Both selected means web only (logged). |
+| `REMOTE_AGENT_WEB_PORT` | `8787` | Loopback port of the web channel. |
+| `REMOTE_AGENT_WEB_ALLOWED_LOGIN` | required with web | The Tailscale login allowed in. |
+| `REMOTE_AGENT_WEB_ORIGINS` | required with web | Comma list of allowed origins, for example `https://box.tail1234.ts.net`. |
+| `REMOTE_AGENT_WEB_TOKEN` | none | Optional bearer token for access not through `tailscale serve`. |
+| `REMOTE_AGENT_WEB_STATIC` | none | Built UI directory to serve, with `index.html` fallback. |
+| `REMOTE_AGENT_VAPID_SUBJECT` | `mailto:remote-agent@localhost` | Contact in the Web Push keys: a `mailto:` or `https:` URL. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_ID` | required with telegram | See section 3. |
+| `REMOTE_AGENT_DB` | `~/.local/state/remote-agent/bridge.db` | SQLite database (chat log, sessions, prompts). |
+| `REMOTE_AGENT_REMINDER_MINUTES` | `30` | Reminder for a Prompt nobody answers. |
+| `REMOTE_AGENT_PROJECTS` | none | Trusted folders offered by `/new`. |
 
 Handy overrides for `.env` while developing:
 

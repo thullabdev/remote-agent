@@ -1,5 +1,5 @@
 [Unit]
-Description=Remote Agent bridge (Claude Code <-> Telegram)
+Description=Remote Agent bridge (Claude Code <-> web chat / Telegram)
 After=network-online.target
 
 [Service]
