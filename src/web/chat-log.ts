@@ -194,6 +194,9 @@ export class ChatLog {
       }
       this.db.query('UPDATE messages SET body = ? WHERE id = ?').run(JSON.stringify(stored), id)
       const message = { ...stored, id, chatId: current.chatId, seq: current.seq, at: current.at } as Message
+      if (current.seq <= this.hiddenBefore(current.chatId)) {
+        return { value: message, events: [] }
+      }
       const events = [this.emit('message.updated', { message })]
       if (this.lastVisible(current.chatId)?.seq === current.seq) {
         events.push(this.emitChat(current.chatId))
@@ -247,12 +250,13 @@ export class ChatLog {
     })
   }
 
-  /** Hides every message so far from listings; later messages stay visible. */
+  /** Hides every message so far from listings and replays; later messages stay visible. */
   clearChat(chatId: string): void {
     this.write(() => {
       this.chatOrThrow(chatId)
-      this.db.query('UPDATE chats SET hidden_before_seq = ? WHERE id = ?').run(this.currentMessageSeq(), chatId)
-      return { value: undefined, events: [this.emitChat(chatId)] }
+      const beforeSeq = this.currentMessageSeq()
+      this.db.query('UPDATE chats SET hidden_before_seq = ? WHERE id = ?').run(beforeSeq, chatId)
+      return { value: undefined, events: [this.emit('chat.cleared', { chatId, beforeSeq }), this.emitChat(chatId)] }
     })
   }
 
@@ -266,6 +270,7 @@ export class ChatLog {
     return this.maxSeq('messages')
   }
 
+  /** Message events for messages hidden by a clear are left out; the chat.cleared event tells clients to drop them. */
   eventsAfter(seq: number): ServerEvent[] | 'resync' {
     if (seq > this.currentSeq()) {
       return 'resync'
@@ -274,10 +279,29 @@ export class ChatLog {
     if (oldest !== null && seq < oldest - 1) {
       return 'resync'
     }
-    return this.db
+    const hidden = new Map<string, number>()
+    const hiddenOf = (chatId: string): number => {
+      const cached = hidden.get(chatId)
+      if (cached !== undefined) {
+        return cached
+      }
+      const value = this.hiddenBefore(chatId)
+      hidden.set(chatId, value)
+      return value
+    }
+    const events: ServerEvent[] = []
+    for (const record of this.db
       .query<EventRecord, [number]>('SELECT seq, type, payload FROM events WHERE seq > ? ORDER BY seq')
-      .all(seq)
-      .map(record => ({ type: record.type, seq: record.seq, ...JSON.parse(record.payload) }) as ServerEvent)
+      .all(seq)) {
+      const event = { type: record.type, seq: record.seq, ...JSON.parse(record.payload) } as ServerEvent
+      if (event.type === 'message.created' || event.type === 'message.updated') {
+        if (event.message.seq <= hiddenOf(event.message.chatId)) {
+          continue
+        }
+      }
+      events.push(event)
+    }
+    return events
   }
 
   addPushSubscription(subscription: PushSubscriptionRecord): void {
@@ -332,6 +356,7 @@ export class ChatLog {
 
   private emit(type: 'message.created' | 'message.updated', payload: { message: Message }): ServerEvent
   private emit(type: 'chat.updated', payload: { chat: Chat }): ServerEvent
+  private emit(type: 'chat.cleared', payload: { chatId: string; beforeSeq: number }): ServerEvent
   private emit(type: string, payload: object): ServerEvent {
     const row = this.db
       .query<{ seq: number }, [string, string]>('INSERT INTO events (type, payload) VALUES (?, ?) RETURNING seq')

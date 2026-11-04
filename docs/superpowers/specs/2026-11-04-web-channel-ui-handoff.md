@@ -90,6 +90,7 @@ Server → client:
 { type: 'message.created'; seq: number; message: Message }
 { type: 'message.updated'; seq: number; message: Message }          // prompt answered, instruction delivered, tool_run finished
 { type: 'chat.updated'; seq: number; chat: Chat }                   // title, busy, unread, lastMessage, ended
+{ type: 'chat.cleared'; seq: number; chatId: string; beforeSeq: number }  // drop messages of that chat with seq <= beforeSeq
 { type: 'away.updated'; seq: number; away: boolean }
 { type: 'resync' }                                                  // too far behind: refetch /api/state and reopen
 ```

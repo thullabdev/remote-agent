@@ -259,3 +259,33 @@ test('push subscriptions are stored by endpoint and can be removed', () => {
   log.removePushSubscription(endpoint)
   expect(log.listPushSubscriptions()).toEqual([])
 })
+
+test('clearChat emits chat.cleared with beforeSeq', () => {
+  const message = log.appendMessage('c1', agent('old'))
+  const before = log.currentSeq()
+  log.clearChat('c1')
+  expect(eventsSince(before)).toMatchObject([
+    { type: 'chat.cleared', chatId: 'c1', beforeSeq: message.seq },
+    { type: 'chat.updated', chat: { id: 'c1' } },
+  ])
+})
+
+test('eventsAfter(0) after a clear omits message events for cleared messages but keeps later ones and the chat.cleared event', () => {
+  const old = log.appendMessage('c1', agent('old'))
+  log.clearChat('c1')
+  const later = log.appendMessage('c1', agent('new'))
+  const events = eventsSince(0)
+  const createdIds = events.flatMap(event => (event.type === 'message.created' ? [event.message.id] : []))
+  expect(createdIds).toEqual([later.id])
+  expect(createdIds).not.toContain(old.id)
+  expect(events.map(event => event.type)).toContain('chat.cleared')
+})
+
+test('updateMessage on a cleared message emits no message.updated', () => {
+  const old = log.appendMessage('c1', agent('old'))
+  log.clearChat('c1')
+  const before = log.currentSeq()
+  log.updateMessage(old.id, agent('edited'))
+  expect(markdownOf(log.findMessage(old.id))).toBe('edited')
+  expect(eventsSince(before)).toEqual([])
+})

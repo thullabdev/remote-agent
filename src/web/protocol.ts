@@ -64,6 +64,7 @@ export type ServerEvent =
   | { type: 'message.created'; seq: number; message: Message }
   | { type: 'message.updated'; seq: number; message: Message }
   | { type: 'chat.updated'; seq: number; chat: Chat }
+  | { type: 'chat.cleared'; seq: number; chatId: string; beforeSeq: number }
   | { type: 'away.updated'; seq: number; away: boolean }
   | { type: 'resync' }
 
