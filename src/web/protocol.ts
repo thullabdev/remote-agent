@@ -79,3 +79,24 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
 ])
 
 export type ClientEvent = z.infer<typeof ClientEventSchema>
+
+/** The source id a client-sent message is stored under, so a retry with the same clientId finds it. */
+export function clientSourceId(clientId: string): string {
+  return `client:${clientId}`
+}
+
+// Request bodies of the HTTP API (handoff §3). Unknown keys are stripped; a bad body answers 400.
+const NonBlankText = z.string().refine(text => text.trim() !== '', 'must not be blank')
+
+export const SendMessageSchema = z.object({ clientId: z.string().min(1), text: NonBlankText })
+
+export const ActionSchema = z.union([
+  z.object({ promptId: z.string().min(1), questionIndex: z.number().int().min(0), optionIndex: z.number().int().min(0) }),
+  z.object({ pickerId: z.string().min(1), choice: z.number().int().min(0) }),
+])
+
+export const PromptReplySchema = z.object({ questionIndex: z.number().int().min(0), text: NonBlankText })
+
+export const ReadSchema = z.object({ seq: z.number().int().min(0) })
+
+export const AwaySchema = z.object({ away: z.boolean() })

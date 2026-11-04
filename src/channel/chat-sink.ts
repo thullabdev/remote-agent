@@ -15,8 +15,8 @@ export interface ChatSink {
   promptCreated(prompt: PromptRow, session: SessionRow): string[]
   /** Flips the prompt messages (the refs Notifier stored) to answered with the resolution. */
   promptResolved(prompt: PromptRow, refs: string[]): void
-  /** Appends a user_text message (queued) for an Instruction; used by the web API (Task 7), not by Inbound. */
-  instructionQueued(instruction: Instruction, session: SessionRow): Message
+  /** Appends a user_text message (queued) for an Instruction; used by the web API, not by Inbound. A clientId makes the append idempotent. */
+  instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null): Message
   /** Flips the user_text of that instruction to delivered. */
   instructionDelivered(instructionId: string): void
   /** Session_started/ended -> system message; turn_complete -> agent_text unless the transcript probe says active (see below). */

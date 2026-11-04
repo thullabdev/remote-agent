@@ -235,6 +235,24 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  /** The message of this chat appended with this source id (a client id, for idempotent sends). */
+  findBySourceId(chatId: string, sourceId: string): Message | undefined {
+    const record = this.db
+      .query<MessageRecord, [string, string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND source_id = ?`)
+      .get(chatId, sourceId)
+    return record === null ? undefined : toMessage(record)
+  }
+
+  /** The user_text message created for an Instruction, whatever source id it was appended with. */
+  findByInstructionId(instructionId: string): Message | undefined {
+    const record = this.db
+      .query<MessageRecord, [string]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE kind = 'user_text' AND json_extract(body, '$.instructionId') = ?`,
+      )
+      .get(instructionId)
+    return record === null ? undefined : toMessage(record)
+  }
+
   findMessage(id: string): Message | undefined {
     const record = this.db.query<MessageRecord, [string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE id = ?`).get(id)
     return record === null ? undefined : toMessage(record)

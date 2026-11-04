@@ -5,7 +5,7 @@ import { permissionSummaryFull, plainResolutionNote, sessionLabel, threadTitle }
 import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../channel/types.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
-import type { Message, PromptBodyView } from './protocol.ts'
+import { clientSourceId, type Message, type PromptBodyView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 
@@ -210,16 +210,17 @@ export class WebChannel implements Channel, ChatSink {
     }
   }
 
-  instructionQueued(instruction: Instruction, session: SessionRow): Message {
+  instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null): Message {
+    const sourceId = clientId === undefined || clientId === null ? instruction.id : clientSourceId(clientId)
     return this.chatLog.appendMessage(
       this.chatFor(session),
       { kind: 'user_text', text: instruction.text, status: 'queued', instructionId: instruction.id },
-      { sourceId: instruction.id },
+      { sourceId },
     )
   }
 
   instructionDelivered(instructionId: string): void {
-    const current = this.chatLog.findMessageBySource(instructionId)
+    const current = this.chatLog.findByInstructionId(instructionId)
     if (current === undefined || current.kind !== 'user_text') {
       return
     }
