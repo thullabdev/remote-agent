@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -195,6 +195,92 @@ test('a corrupt VAPID file is an error and is not regenerated', async () => {
     await writeFile(join(dir, 'vapid.json'), '{not json')
     await expect(loadOrCreateVapid(dir)).rejects.toThrow(/vapid\.json/)
     expect(await readFile(join(dir, 'vapid.json'), 'utf8')).toBe('{not json')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("a never-resolving send does not block the others and notify still resolves", async () => {
+  chatLog.addPushSubscription(subOf('b'))
+  const delivered: string[] = []
+  const push = new PushService({
+    chatLog,
+    hub,
+    away,
+    vapid: VAPID,
+    sendTimeoutMs: 20,
+    send: subscription => {
+      if (subscription.endpoint === subOf('a').endpoint) {
+        return new Promise(() => {})
+      }
+      delivered.push(subscription.endpoint)
+      return Promise.resolve({ status: 201 })
+    },
+    log: message => {
+      logged.push(message)
+    },
+  })
+  const setSpy = spyOn(globalThis, 'setTimeout')
+  const clearSpy = spyOn(globalThis, 'clearTimeout')
+  try {
+    await push.notify(prompt)
+    const started = setSpy.mock.results.map(result => result.value as unknown)
+    const cleared = clearSpy.mock.calls.map(call => call[0] as unknown)
+    for (const timer of started) {
+      expect(cleared).toContain(timer)
+    }
+  } finally {
+    setSpy.mockRestore()
+    clearSpy.mockRestore()
+  }
+  expect(delivered).toEqual([subOf('b').endpoint])
+  expect(chatLog.listPushSubscriptions().map(item => item.endpoint)).toContain(subOf('a').endpoint)
+  expect(logged.some(line => line.includes('timed out') && line.includes('push.example'))).toBe(true)
+})
+
+test('a 404 prunes', async () => {
+  status = async () => ({ status: 404 })
+  await service().notify(prompt)
+  expect(chatLog.listPushSubscriptions()).toEqual([])
+})
+
+test('a 500 or 429 does not prune the subscription', async () => {
+  for (const code of [500, 429]) {
+    status = async () => ({ status: code })
+    await service().notify(prompt)
+  }
+  expect(chatLog.listPushSubscriptions().map(item => item.endpoint)).toEqual([subOf('a').endpoint])
+})
+
+test('a non-2xx status is logged with the host only', async () => {
+  status = async () => ({ status: 500 })
+  await service().notify(prompt)
+  expect(logged.length).toBe(1)
+  expect(logged[0]).toContain('push.example')
+  expect(logged[0]).toContain('500')
+  expect(logged[0]).not.toContain(subOf('a').endpoint)
+  expect(logged[0]).not.toContain('/a')
+})
+
+test('a very long title keeps the payload under 4 KB', async () => {
+  const longChat = 'c'.repeat(10_000)
+  chatLog.createChat({ id: longChat, sessionId: null, title: 'long' })
+  await service().notify({ kind: 'prompt', chatId: longChat, title: 'T'.repeat(10_000), text: 'hi' })
+  const payload = sent[0]?.payload ?? ''
+  expect(payload.length).toBeLessThan(4096)
+  const parsed = JSON.parse(payload)
+  expect(Array.from(parsed.title).length).toBe(100)
+  expect(parsed.chatId.length).toBe(100)
+})
+
+test("a concurrent create keeps the first file's keys", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ra-vapid-'))
+  try {
+    const results = await Promise.all([1, 2, 3, 4, 5].map(() => loadOrCreateVapid(dir)))
+    for (const result of results) {
+      expect(result).toEqual(results[0] as { publicKey: string; privateKey: string })
+    }
+    expect(JSON.parse(await readFile(join(dir, 'vapid.json'), 'utf8'))).toEqual(results[0])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

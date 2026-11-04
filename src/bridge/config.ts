@@ -84,12 +84,25 @@ const VapidSubjectSchema = z.string().optional().transform((raw, ctx) => {
   if (trimmed === '') {
     return DEFAULT_VAPID_SUBJECT
   }
-  if (!/^(mailto|https):/i.test(trimmed)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must start with mailto: or https: (for example mailto:you@example.com)' })
-    return trimmed
+  if (!isVapidSubject(trimmed)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must be a mailto: or https: URL (for example mailto:you@example.com)' })
   }
   return trimmed
 })
+
+function isVapidSubject(value: string): boolean {
+  if (/^mailto:\S/i.test(value)) {
+    return true
+  }
+  if (!/^https:\/\//i.test(value)) {
+    return false
+  }
+  try {
+    return new URL(value).hostname !== ''
+  } catch {
+    return false
+  }
+}
 
 const WebEnvSchema = z.object({
   REMOTE_AGENT_WEB_PORT: z.coerce.number().int().min(1).max(65535).default(8787),

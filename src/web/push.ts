@@ -1,4 +1,4 @@
-import { mkdir, readFile, chmod, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { generateVAPIDKeys, sendNotification, WebPushError } from 'web-push'
 import { z } from 'zod'
@@ -9,6 +9,10 @@ import type { Hub } from './hub.ts'
 import type { PushSubscriptionRecord } from './protocol.ts'
 
 const PREVIEW_CHARS = 140
+const TITLE_CHARS = 100
+const CHAT_ID_CHARS = 100
+/** Per push: the web-push request timeout, and the guard that abandons a send that never settles. */
+export const SEND_TIMEOUT_MS = 10_000
 const PROMPT_TTL_SECONDS = 3600
 const REPORT_TTL_SECONDS = 600
 const GONE_STATUSES = [404, 410]
@@ -25,15 +29,21 @@ export type PushDeps = {
   away: Pick<AwayMode, 'isAway'>
   vapid: { publicKey: string; privateKey: string; subject: string }
   send?: PushSend
+  /** How long one send may take before it is abandoned (the subscription is kept). */
+  sendTimeoutMs?: number
   log: Log
 }
+
+class SendTimedOut extends Error {}
 
 /** Web Push for the web channel: who gets a push, what it says, and pruning of subscriptions the push service has dropped. */
 export class PushService {
   private readonly send: PushSend
+  private readonly sendTimeoutMs: number
 
   constructor(private readonly deps: PushDeps) {
     this.send = deps.send ?? (async (subscription, payload, options) => defaultSend(deps.vapid, subscription, payload, options))
+    this.sendTimeoutMs = deps.sendTimeoutMs ?? SEND_TIMEOUT_MS
   }
 
   publicKey(): string {
@@ -59,7 +69,12 @@ export class PushService {
     const options: PushOptions = isPrompt
       ? { urgency: 'high', ttlSeconds: PROMPT_TTL_SECONDS }
       : { urgency: 'normal', ttlSeconds: REPORT_TTL_SECONDS }
-    const payload = JSON.stringify({ chatId: event.chatId, title: event.title, preview: preview(event.text), kind: event.kind })
+    const payload = JSON.stringify({
+      chatId: capChars(event.chatId, CHAT_ID_CHARS),
+      title: capChars(event.title, TITLE_CHARS),
+      preview: capChars(event.text, PREVIEW_CHARS),
+      kind: event.kind,
+    })
     const subscriptions = this.deps.chatLog.listPushSubscriptions()
     await Promise.allSettled(subscriptions.map(subscription => this.deliver(subscription, payload, options)))
   }
@@ -67,21 +82,40 @@ export class PushService {
   private async deliver(subscription: PushSubscriptionRecord, payload: string, options: PushOptions): Promise<void> {
     const host = hostOf(subscription.endpoint)
     try {
-      const { status } = await this.send(subscription, payload, options)
+      const { status } = await this.sendWithTimeout(subscription, payload, options)
       if (GONE_STATUSES.includes(status)) {
         this.deps.chatLog.removePushSubscription(subscription.endpoint)
       } else if (status < 200 || status >= 300) {
         this.deps.log(`web push to ${host} failed with status ${status}`)
       }
     } catch (error) {
-      this.deps.log(`web push to ${host} failed: ${scrub(error, subscription)}`)
+      if (error instanceof SendTimedOut) {
+        this.deps.log(`web push to ${host} timed out after ${this.sendTimeoutMs} ms`)
+      } else {
+        this.deps.log(`web push to ${host} failed: ${scrub(error, subscription)}`)
+      }
+    }
+  }
+
+  /** Rejects with SendTimedOut if the send has not settled in time; the timer is cleared either way. */
+  private async sendWithTimeout(subscription: PushSubscriptionRecord, payload: string, options: PushOptions): Promise<{ status: number }> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new SendTimedOut('send timed out'))
+      }, this.sendTimeoutMs)
+    })
+    try {
+      return await Promise.race([this.send(subscription, payload, options), expired])
+    } finally {
+      clearTimeout(timer)
     }
   }
 }
 
-/** The first 140 characters, cut on code points so a surrogate pair is never split. */
-function preview(text: string): string {
-  return Array.from(text).slice(0, PREVIEW_CHARS).join('')
+/** At most `max` characters, cut on code points so a surrogate pair is never split. */
+function capChars(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('')
 }
 
 function hostOf(endpoint: string): string {
@@ -112,6 +146,7 @@ async function defaultSend(
       vapidDetails: { subject: vapid.subject, publicKey: vapid.publicKey, privateKey: vapid.privateKey },
       TTL: options.ttlSeconds,
       urgency: options.urgency,
+      timeout: SEND_TIMEOUT_MS,
     })
     return { status: result.statusCode }
   } catch (error) {
@@ -127,17 +162,42 @@ const VapidFileSchema = z.object({ publicKey: z.string().min(1), privateKey: z.s
 /**
  * Reads the VAPID key pair from `<dataDir>/vapid.json`, creating it (mode 0600) on first use.
  * A file that exists but cannot be read or parsed is an error: regenerating would invalidate every subscription.
+ * Creation is exclusive, so a concurrent first call keeps whichever file was written first.
  */
 export async function loadOrCreateVapid(dataDir: string): Promise<{ publicKey: string; privateKey: string }> {
   const file = join(dataDir, VAPID_FILE)
+  const existing = await readVapid(file)
+  if (existing !== null) {
+    return existing
+  }
+  const keys = generateVAPIDKeys()
+  const pair = { publicKey: keys.publicKey, privateKey: keys.privateKey }
+  await mkdir(dataDir, { recursive: true })
+  try {
+    await writeFile(file, `${JSON.stringify(pair, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    return pair
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error
+    }
+    const winner = await readVapid(file)
+    if (winner === null) {
+      throw new Error(`${file} vanished while it was being created`)
+    }
+    return winner
+  }
+}
+
+/** The key pair in `file`, or null when there is no file. A file that is present but unusable is an error. */
+async function readVapid(file: string): Promise<{ publicKey: string; privateKey: string } | null> {
   let text: string
   try {
     text = await readFile(file, 'utf8')
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw new Error(`Cannot read ${file}: ${(error as Error).message}`)
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
     }
-    return createVapid(dataDir, file)
+    throw new Error(`Cannot read ${file}: ${(error as Error).message}`)
   }
   let parsed: unknown
   try {
@@ -150,13 +210,4 @@ export async function loadOrCreateVapid(dataDir: string): Promise<{ publicKey: s
     throw new Error(`${file} does not hold a VAPID key pair; fix or remove it (removing it invalidates every push subscription)`)
   }
   return keys.data
-}
-
-async function createVapid(dataDir: string, file: string): Promise<{ publicKey: string; privateKey: string }> {
-  const keys = generateVAPIDKeys()
-  const pair = { publicKey: keys.publicKey, privateKey: keys.privateKey }
-  await mkdir(dataDir, { recursive: true })
-  await writeFile(file, `${JSON.stringify(pair, null, 2)}\n`, { mode: 0o600 })
-  await chmod(file, 0o600)
-  return pair
 }

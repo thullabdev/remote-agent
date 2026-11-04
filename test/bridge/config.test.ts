@@ -119,3 +119,13 @@ test('an empty VAPID subject falls back to the default and a non-mailto/https su
   expect(() => withSubject('ops@example.com')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
   expect(() => withSubject('http://example.com')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
 })
+
+test('a VAPID subject must be a complete mailto or https URL', () => {
+  const withSubject = (value: string) => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_VAPID_SUBJECT: value })
+  expect(withSubject('mailto:ops@example.com').web?.vapidSubject).toBe('mailto:ops@example.com')
+  expect(withSubject('https://push.example.com/contact').web?.vapidSubject).toBe('https://push.example.com/contact')
+  expect(() => withSubject('https:')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+  expect(() => withSubject('https:x')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+  expect(() => withSubject('mailto:')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+  expect(() => withSubject('mailto:   ')).toThrow('REMOTE_AGENT_VAPID_SUBJECT')
+})
