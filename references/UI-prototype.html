@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ThullabDev Agents</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+/* shadcn-compatible token names: background, foreground, card, muted, border, primary, ... */
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    fontFamily: {
+      sans: ['Inter', 'system-ui', 'sans-serif'],
+      display: ['Space Grotesk', 'Inter', 'sans-serif'],
+      mono: ['IBM Plex Mono', 'ui-monospace', 'monospace'],
+    },
+    colors: {
+      background: 'rgb(var(--background) / <alpha-value>)',
+      foreground: 'rgb(var(--foreground) / <alpha-value>)',
+      card: 'rgb(var(--card) / <alpha-value>)',
+      muted: 'rgb(var(--muted) / <alpha-value>)',
+      'muted-foreground': 'rgb(var(--muted-foreground) / <alpha-value>)',
+      border: 'rgb(var(--border) / <alpha-value>)',
+      primary: 'rgb(var(--primary) / <alpha-value>)',
+      'primary-foreground': 'rgb(var(--primary-foreground) / <alpha-value>)',
+    },
+  } },
+};
+</script>
+<style>
+  /* ThullabDev tokens: Ink #111111 / Paper #F7F6F2 / Stone #D9D6CE / Olive #3F4A3C / Blue #355C7D */
+  :root { --background:245 243 236; --foreground:17 17 17; --card:252 251 247; --muted:233 230 221; --grain:.3; --glow:150 142 118; --glow-a:.3;
+    --muted-foreground:108 105 96; --border:212 208 197; --primary:17 17 17; --primary-foreground:247 246 242; }
+  .dark { --background:30 30 28; --foreground:238 236 230; --card:40 40 37; --muted:51 51 47; --grain:.5; --glow:210 200 170;
+    --muted-foreground:164 162 153; --border:68 68 62; --primary:238 236 230; --primary-foreground:17 17 17; }
+  [data-accent=olive] { --primary:63 74 60; --primary-foreground:247 246 242; --glow:96 125 88; }
+  .dark[data-accent=olive] { --primary:134 152 128; --primary-foreground:17 17 17; --glow:120 160 108; }
+  [data-accent=blue] { --primary:53 92 125; --primary-foreground:247 246 242; --glow:60 120 190; }
+  .dark[data-accent=blue] { --primary:118 163 199; --primary-foreground:17 17 17; --glow:80 140 220; }
+  [data-accent=clay] { --primary:160 82 55; --primary-foreground:247 246 242; --glow:200 100 60; }
+  .dark[data-accent=clay] { --primary:214 130 100; --primary-foreground:17 17 17; --glow:230 120 80; }
+  [data-accent=plum] { --primary:112 64 100; --primary-foreground:247 246 242; --glow:150 70 140; }
+  .dark[data-accent=plum] { --primary:178 124 168; --primary-foreground:17 17 17; --glow:200 110 190; }
+  [data-accent=amber] { --primary:168 112 30; --primary-foreground:247 246 242; --glow:210 140 30; }
+  .dark[data-accent=amber] { --primary:224 170 80; --primary-foreground:17 17 17; --glow:240 180 70; }
+  [data-accent=teal] { --primary:30 110 108; --primary-foreground:247 246 242; --glow:30 140 135; }
+  .dark[data-accent=teal] { --primary:80 180 176; --primary-foreground:17 17 17; --glow:60 200 190; }
+  /* accent light rising from the bottom of the chat; strength via Settings > Glow */
+  [data-glow=off] { --glow-a:0; } [data-glow=soft] { --glow-a:.3; } [data-glow=strong] { --glow-a:.5; }
+  .chat-glow { background-image:
+    radial-gradient(90% 45% at 50% 105%, rgb(var(--glow) / var(--glow-a)), transparent 70%),
+    radial-gradient(45% 22% at 50% 102%, rgb(var(--glow) / calc(var(--glow-a) * 1.2)), transparent 75%); }
+  /* aurora: two blurred blobs drift, stretch and sway at different speeds (second one hue-shifted) */
+  .chat-glow { background-image: none; position: relative; overflow: hidden; }
+  .chat-glow::before, .chat-glow::after { content: ""; position: absolute; z-index: -1; pointer-events: none; border-radius: 50%; will-change: transform;
+    opacity: calc(var(--glow-a) * 1.5); background: radial-gradient(closest-side, rgb(var(--glow)) 0%, transparent 100%); }
+  .chat-glow::before { left: 5%; right: 35%; bottom: -18%; height: 46%; filter: blur(28px); animation: aurora-a 9s ease-in-out infinite alternate; }
+  .chat-glow::after { left: 40%; right: -5%; bottom: -14%; height: 38%; filter: blur(30px) hue-rotate(38deg); animation: aurora-b 12s ease-in-out infinite alternate; }
+  @keyframes aurora-a { 0% { transform: translateX(-45%) skewX(-8deg) scale(1, .8); } 50% { transform: translateX(20%) skewX(6deg) scale(1.2, 1.25); } 100% { transform: translateX(70%) skewX(-4deg) scale(.9, .9); } }
+  @keyframes aurora-b { 0% { transform: translateX(60%) skewX(7deg) scale(1.1, .9); } 50% { transform: translateX(-30%) skewX(-6deg) scale(.85, 1.3); } 100% { transform: translateX(-80%) skewX(5deg) scale(1.05, .85); } }
+  html, body, #root { height: 100%; }
+  /* film grain: fractal noise overlay, strength via --grain (tune per theme above) */
+  body::before { content: ""; position: fixed; inset: 0; z-index: 60; pointer-events: none; opacity: var(--grain); mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"); }
+  body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); box-sizing: border-box; overscroll-behavior: none; }
+  textarea:focus, input:focus { outline: none; }
+  .dot { animation: b 1.2s infinite ease-in-out; } .dot:nth-child(2){animation-delay:.15s} .dot:nth-child(3){animation-delay:.3s}
+  @keyframes b { 0%,60%,100%{opacity:.3;transform:translateY(0)} 30%{opacity:1;transform:translateY(-3px)} }
+  @media (prefers-reduced-motion: reduce) { .dot, .chat-glow::before, .chat-glow::after { animation: none; } * { transition-duration: 0s !important; } }
+</style>
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+<div id="root"></div>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+const uid = () => Math.random().toString(36).slice(2, 9);
+const ago = (m) => Date.now() - m * 60000;
+const fmt = (t) => new Date(t).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+/* ---------- dummy data ---------- */
+const MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'];
+const EFFORTS = ['low', 'medium', 'high'];
+const SKILLS = [
+  { name: 'carousel', desc: 'Buat carousel Instagram ThullabDev' },
+  { name: 'review-code', desc: 'Review diff dan kasih catatan' },
+  { name: 'summarize', desc: 'Ringkas dokumen atau thread' },
+  { name: 'write-post', desc: 'Tulis draft dengan gaya ThullabDev' },
+];
+const CONFIGS = [
+  { name: 'model', desc: 'Ganti model, mis. /model claude-opus-5-5' },
+  { name: 'effort', desc: 'low, medium, atau high' },
+  { name: 'cwd', desc: 'Ganti working directory, mis. /cwd ~/projects/app' },
+  { name: 'clear', desc: 'Hapus riwayat session ini' },
+  { name: 'new', desc: 'Buat session baru, mis. /new Belajar graph', general: true },
+];
+const cfg0 = { model: MODELS[0], effort: 'medium' };
+const seed = () => [
+  { id: 'general', title: 'General', sub: 'Router agent', cwd: '~/workspace', glyph: '⌘', pinned: true, unread: 0, cfg: { ...cfg0 }, skills: ['carousel', 'summarize'],
+    msgs: [
+      { id: uid(), role: 'ai', t: ago(90), text: 'Halo, aku router. Ketik /new diikuti nama untuk membuka session baru, misalnya /new Belajar graph.' },
+      { id: uid(), role: 'user', t: ago(60), text: '/new Refactor auth module' },
+      { id: uid(), role: 'ai', t: ago(59), text: 'Session “Refactor auth module” sudah dibuat.', action: 'refactor' },
+    ] },
+  { id: 'refactor', title: 'Refactor auth module', sub: 'Engineering', cwd: '~/workspace/auth-service', glyph: 'R', unread: 2, cfg: { ...cfg0, effort: 'high' }, skills: ['review-code'],
+    msgs: [
+      { id: uid(), role: 'user', t: ago(45), text: 'Dulu aku kira refactor itu soal rapi-rapi saja. Bisa bantu petakan dulu dependensi di auth module?' },
+      { id: uid(), role: 'ai', t: ago(44), text: 'Bisa. Ada tiga titik yang paling saling bergantung: session store, token refresh, dan middleware guard. Aku mulai dari token refresh, karena itu yang paling sering menimbulkan bug.' },
+      { id: uid(), role: 'ai', t: ago(12),
+        run: [{ name: 'read_file', desc: 'Membaca auth/token.ts', dur: '0.4s' }, { name: 'grep_usage', desc: 'Mencari pemakaian refresh token', dur: '0.7s' }],
+        blocks: [{ t: 'p', v: 'Refresh token masih dibaca langsung dari cookie di dua tempat. Itu kandidat pertama untuk dipusatkan.' }, { t: 'p', v: 'Mau kukerjakan yang mana dulu?' }],
+        steps: [{ title: 'Reading auth module', desc: 'Memindai file yang terkait token', dur: '0.4s' }, { title: 'Tracing usage', desc: 'Menelusuri semua pembaca cookie', dur: '0.7s' }],
+        choices: [['Pusatkan token refresh'], ['Tulis test dulu', 'Lihat diff dulu']] },
+    ] },
+  { id: 'carousel', title: '10 Tahun Jadi Programmer', sub: 'Carousel', cwd: '~/content/carousel', glyph: 'C', unread: 0, cfg: { ...cfg0 }, skills: ['carousel', 'write-post'],
+    msgs: [
+      { id: uid(), role: 'user', t: ago(300), text: '/carousel Kenapa senior engineer tidak selalu paling jago coding?' },
+      { id: uid(), role: 'ai', t: ago(299), text: 'Draft 7 slide siap. Slide 1: “Aku dulu mikir senior itu yang paling jago coding.” Slide terakhir berupa pertanyaan refleksi, bukan ajakan follow.' },
+    ] },
+  { id: 'math', title: 'Belajar Discrete Math', sub: 'Learning log', cwd: '~/notes/discrete-math', glyph: 'D', unread: 0, cfg: { ...cfg0, effort: 'low' }, skills: ['summarize'],
+    msgs: [
+      { id: uid(), role: 'user', t: ago(1500), text: 'Aku masih bingung bedanya permutasi dan kombinasi.' },
+      { id: uid(), role: 'ai', t: ago(1499), text: 'Bayangin tiga orang antre. Kalau urutan penting, itu permutasi. Kalau cuma siapa yang ikut, itu kombinasi.' },
+    ] },
+  { id: 'ummah', title: 'Build log: Ummah app', sub: 'Building', cwd: '~/workspace/ummah-app', glyph: 'U', unread: 1, cfg: { ...cfg0, model: MODELS[1] }, skills: ['write-post', 'summarize'],
+    msgs: [{ id: uid(), role: 'ai', t: ago(3000), text: 'Minggu ini: skema database untuk jadwal kajian sudah rampung. Berikutnya notifikasi.' }] },
+];
+const POOL = [
+  'Aku paham arahnya. Biar tidak melebar, kita pecah dulu jadi dua langkah kecil, lalu kamu pilih yang mau dikerjakan lebih dulu.',
+  'Jujur, bagian ini masih aku pelajari juga. Yang bisa kupastikan sejauh ini: masalahnya ada di batas antar modul, bukan di fungsinya.',
+  'Oke. Aku sudah catat. Mau kulanjutkan dengan contoh konkret atau ringkasan dulu?',
+];
+
+/* mock agent reply: tool run + structured body + activity log + inline choices */
+const mock = (text) => ({
+  role: 'ai',
+  run: [
+    { name: 'context_lookup', desc: 'Memeriksa konteks percakapan terbaru', dur: '0.6s' },
+    { name: 'response_synthesis', desc: 'Menyusun temuan jadi jawaban yang jelas', dur: '1.1s' },
+  ],
+  blocks: [
+    { t: 'p', v: POOL[Math.floor(Math.random() * POOL.length)] },
+    { t: 'h', v: 'Yang kutangkap' }, { t: 'p', v: text },
+    { t: 'h', v: 'Langkah yang masuk akal' },
+    { t: 'ol', v: ['Perjelas hasil akhir yang kamu mau.', 'Cari langkah pertama yang paling kecil.', 'Cek hasilnya, lalu perbaiki dari yang kamu pelajari.'] },
+    { t: 'p', v: 'Mau lanjut ke mana?' },
+  ],
+  steps: [
+    { title: 'Understanding request', desc: 'Mengenali maksud dan memilih strategi jawaban', dur: '0.3s' },
+    { title: 'Searching workspace', desc: 'Memeriksa konteks session dan tool mock', dur: '0.6s' },
+    { title: 'Drafting response', desc: 'Menyiapkan jawaban dengan langkah lanjut', dur: '1.1s' },
+  ],
+  choices: [['Mulai dari langkah 1', 'Langkah terkecil dulu'], ['Ringkas saja']],
+});
+
+/* ---------- small ui ---------- */
+const PATHS = {
+  back: 'M15 18l-6-6 6-6', send: 'M12 19V5M5 12l7-7 7 7', x: 'M6 6l12 12M18 6L6 18', plus: 'M12 5v14M5 12h14',
+  sliders: 'M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1', search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-4.3-4.3',
+  info: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v5M12 8h.01', pin: 'M12 17v5M9 3h6l-1 7 3 3H7l3-3z',
+  sparkle: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z',
+  pulse: 'M3 12h4l3-8 4 16 3-8h4', check: 'M5 12l5 5 9-10', chev: 'M6 9l6 6 6-6', copy: 'M9 9h10v10H9zM5 15V5h10', play: 'M9 6l6 6-6 6',
+  fork: 'M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9',
+};
+const Icon = ({ n, c = 'w-5 h-5' }) => (
+  <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d={PATHS[n]} /></svg>
+);
+const Avatar = ({ s, size = 'w-12 h-12', text = 'text-lg' }) => (
+  <div className={`${size} ${text} shrink-0 rounded-full grid place-items-center font-display font-semibold ${s.pinned ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground border border-border'}`}>{s.glyph}</div>
+);
+const Btn = ({ n, onClick, label, c }) => (
+  <button onClick={onClick} aria-label={label} className={`w-10 h-10 grid place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary ${c || ''}`}><Icon n={n} /></button>
+);
+const Seg = ({ opts, value, onChange }) => (
+  <div className="flex p-1 rounded-xl bg-muted gap-1">
+    {opts.map(([v, l]) => (
+      <button key={v} onClick={() => onChange(v)} className={`flex-1 py-1.5 text-sm rounded-lg transition-colors ${value === v ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground'}`}>{l}</button>
+    ))}
+  </div>
+);
+const Select = ({ value, opts, onChange }) => (
+  <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono focus-visible:ring-2 focus-visible:ring-primary">
+    {opts.map((o) => <option key={o}>{o}</option>)}
+  </select>
+);
+const Label = ({ children }) => <div className="font-mono text-xs text-muted-foreground mb-2">{children}</div>;
+
+/* ---------- composer with "/" menu ---------- */
+function Composer({ session, onSend, disabled, fs }) {
+  const [text, setText] = useState('');
+  const [idx, setIdx] = useState(0);
+  const [closed, setClosed] = useState(false);
+  const ref = useRef(null);
+  const m = text.match(/(?:^|\s)\/([\w-]*)$/);
+  const q = m ? m[1].toLowerCase() : null;
+  const items = q === null ? [] : [
+    ...SKILLS.filter((x) => session.skills.includes(x.name)).map((x) => ({ ...x, g: 'Skill' })),
+    ...CONFIGS.filter((x) => !x.general || session.id === 'general').map((x) => ({ ...x, g: 'Config' })),
+  ].filter((x) => x.name.startsWith(q));
+  const open = items.length > 0 && !closed;
+
+  useEffect(() => { setIdx(0); setClosed(false); }, [q]);
+  useEffect(() => { const e = ref.current; if (e) { e.style.height = 'auto'; e.style.height = Math.min(e.scrollHeight, 140) + 'px'; } }, [text]);
+
+  const pick = (it) => { setText(text.replace(/\/([\w-]*)$/, '/' + it.name + ' ')); ref.current.focus(); };
+  const submit = () => { const v = text.trim(); if (!v) return; onSend(v); setText(''); };
+  const onKey = (e) => {
+    if (open) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((idx + 1) % items.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setIdx((idx - 1 + items.length) % items.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(items[idx]); return; }
+      if (e.key === 'Escape') { setClosed(true); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width: 768px)').matches) { e.preventDefault(); submit(); }
+  };
+
+  return (
+    <div className="relative px-3 pb-3 pt-2">
+      {open && (
+        <div className="absolute bottom-full left-3 right-3 mb-1 max-h-64 overflow-auto rounded-2xl border border-border bg-card shadow-xl z-10 py-1">
+          {items.map((it, i) => (
+            <button key={it.g + it.name} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(it)} onMouseEnter={() => setIdx(i)}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-left ${i === idx ? 'bg-muted' : ''}`}>
+              <span className="font-mono text-sm text-foreground">/{it.name}</span>
+              <span className="flex-1 truncate text-xs text-muted-foreground">{it.desc}</span>
+              <span className="font-mono text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">{it.g}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 focus-within:ring-2 focus-within:ring-primary/40">
+        <textarea ref={ref} rows={1} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
+          placeholder={`Pesan untuk ${session.title}, atau ketik / untuk skill`} style={{ fontSize: fs }}
+          className="flex-1 resize-none bg-transparent py-2 placeholder:text-muted-foreground" />
+        <button onClick={submit} disabled={!text.trim() || disabled} aria-label="Send"
+          className="w-9 h-9 mb-0.5 grid place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-30 transition-opacity"><Icon n="send" c="w-4 h-4" /></button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- info panel ---------- */
+function Info({ s, onClose, onCfg, onCwd }) {
+  return (
+    <aside className="absolute inset-y-0 right-0 z-20 w-full md:w-80 bg-background border-l border-border xl:static xl:shrink-0 overflow-auto">
+      <div className="h-14 px-3 flex items-center justify-between border-b border-border">
+        <div className="font-display font-semibold pl-2">Session info</div>
+        <Btn n="x" onClick={onClose} label="Close info" />
+      </div>
+      <div className="p-5 flex flex-col items-center text-center gap-2 border-b border-border">
+        <Avatar s={s} size="w-20 h-20" text="text-3xl" />
+        <div className="font-display text-xl font-semibold">{s.title}</div>
+        <div className="font-mono text-xs text-muted-foreground">{s.sub} / {s.msgs.length} messages</div>
+      </div>
+      <div className="p-5 space-y-5">
+        <div><Label>Working directory</Label><input value={s.cwd} onChange={(e) => onCwd(e.target.value)} spellCheck={false} className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono focus-visible:ring-2 focus-visible:ring-primary" /></div>
+        <div><Label>Model</Label><Select value={s.cfg.model} opts={MODELS} onChange={(v) => onCfg({ model: v })} /></div>
+        <div><Label>Effort</Label><Seg opts={EFFORTS.map((e) => [e, e])} value={s.cfg.effort} onChange={(v) => onCfg({ effort: v })} /></div>
+        <div>
+          <Label>Skills in this session</Label>
+          <div className="flex flex-wrap gap-2">
+            {s.skills.map((k) => <span key={k} className="font-mono text-xs px-2 py-1 rounded-md bg-muted border border-border">/{k}</span>)}
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/* ---------- settings ---------- */
+function Settings({ S, set, onClose }) {
+  const sw = { ink: '#111111', olive: '#3F4A3C', blue: '#355C7D', clay: '#A05237', plum: '#704064', amber: '#A8701E', teal: '#1E6E6C' };
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full md:max-w-md max-h-[90dvh] overflow-auto rounded-t-3xl md:rounded-2xl bg-background border border-border p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="font-display text-xl font-semibold">Settings</div>
+          <Btn n="x" onClick={onClose} label="Close settings" />
+        </div>
+        <div><Label>Theme</Label><Seg opts={[['light', 'Light'], ['dark', 'Dark'], ['system', 'System']]} value={S.theme} onChange={(v) => set({ theme: v })} /></div>
+        <div>
+          <Label>Accent</Label>
+          <div className="flex gap-3">
+            {Object.entries(sw).map(([k, c]) => (
+              <button key={k} onClick={() => set({ accent: k })} aria-label={k}
+                className={`w-9 h-9 p-1 rounded-full border-2 ${S.accent === k ? 'border-primary' : 'border-border'}`}>
+                <span className="block w-full h-full rounded-full" style={{ background: c }} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div><Label>Glow (accent light in chat)</Label><Seg opts={[['off', 'Off'], ['soft', 'Soft'], ['strong', 'Strong']]} value={S.glow} onChange={(v) => set({ glow: v })} /></div>
+        <div><Label>Density</Label><Seg opts={[['compact', 'Compact'], ['comfortable', 'Comfortable']]} value={S.density} onChange={(v) => set({ density: v })} /></div>
+        <div><Label>Chat font size</Label><Seg opts={[['14', 'Small'], ['16', 'Medium'], ['18', 'Large']]} value={String(S.font)} onChange={(v) => set({ font: +v })} /></div>
+        <div className="rounded-2xl bg-muted p-3 text-muted-foreground" style={{ fontSize: S.font }}>Pratinjau: semakin lama belajar, semakin sadar masih banyak yang belum kutahu.</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- agent message (no bubble) ---------- */
+function AgentMsg({ m, live, fs, onPick, onOpen, onFork }) {
+  const [run, setRun] = useState(true);
+  const [log, setLog] = useState(false);
+  
+  const blocks = m.blocks || [{ t: 'p', v: m.text }];
+  const copy = () => { try { navigator.clipboard.writeText(blocks.map((b) => [].concat(b.v).join('\n')).join('\n\n')); } catch (e) {} };
+  return (
+    <div className="flex gap-3 w-full">
+      <div className="w-9 h-9 shrink-0 rounded-xl bg-muted border border-border grid place-items-center"><Icon n="sparkle" c="w-4 h-4" /></div>
+      <div className="min-w-0 flex-1 max-w-2xl" style={{ fontSize: fs }}>
+        <div className="flex items-center gap-2 mb-2 text-sm">
+          <span className="font-display font-semibold">Thullab agent</span>
+          <span className="font-mono text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">AGENT</span>
+          <span className="font-mono text-xs text-muted-foreground">{fmt(m.t)}</span>
+        </div>
+        {m.run && (
+          <div className="rounded-xl border border-border bg-muted/60 overflow-hidden mb-3">
+            <button onClick={() => setRun(!run)} className="w-full flex items-center gap-3 p-3 text-left">
+              <span className="w-8 h-8 rounded-lg bg-card border border-border grid place-items-center"><Icon n="pulse" c="w-4 h-4" /></span>
+              <span className="flex-1"><div className="text-sm font-semibold">Completed agent run</div><div className="text-xs text-muted-foreground">{m.run.length} of {m.run.length} tools complete</div></span>
+              <Icon n="chev" c={`w-4 h-4 text-muted-foreground transition-transform ${run ? 'rotate-180' : ''}`} />
+            </button>
+            {run && <div className="border-t border-border">{m.run.map((t) => (
+              <div key={t.name} className="flex items-start gap-3 px-3 py-2">
+                <span className="w-5 h-5 mt-0.5 rounded bg-border grid place-items-center text-muted-foreground"><Icon n="check" c="w-3 h-3" /></span>
+                <div className="flex-1 min-w-0"><div className="font-mono text-xs">{t.name}</div><div className="text-xs text-muted-foreground">{t.desc}</div></div>
+                <span className="font-mono text-[11px] text-muted-foreground">{t.dur}</span>
+              </div>))}</div>}
+          </div>
+        )}
+        <div className="space-y-2 leading-relaxed">
+          {blocks.map((b, i) => b.t === 'h' ? <div key={i} className="font-display font-semibold pt-2">{b.v}</div>
+            : b.t === 'ol' ? <ol key={i} className="space-y-1.5">{b.v.map((x, j) => <li key={j} className="flex gap-3"><span className="font-mono text-xs text-muted-foreground pt-1">{j + 1}.</span><span>{x}</span></li>)}</ol>
+            : <p key={i} className="whitespace-pre-wrap break-words">{b.v}</p>)}
+        </div>
+        {m.action && <button onClick={() => onOpen(m.action)} className="mt-3 rounded-lg bg-muted border border-border text-sm px-4 py-1.5 font-medium">Open session</button>}
+        {m.choices && (
+          <div className="mt-3 space-y-2">
+            {m.choices.map((row, r) => <div key={r} className="flex gap-2">{row.map((c) => (
+              <button key={c} disabled={!live} onClick={() => onPick(c)}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm text-center transition-colors ${m.picked === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted border-border'} ${live ? 'hover:border-primary' : m.picked === c ? '' : 'opacity-50'}`}>{c}</button>))}</div>)}
+            {live && <div className="font-mono text-[11px] text-muted-foreground">Pilih salah satu, atau ketik jawabanmu sendiri.</div>}
+          </div>
+        )}
+        {m.steps && (
+          <div className="mt-4 pt-3 border-t border-border">
+            <button onClick={() => setLog(!log)} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="w-6 h-6 rounded-md border border-border grid place-items-center"><Icon n="play" c={`w-3 h-3 transition-transform ${log ? 'rotate-90' : ''}`} /></span>
+              {log ? 'Hide' : 'Show'} activity log
+              <span className="font-mono text-[10px] bg-muted rounded px-1.5 py-0.5">{m.steps.length} steps</span>
+            </button>
+            {log && <div className="mt-3 ml-3 border-l border-border space-y-4">{m.steps.map((s, i) => (
+              <div key={s.title} className="relative pl-6 flex gap-3">
+                <span className="absolute -left-3 top-0 w-6 h-6 rounded-full bg-background border border-border grid place-items-center font-mono text-[10px] text-muted-foreground">{i + 1}</span>
+                <div className="flex-1 min-w-0"><div className="text-sm font-semibold">{s.title}</div><div className="text-xs text-muted-foreground">{s.desc}</div></div>
+                <span className="font-mono text-[11px] text-muted-foreground">{s.dur}</span>
+              </div>))}</div>}
+          </div>
+        )}
+        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+          <button onClick={copy} className="flex items-center gap-1.5 hover:text-foreground"><Icon n="copy" c="w-3.5 h-3.5" />Copy</button>
+          <button onClick={onFork} className="flex items-center gap-1.5 hover:text-foreground"><Icon n="fork" c="w-3.5 h-3.5" />Fork</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- app ---------- */
+const DEF = { theme: 'system', accent: 'ink', density: 'comfortable', font: 16, glow: 'soft' };
+function App() {
+  const [S, setS] = useState(() => { try { return { ...DEF, ...JSON.parse(localStorage.getItem('td-settings') || '{}') }; } catch (e) { return DEF; } });
+  const [sessions, setSessions] = useState(seed);
+  const [activeId, setActive] = useState(null);
+  const [info, setInfo] = useState(false);
+  const [showSet, setShowSet] = useState(false);
+  const [typing, setTyping] = useState({});
+  const [q, setQ] = useState('');
+  const endRef = useRef(null);
+  const activeRef = useRef(null);
+  const touch = useRef(null);
+  const set = (p) => setS((s) => ({ ...s, ...p }));
+  const active = sessions.find((s) => s.id === activeId);
+  const roomy = S.density === 'comfortable';
+
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.classList.toggle('dark', S.theme === 'dark' || (S.theme === 'system' && mq.matches));
+      document.documentElement.dataset.accent = S.accent;
+      document.documentElement.dataset.glow = S.glow;
+    };
+    apply(); mq.addEventListener('change', apply);
+    try { localStorage.setItem('td-settings', JSON.stringify(S)); } catch (e) {}
+    return () => mq.removeEventListener('change', apply);
+  }, [S]);
+
+  useEffect(() => { activeRef.current = activeId; }, [activeId]);
+  useEffect(() => { endRef.current && endRef.current.scrollIntoView({ block: 'end' }); }, [activeId, active && active.msgs.length, typing[activeId]]);
+
+  const patch = (id, fn) => setSessions((ss) => ss.map((s) => (s.id === id ? fn(s) : s)));
+  const add = (id, m) => patch(id, (s) => ({ ...s, msgs: [...s.msgs, { id: uid(), t: Date.now(), ...m }],
+    unread: m.role === 'ai' && activeRef.current !== id ? s.unread + 1 : s.unread }));
+  const open = (id) => { patch(id, (s) => ({ ...s, unread: 0 })); setActive(id); };
+  const fork = (id, mid) => {
+    const src = sessions.find((s) => s.id === id); const i = src.msgs.findIndex((x) => x.id === mid); const nid = uid();
+    const copy = src.msgs.slice(0, i + 1).map((x) => ({ ...x, id: uid() }));
+    copy.push({ id: uid(), role: 'ai', t: Date.now(), text: `Fork dari “${src.title}”. Percakapan sampai titik ini ikut terbawa, silakan lanjut ke arah lain.` });
+    setSessions((ss) => [ss[0], { ...src, id: nid, title: `${src.title} (fork)`, sub: 'Fork', pinned: false, unread: 0, cfg: { ...src.cfg }, msgs: copy }, ...ss.slice(1).filter((s) => s.id !== 'general')]);
+    setActive(nid);
+  };
+  const pick = (id, mid, label) => { patch(id, (s) => ({ ...s, msgs: s.msgs.map((x) => (x.id === mid ? { ...x, picked: label } : x)) })); send(id, label); };
+
+  const send = (id, text) => {
+    const [cmd, ...rest] = text.split(/\s+/);
+    const arg = rest.join(' ');
+    if (cmd === '/clear') { patch(id, (s) => ({ ...s, msgs: [] })); return; }
+    add(id, { role: 'user', text });
+    setTyping((t) => ({ ...t, [id]: true }));
+    setTimeout(() => {
+      setTyping((t) => ({ ...t, [id]: false }));
+      if (cmd === '/new' && id === 'general') {
+        const nid = uid(); const title = arg || 'Session baru';
+        setSessions((ss) => [ss[0], { id: nid, title, sub: 'New session', cwd: '~/workspace/' + (title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'new'), glyph: title[0].toUpperCase(), unread: 0, cfg: { ...cfg0 }, skills: ['summarize', 'write-post'],
+          msgs: [{ id: uid(), role: 'ai', t: Date.now(), text: `Session “${title}” siap. Mau mulai dari mana?` }] }, ...ss.slice(1)]);
+        add(id, { role: 'ai', text: `Session “${title}” sudah dibuat.`, action: nid });
+      } else if (cmd === '/model' || cmd === '/effort') {
+        const k = cmd.slice(1); const ok = (k === 'model' ? MODELS : EFFORTS).includes(arg);
+        if (ok) patch(id, (s) => ({ ...s, cfg: { ...s.cfg, [k]: arg } }));
+        add(id, { role: 'ai', text: ok ? `${k} diganti ke ${arg}.` : `Nilai ${k} tidak dikenal. Pilihan ada di Session info.` });
+      } else if (cmd === '/cwd') {
+        if (arg) patch(id, (s) => ({ ...s, cwd: arg }));
+        add(id, { role: 'ai', text: arg ? `Working directory diganti ke ${arg}.` : 'Pakai /cwd diikuti path, mis. /cwd ~/projects/app.' });
+      } else if (cmd === '/new') {
+        add(id, { role: 'ai', text: '/new hanya tersedia di General.' });
+      } else if (cmd.startsWith('/')) {
+        add(id, { role: 'ai', text: `Oke, aku jalankan skill ${cmd}. Hasil dummy: draft pertama sudah kususun, tinggal kamu cek bagian pembukanya.` });
+      } else {
+        add(id, mock(text));
+      }
+    }, 1100);
+  };
+
+  const lt = (s) => (s.msgs.length ? s.msgs[s.msgs.length - 1].t : 0);
+  const list = sessions.filter((s) => s.title.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || lt(b) - lt(a));
+  const last = (s) => s.msgs[s.msgs.length - 1];
+
+  return (
+    <div className="h-full relative overflow-hidden md:flex">
+      {/* master: list */}
+      <section className={`absolute inset-0 md:static md:w-[22rem] md:shrink-0 md:border-r border-border bg-background flex flex-col transition-transform duration-300 ${activeId ? '-translate-x-1/3 md:translate-x-0' : 'translate-x-0'}`}>
+        <header className="h-14 px-4 flex items-center justify-between">
+          <div className="font-display text-xl font-semibold">ThullabDev Agents</div>
+          <Btn n="sliders" onClick={() => setShowSet(true)} label="Settings" />
+        </header>
+        <div className="px-4 pb-2">
+          <div className="flex items-center gap-2 rounded-full bg-muted px-3 text-muted-foreground">
+            <Icon n="search" c="w-4 h-4" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sessions" className="w-full bg-transparent py-2 text-sm text-foreground placeholder:text-muted-foreground" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto">
+          {list.map((s) => (
+            <button key={s.id} onClick={() => open(s.id)}
+              className={`w-full flex items-center gap-3 px-4 text-left ${roomy ? 'py-3' : 'py-1.5'} ${activeId === s.id ? 'md:bg-muted' : 'hover:bg-muted/60'}`}>
+              <Avatar s={s} size={roomy ? 'w-12 h-12' : 'w-10 h-10'} text={roomy ? 'text-lg' : 'text-base'} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{s.title}</span>
+                  {s.pinned && <span className="text-muted-foreground"><Icon n="pin" c="w-3 h-3" /></span>}
+                  <span className="ml-auto font-mono text-[11px] text-muted-foreground">{last(s) ? fmt(last(s).t) : ''}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm text-muted-foreground">{typing[s.id] ? 'typing…' : last(s) ? last(s).text : 'Belum ada pesan'}</span>
+                  {s.unread > 0 && <span className="ml-auto min-w-[1.25rem] h-5 px-1.5 grid place-items-center rounded-full bg-primary text-primary-foreground text-xs">{s.unread}</span>}
+                </div>
+              </div>
+            </button>
+          ))}
+          {!list.length && <div className="p-8 text-center text-sm text-muted-foreground">Tidak ada session dengan nama itu.</div>}
+        </div>
+      </section>
+
+      {/* detail: chat + info */}
+      <main
+        onTouchStart={(e) => { const t = e.touches[0]; touch.current = t.clientX < 40 ? { x: t.clientX, y: t.clientY } : null; }}
+        onTouchEnd={(e) => { const a = touch.current; if (!a) return; const t = e.changedTouches[0];
+          if (t.clientX - a.x > 80 && Math.abs(t.clientY - a.y) < 60) { setActive(null); setInfo(false); } touch.current = null; }}
+        className={`absolute inset-0 md:static md:flex-1 md:min-w-0 flex bg-background chat-glow shadow-2xl md:shadow-none transition-transform duration-300 ${activeId ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
+        {active ? (
+          <>
+            <div className="flex-1 min-w-0 flex flex-col">
+              <header className="h-14 shrink-0 px-2 flex items-center gap-1 border-b border-border bg-background">
+                <Btn n="back" onClick={() => { setActive(null); setInfo(false); }} label="Back to sessions" c="md:hidden" />
+                <button onClick={() => setInfo(!info)} className="flex-1 min-w-0 flex items-center gap-3 text-left px-1">
+                  <Avatar s={active} size="w-9 h-9" text="text-sm" />
+                  <div className="min-w-0">
+                    <div className="truncate font-display font-semibold leading-tight">{active.title}</div>
+                    <div className="truncate text-xs text-muted-foreground">{typing[active.id] ? 'typing…' : <span className="font-mono">{active.cwd}</span>}</div>
+                  </div>
+                </button>
+                <Btn n="info" onClick={() => setInfo(!info)} label="Toggle info" c={info ? 'bg-muted text-foreground' : ''} />
+              </header>
+              <div className={`flex-1 overflow-auto px-3 py-4 flex flex-col ${roomy ? 'gap-3' : 'gap-1.5'}`}>
+                {!active.msgs.length && <div className="m-auto text-sm text-muted-foreground">Riwayat dihapus. Mulai lagi kapan saja.</div>}
+                {active.msgs.map((m, i) => m.role === 'ai' ? (
+                  <AgentMsg key={m.id} m={m} live={i === active.msgs.length - 1 && !typing[active.id]} fs={S.font} onOpen={open} onPick={(l) => pick(active.id, m.id, l)} onFork={() => fork(active.id, m.id)} />
+                ) : (
+                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div style={{ fontSize: S.font }} className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-3.5 ${roomy ? 'py-2' : 'py-1'} ${m.role === 'user' ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-card border border-border rounded-bl-md'}`}>
+                      <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                      {m.action && <button onClick={() => open(m.action)} className="mt-2 w-full rounded-lg bg-muted text-foreground text-sm py-1.5 font-medium">Open session</button>}
+                      <div className="text-right font-mono text-[10px] opacity-60 mt-0.5">{fmt(m.t)}</div>
+                    </div>
+                  </div>
+                ))}
+                {typing[active.id] && (
+                  <div className="flex gap-3"><div className="w-9 h-9 shrink-0 rounded-xl bg-muted border border-border grid place-items-center"><Icon n="sparkle" c="w-4 h-4" /></div><div className="flex gap-1 items-center px-1">
+                    <span className="dot w-1.5 h-1.5 rounded-full bg-muted-foreground" /><span className="dot w-1.5 h-1.5 rounded-full bg-muted-foreground" /><span className="dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                  </div></div>
+                )}
+                <div ref={endRef} />
+              </div>
+              <Composer key={active.id} session={active} onSend={(t) => send(active.id, t)} disabled={typing[active.id]} fs={S.font} />
+            </div>
+            {info && <Info s={active} onClose={() => setInfo(false)} onCwd={(v) => patch(active.id, (s) => ({ ...s, cwd: v }))} onCfg={(p) => patch(active.id, (s) => ({ ...s, cfg: { ...s.cfg, ...p } }))} />}
+          </>
+        ) : (
+          <div className="m-auto text-center text-muted-foreground px-6">
+            <div className="font-display text-lg text-foreground">Pilih session</div>
+            <div className="text-sm">Atau buka General dan ketik /new untuk membuat yang baru.</div>
+          </div>
+        )}
+      </main>
+      {showSet && <Settings S={S} set={set} onClose={() => setShowSet(false)} />}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
