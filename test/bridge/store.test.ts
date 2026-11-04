@@ -16,13 +16,26 @@ test('upsertSession derives the project and reopens ended sessions', () => {
   store.endSession('s1')
   expect(store.getSession('s1')?.endedAt).toBe(1_000)
   const reopened = store.upsertSession({ sessionId: 's1', cwd: '/home/u/Sites/app' })
-  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null })
+  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null, chatId: null })
 })
 
 test('threads are stored and looked up', () => {
   store.setSessionThread('s1', 't9')
   expect(store.findSessionByThread('t9')?.id).toBe('s1')
   expect(store.listActiveSessions().map(session => session.id)).toEqual(['s1'])
+})
+
+test('setSessionChat persists and survives endSession', () => {
+  store.setSessionChat('s1', 'c1')
+  store.endSession('s1')
+  expect(store.getSession('s1')?.chatId).toBe('c1')
+})
+
+test('findSessionByChat returns ended sessions', () => {
+  store.setSessionChat('s1', 'c1')
+  store.endSession('s1')
+  expect(store.findSessionByChat('c1')?.id).toBe('s1')
+  expect(store.findSessionByChat('missing')).toBeUndefined()
 })
 
 test('insertPrompt is idempotent', () => {
@@ -76,7 +89,7 @@ test('createSpawnedSession records the tmux name and is not started yet', () => 
   const row = store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
   expect(row).toEqual({
     id: 'sp1', cwd: '/home/u/Sites/api', project: 'api', threadId: null, title: null, endedAt: null,
-    spawned: true, tmuxName: 'ra-sp1', startedAt: null,
+    spawned: true, tmuxName: 'ra-sp1', startedAt: null, chatId: null,
   })
 })
 

@@ -11,6 +11,7 @@ export type SessionRow = {
   spawned: boolean
   tmuxName: string | null
   startedAt: number | null
+  chatId: string | null
 }
 
 export type PromptRow = {
@@ -37,6 +38,7 @@ type SessionRecord = {
   spawned: number
   tmux_name: string | null
   started_at: number | null
+  chat_id: string | null
 }
 type PromptRecord = {
   id: string
@@ -70,7 +72,7 @@ CREATE TABLE IF NOT EXISTS instructions (
 );
 `
 
-const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at, spawned, tmux_name, started_at'
+const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at, spawned, tmux_name, started_at, chat_id'
 const PROMPT_COLUMNS = 'id, session_id, body, status, answer, source, partial, created_at, reminded'
 
 function toSession(record: SessionRecord): SessionRow {
@@ -84,6 +86,7 @@ function toSession(record: SessionRecord): SessionRow {
     spawned: record.spawned === 1,
     tmuxName: record.tmux_name,
     startedAt: record.started_at,
+    chatId: record.chat_id,
   }
 }
 
@@ -123,12 +126,17 @@ export class Store {
       ['spawned', 'spawned INTEGER NOT NULL DEFAULT 0'],
       ['tmux_name', 'tmux_name TEXT'],
       ['started_at', 'started_at INTEGER'],
+      ['chat_id', 'chat_id TEXT'],
     ]
     for (const [name, definition] of added) {
       if (!columns.has(name)) {
         this.db.exec(`ALTER TABLE sessions ADD COLUMN ${definition}`)
       }
     }
+  }
+
+  get database(): Database {
+    return this.db
   }
 
   close(): void {
@@ -174,6 +182,11 @@ export class Store {
     return record === null ? undefined : toSession(record)
   }
 
+  findSessionByChat(chatId: string): SessionRow | undefined {
+    const record = this.db.query<SessionRecord, [string]>(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE chat_id = ?`).get(chatId)
+    return record === null ? undefined : toSession(record)
+  }
+
   findSessionByThread(threadId: string): SessionRow | undefined {
     const record = this.db.query<SessionRecord, [string]>(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE thread_id = ?`).get(threadId)
     return record === null ? undefined : toSession(record)
@@ -188,6 +201,10 @@ export class Store {
 
   setSessionThread(id: string, threadId: string | null): void {
     this.db.query('UPDATE sessions SET thread_id = ? WHERE id = ?').run(threadId, id)
+  }
+
+  setSessionChat(id: string, chatId: string): void {
+    this.db.query('UPDATE sessions SET chat_id = ? WHERE id = ?').run(chatId, id)
   }
 
   setSessionTitle(id: string, title: string): void {
