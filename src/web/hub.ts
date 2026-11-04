@@ -91,6 +91,13 @@ export class Hub {
     }
   }
 
+  /** Closes every client with the given code and forgets them; used when the server stops. */
+  closeAll(code: number, reason: string): void {
+    for (const client of [...this.clients.values()]) {
+      this.drop(client, code, reason)
+    }
+  }
+
   /** Drops every client not heard from for longer than `maxIdleMs`. Returns how many were dropped. */
   reapStale(maxIdleMs: number): number {
     const cutoff = this.now() - maxIdleMs

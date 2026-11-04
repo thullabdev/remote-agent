@@ -166,3 +166,14 @@ test('a throwing send removes the client and closes its socket', () => {
   expect(broken.closed).toEqual({ code: 1011, reason: expect.any(String) })
   expect(hub.clientCount()).toBe(0)
 })
+
+test('closeAll closes every client with the given code and empties the hub', () => {
+  const first = new FakeSocket()
+  const second = new FakeSocket()
+  hub.add(first)
+  hub.add(second)
+  hub.closeAll(1001, 'server stopping')
+  expect(first.closed).toEqual({ code: 1001, reason: 'server stopping' })
+  expect(second.closed).toEqual({ code: 1001, reason: 'server stopping' })
+  expect(hub.clientCount()).toBe(0)
+})

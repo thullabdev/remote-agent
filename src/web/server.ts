@@ -242,6 +242,7 @@ export function startWebServer(deps: WebServerDeps): WebServer {
     stop(): void {
       unsubscribe()
       clearInterval(reaper)
+      hub.closeAll(1001, 'server stopping')
       for (const socket of sockets) {
         closeQuietly(socket, 1001, 'server stopping')
       }

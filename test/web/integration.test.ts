@@ -255,3 +255,17 @@ test('with both channels selected only the web channel starts, and the choice is
   const health = await mod('/health')
   expect(health.status).toBe(200)
 })
+
+test('stop with an open WebSocket closes it and does not throw', async () => {
+  await boot()
+  const feed = await connect()
+  const closed = new Promise<void>(resolve => {
+    feed.socket.onclose = () => {
+      resolve()
+    }
+  })
+  await expect(bridge?.stop()).resolves.toBeUndefined()
+  bridge = null
+  await closed
+  expect(feed.socket.readyState).toBe(WebSocket.CLOSED)
+})
