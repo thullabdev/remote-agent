@@ -43,6 +43,8 @@ type Tail = {
   inFlight: boolean
   /** When the reader attached this Session: entries older than this (minus a slack) are backfilled history. */
   attachedAt: number
+  /** True once the reason an id cannot be tailed has been logged, so each tick does not repeat it. */
+  pathLogged: boolean
   /** True while skipping the rest of an oversized line, up to its newline. */
   skipping: boolean
   /** True while a turn is open: relevant entries came after the last turn_duration or interrupt marker. */
@@ -116,6 +118,7 @@ export class TranscriptReader {
       found: false,
       inFlight: false,
       attachedAt: this.now(),
+      pathLogged: false,
       skipping: false,
       open: false,
       busy: null,
@@ -181,7 +184,15 @@ export class TranscriptReader {
     }
     const chatId = tail.chatId
     if (tail.path === null) {
-      tail.path = transcriptPath(this.deps.home, session.cwd, tail.sessionId)
+      try {
+        tail.path = transcriptPath(this.deps.home, session.cwd, tail.sessionId)
+      } catch (error) {
+        if (!tail.pathLogged) {
+          tail.pathLogged = true
+          this.deps.log(`Session ${tail.sessionId} has no transcript file to tail`, error)
+        }
+        return
+      }
     }
     const path = tail.path
     const size = await this.statSize(path)

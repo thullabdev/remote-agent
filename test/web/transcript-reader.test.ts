@@ -657,3 +657,16 @@ test('lastMessage.at reflects the transcript time', async () => {
   expect(h.chatLog.getChat(chatId)?.lastMessage?.at).toBe(stampOf(9))
 })
 
+test('a session id that cannot name a transcript file is not tailed, and the reason is logged once', async () => {
+  const h = setup()
+  h.store.upsertSession({ sessionId: '../escape', cwd: CWD })
+  h.channel.sessionSeen(h.store.getSession('../escape')!)
+  h.reader.attach('../escape')
+
+  await h.reader.ingestOnce('../escape')
+  await h.reader.ingestOnce('../escape')
+
+  expect(h.reader.isActive('../escape')).toBe(false)
+  expect(logged.filter(message => message.includes('transcript file')).length).toBe(1)
+})
+

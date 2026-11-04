@@ -9,3 +9,11 @@ test("transcriptPath encodes /home/u/Sites/app as the spike's directory name", (
   expect(transcriptPath('/home/user', '/home/user/.config/tool', SESSION)).toBe(`/home/user/.claude/projects/-home-user--config-tool/${SESSION}.jsonl`)
   expect(transcriptPath('/home/user', '/home/user/my-app', SESSION)).toBe(`/home/user/.claude/projects/-home-user-my-app/${SESSION}.jsonl`)
 })
+
+test('transcriptPath refuses a session id that is not a plain id, so it cannot escape the projects folder', () => {
+  expect(() => transcriptPath('/home/u', '/home/u/app', '../../etc/passwd')).toThrow()
+  expect(() => transcriptPath('/home/u', '/home/u/app', '-rf')).toThrow()
+  expect(() => transcriptPath('/home/u', '/home/u/app', 'a/b')).toThrow()
+  expect(() => transcriptPath('/home/u', '/home/u/app', '')).toThrow()
+})
+
