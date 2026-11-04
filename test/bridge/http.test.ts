@@ -4,6 +4,8 @@ import { Inbound } from '../../src/bridge/inbound.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
 import { Store } from '../../src/bridge/store.ts'
+import { ChatLog } from '../../src/web/chat-log.ts'
+import { WebChannel } from '../../src/web/web-channel.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
 
 const session = { sessionId: 's1', cwd: '/home/u/app' }
@@ -186,4 +188,19 @@ test('a failing activity hook never fails the request', async () => {
   expect(response.status).toBe(200)
   await flush()
   expect(logged).toContain('session activity for s1 failed')
+})
+
+test('a mod request that names a known session creates its web chat eagerly, once', async () => {
+  const chatLog = new ChatLog(store)
+  const webChannel = new WebChannel(chatLog, () => {}, store)
+  const notifier = new Notifier(store, webChannel, new AwayMode(false), () => {}, webChannel)
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message) })
+
+  store.upsertSession(session)
+  expect(await (await call('GET', '/sessions/s1/instructions')).json()).toEqual([])
+
+  const chats = chatLog.listChats().filter(chat => chat.id !== 'general')
+  expect(chats).toHaveLength(1)
+  expect(store.getSession('s1')?.chatId).toBe(chats[0]!.id)
 })

@@ -6,6 +6,8 @@ import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { BAD_MODEL, CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
+import { ChatLog } from '../../src/web/chat-log.ts'
+import { WebChannel } from '../../src/web/web-channel.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
 import { FakeTmux } from '../support/fake-tmux.ts'
 
@@ -330,4 +332,30 @@ test('/end still closes the session when /exit does not work and kill fails', as
   await flush()
   expect(store.getSession(id)?.endedAt).not.toBeNull()
   expect(channel.threads[0]?.closed).toBe(true)
+})
+
+test('a spawned session ends up with one chat linked via chat_id and thread_id', async () => {
+  const chatLog = new ChatLog(store)
+  const webChannel = new WebChannel(chatLog, () => {}, store)
+  const notifier = new Notifier(store, webChannel, new AwayMode(false), () => {}, webChannel)
+  spawner = new Spawner({
+    store,
+    channel: webChannel,
+    notifier,
+    launcher: new Launcher(tmux.run),
+    trusted: new TrustedFolders({ configPath, home, projects }),
+    log: () => {},
+    schedule,
+    sleep: async () => {},
+    newId: () => idFor(++ids),
+  })
+
+  expect(await spawner.newCommand(null, '~/Sites/api')).toBe('🚀 Starting api. Open its topic.')
+
+  const session = store.getSession(idFor(1))!
+  expect(session.chatId).not.toBeNull()
+  expect(session.threadId).toBe(session.chatId)
+  const chats = chatLog.listChats().filter(chat => chat.id !== 'general')
+  expect(chats).toHaveLength(1)
+  expect(chats[0]).toMatchObject({ id: session.chatId, spawned: true, cwd: `${home}/Sites/api`, project: 'api' })
 })

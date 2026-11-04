@@ -1,7 +1,9 @@
 import { beforeEach, expect, test } from 'bun:test'
-import type { PromptBody } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { PromptBody, Report } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { ChatSink } from '../../src/channel/chat-sink.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { Store } from '../../src/bridge/store.ts'
+import { Store, type PromptRow, type SessionRow } from '../../src/bridge/store.ts'
+import type { Message } from '../../src/web/protocol.ts'
 import { FakeChannel } from '../support/fake-channel.ts'
 
 const session = { sessionId: 'abcdef1234', cwd: '/home/u/app' }
@@ -215,4 +217,114 @@ test('late mod traffic for an ended spawned session creates no thread and keeps 
   expect(channel.prompts).toEqual([])
   expect(channel.texts).toEqual([])
   expect(store.getPrompt('p:late')?.status).toBe('answered')
+})
+
+type SinkCall = string
+
+/** Records what the Notifier asks of a ChatSink; the web channel's behaviour is tested in test/web. */
+class RecordingSink implements ChatSink {
+  calls: SinkCall[] = []
+  prompts: PromptRow[] = []
+  refsToReturn = ['m-q1']
+  existing: string | null = null
+
+  existingChat(_session: SessionRow): string | null {
+    return this.existing
+  }
+
+  sessionSeen(session: SessionRow): void {
+    this.calls.push(`sessionSeen ${session.id}`)
+  }
+
+  promptCreated(prompt: PromptRow, _session: SessionRow): string[] {
+    this.calls.push(`promptCreated ${prompt.id}`)
+    this.prompts.push(prompt)
+    return this.refsToReturn
+  }
+
+  promptResolved(prompt: PromptRow, refs: string[]): void {
+    this.calls.push(`promptResolved ${prompt.id} ${refs.join(',')}`)
+  }
+
+  instructionQueued(): Message {
+    throw new Error('not used by the Notifier')
+  }
+
+  instructionDelivered(instructionId: string): void {
+    this.calls.push(`instructionDelivered ${instructionId}`)
+  }
+
+  report(_session: SessionRow, report: Report): void {
+    this.calls.push(`report ${report.kind}`)
+  }
+
+  chatEnded(session: SessionRow): void {
+    this.calls.push(`chatEnded ${session.id}`)
+  }
+
+  busyChanged(sessionId: string, busy: boolean): void {
+    this.calls.push(`busyChanged ${sessionId} ${busy}`)
+  }
+
+  systemMessage(sessionId: string | null, text: string): void {
+    this.calls.push(`systemMessage ${sessionId} ${text}`)
+  }
+}
+
+test('report session_ended calls chatEnded and keeps the chat id', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  store.setSessionChat(session.sessionId, 'c-app')
+  store.setSessionThread(session.sessionId, 'c-app')
+
+  await notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })
+
+  expect(sink.calls).toEqual(['report session_ended', `chatEnded ${session.sessionId}`])
+  expect(channel.texts).toEqual([])
+  const ended = store.getSession(session.sessionId)!
+  expect(ended.threadId).toBeNull()
+  expect(ended.chatId).toBe('c-app')
+  expect(ended.endedAt).not.toBeNull()
+})
+
+test('promptCreated passes the structured body to the sink', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+
+  await notifier.promptCreated(addPrompt('p:1'))
+
+  expect(sink.prompts.map(prompt => prompt.body)).toEqual([permission])
+  expect(sink.prompts[0]!.id).toBe('p:1')
+  expect(store.listPromptMessageRefs('p:1')).toEqual(['m-q1'])
+  expect(channel.prompts).toEqual([])
+})
+
+test('instructionDelivered flips the message', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  const instruction = store.enqueueInstruction(session.sessionId, 'add tests')
+
+  await notifier.instructionDelivered(instruction)
+
+  expect(sink.calls).toEqual([`instructionDelivered ${instruction.id}`])
+  expect(channel.texts).toEqual([])
+})
+
+test('promptResolved hands the prompt and its message refs to the sink', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  await notifier.promptCreated(addPrompt('p:1'))
+  store.resolvePrompt('p:1', { kind: 'permission', decision: 'allow' }, 'local')
+
+  await notifier.promptResolved(store.getPrompt('p:1')!)
+
+  expect(sink.calls.filter(call => call.startsWith('promptResolved'))).toEqual(['promptResolved p:1 m-q1'])
+  expect(channel.resolved).toEqual([])
+})
+
+test('no sink: notifier behaviour is unchanged and prompts still go through the channel', async () => {
+  await notifier.promptCreated(addPrompt('p:1'))
+
+  expect(channel.prompts.map(sent => sent.thread)).toEqual(['t1'])
+  expect(store.listPromptMessageRefs('p:1')).toEqual(channel.prompts[0]!.refs)
 })

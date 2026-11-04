@@ -52,7 +52,8 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
 }
 
-export function permissionSummary(tool: string, input: unknown): string {
+/** The whole permission summary, neither redacted nor clipped; the web channel stores it as is and ChatLog redacts it. */
+export function permissionSummaryFull(tool: string, input: unknown): string {
   const command = field(input, 'command')
   const filePath = field(input, 'file_path')
   const url = field(input, 'url')
@@ -70,7 +71,11 @@ export function permissionSummary(tool: string, input: unknown): string {
   } else {
     summary = JSON.stringify(input, null, 2) ?? String(input)
   }
-  return clean(summary, LIMITS.toolInput)
+  return summary
+}
+
+export function permissionSummary(tool: string, input: unknown): string {
+  return clean(permissionSummaryFull(tool, input), LIMITS.toolInput)
 }
 
 function questionItem(promptId: string, question: QuestionItem, questionIndex: number): PromptViewItem {
@@ -135,4 +140,20 @@ export function resolutionNote(answer: Answer, source: AnswerSource): string {
     return `🚫 Dismissed (${source})`
   }
   return `✅ Answered (${source}): ${clean(values.join(' / '), LIMITS.note)}`
+}
+
+/** The resolution note as plain text for the web channel: no emoji and no clipping. */
+export function plainResolutionNote(answer: Answer, source: AnswerSource): string {
+  if (answer.kind === 'permission') {
+    if (answer.message === SETTLED_LOCALLY_MESSAGE) {
+      return 'Answered in the terminal'
+    }
+    const head = `${answer.decision === 'allow' ? 'Allowed' : 'Denied'} (${source})`
+    return answer.message === undefined ? head : `${head}: ${answer.message}`
+  }
+  const values = Object.values(answer.answers)
+  if (values.length === 0) {
+    return `Dismissed (${source})`
+  }
+  return `Answered (${source}): ${values.join(' / ')}`
 }

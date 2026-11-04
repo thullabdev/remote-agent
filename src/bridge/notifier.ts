@@ -1,4 +1,5 @@
-import type { Answer, Instruction, ReportRequest, TitleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { Answer, Instruction, Report, ReportRequest, TitleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { ChatSink } from '../channel/chat-sink.ts'
 import type { Channel, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import type { Log, PromptEvents } from './prompts.ts'
@@ -27,6 +28,7 @@ export class Notifier implements PromptEvents {
     private readonly channel: Channel,
     readonly away: AwayMode,
     private readonly log: Log = (message, error) => console.error(message, error),
+    private readonly sink?: ChatSink,
   ) {}
 
   async ensureThread(sessionId: string): Promise<ThreadRef> {
@@ -38,10 +40,16 @@ export class Notifier implements PromptEvents {
     if (inFlight !== undefined) {
       return inFlight
     }
+    const existing = this.sink?.existingChat(session) ?? null
+    if (existing !== null) {
+      this.store.setSessionThread(sessionId, existing)
+      return existing
+    }
     const created = this.channel
       .createThread(threadTitle(session))
       .then(threadId => {
         this.store.setSessionThread(sessionId, threadId)
+        this.sink?.sessionSeen(this.requireSession(sessionId))
         return threadId
       })
       .finally(() => {
@@ -49,6 +57,20 @@ export class Notifier implements PromptEvents {
       })
     this.creating.set(sessionId, created)
     return created
+  }
+
+  /** Called for every mod request that names a Session, so its web chat exists before anything else needs it. */
+  sessionSeen(sessionId: string): void {
+    const session = this.store.getSession(sessionId)
+    // An in-flight ensureThread links the chat itself once its thread exists; linking now would make a second one.
+    if (this.sink === undefined || session === undefined || this.isEndedSpawned(session) || this.creating.has(sessionId)) {
+      return
+    }
+    try {
+      this.sink.sessionSeen(session)
+    } catch (error) {
+      this.log(`linking the chat of ${sessionId} failed`, error)
+    }
   }
 
   /** Follows the session name in the topic title. Never throws: a failed rename is retried on the next call. */
@@ -108,7 +130,7 @@ export class Notifier implements PromptEvents {
     }
     const thread = await this.ensureThread(prompt.sessionId)
     const session = this.requireSession(prompt.sessionId)
-    const refs = await this.channel.sendPrompt(thread, promptView(prompt, session))
+    const refs = this.sink !== undefined ? this.sink.promptCreated(prompt, session) : await this.channel.sendPrompt(thread, promptView(prompt, session))
     refs.forEach((ref, index) => {
       this.store.addPromptMessage(prompt.id, ref, index)
     })
@@ -124,7 +146,15 @@ export class Notifier implements PromptEvents {
     }
     const refs = this.store.listPromptMessageRefs(prompt.id)
     const session = this.store.getSession(prompt.sessionId)
-    if (refs.length === 0 || session === undefined || session.threadId === null) {
+    if (refs.length === 0 || session === undefined) {
+      return
+    }
+    if (this.sink !== undefined) {
+      this.resolvedNotified.add(prompt.id)
+      this.sink.promptResolved(prompt, refs)
+      return
+    }
+    if (session.threadId === null) {
       return
     }
     this.resolvedNotified.add(prompt.id)
@@ -143,7 +173,13 @@ export class Notifier implements PromptEvents {
   async report(request: ReportRequest): Promise<void> {
     const session = this.store.upsertSession(request.session)
     if (request.report.kind === 'session_ended') {
-      await this.endSession(session, reportText(request.report, session))
+      await this.endSession(session, reportText(request.report, session), request.report)
+      return
+    }
+    if (this.sink !== undefined) {
+      if (!this.isEndedSpawned(session)) {
+        this.sink.report(session, request.report)
+      }
       return
     }
     if (!this.away.isAway() || this.isEndedSpawned(session)) {
@@ -154,6 +190,10 @@ export class Notifier implements PromptEvents {
   }
 
   async instructionDelivered(instruction: Instruction): Promise<void> {
+    if (this.sink !== undefined) {
+      this.sink.instructionDelivered(instruction.id)
+      return
+    }
     const session = this.store.getSession(instruction.sessionId)
     if (session === undefined || session.threadId === null) {
       return
@@ -167,12 +207,18 @@ export class Notifier implements PromptEvents {
     if (session === undefined || session.endedAt !== null) {
       return
     }
-    await this.endSession(session, null)
+    await this.endSession(session, null, null)
   }
 
-  private async endSession(session: SessionRow, text: string | null): Promise<void> {
+  private async endSession(session: SessionRow, text: string | null, report: Report | null): Promise<void> {
+    // Read before endSession writes: a late request for a Spawned Session that already ended must not post into its chat.
+    const late = this.isEndedSpawned(session)
     this.store.endSession(session.id)
     await this.dismissPending(session.id)
+    if (this.sink !== undefined) {
+      await this.endSinkChat(this.sink, session, report, late)
+      return
+    }
     if (session.threadId === null) {
       return
     }
@@ -186,6 +232,22 @@ export class Notifier implements PromptEvents {
       } finally {
         this.store.setSessionThread(session.id, null)
       }
+    }
+  }
+
+  private async endSinkChat(sink: ChatSink, session: SessionRow, report: Report | null, late: boolean): Promise<void> {
+    if (report !== null && !late) {
+      sink.report(session, report)
+    }
+    sink.chatEnded(session)
+    const threadId = this.store.getSession(session.id)?.threadId ?? null
+    if (threadId === null) {
+      return
+    }
+    try {
+      await this.channel.closeThread(threadId)
+    } finally {
+      this.store.setSessionThread(session.id, null)
     }
   }
 

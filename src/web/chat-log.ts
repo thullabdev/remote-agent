@@ -147,6 +147,18 @@ export class ChatLog {
     })
   }
 
+  /** Ties an existing chat to a Session, so its project, cwd and spawned fields come from that Session. */
+  linkSession(chatId: string, sessionId: string): Chat {
+    if (this.store.getSession(sessionId) === undefined) {
+      throw new Error(`Unknown session ${sessionId}`)
+    }
+    return this.write(() => {
+      this.chatOrThrow(chatId)
+      this.db.query('UPDATE chats SET session_id = ? WHERE id = ?').run(sessionId, chatId)
+      return { value: this.chatOrThrow(chatId), events: [this.emitChat(chatId)] }
+    })
+  }
+
   updateChat(id: string, patch: Partial<Pick<Chat, 'title' | 'status' | 'busy'>>): Chat {
     return this.write(() => {
       const current = this.chatOrThrow(id)
@@ -215,6 +227,12 @@ export class ChatLog {
   getChat(id: string): Chat | undefined {
     const record = this.db.query<ChatRecord, [string]>(`${CHAT_SELECT} WHERE c.id = ?`).get(id)
     return record === null ? undefined : this.toChat(record)
+  }
+
+  /** The message appended with this source id (for instructions, the instruction id). */
+  findMessageBySource(sourceId: string): Message | undefined {
+    const record = this.db.query<MessageRecord, [string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE source_id = ?`).get(sourceId)
+    return record === null ? undefined : toMessage(record)
   }
 
   findMessage(id: string): Message | undefined {
