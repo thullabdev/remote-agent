@@ -135,6 +135,21 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+test('an auth failure is logged with method, path and reason only', async () => {
+  start()
+
+  const response = await fetch(url('/api/state?token=leak-me'), {
+    headers: { Origin: 'https://evil.example', 'Tailscale-User-Login': 'intruder@example.com' },
+  })
+
+  expect(response.status).toBe(403)
+  const text = logs.map(entry => entry.message).join('\n')
+  expect(text).toContain('GET /api/state 403 origin not allowed')
+  expect(text).not.toContain('evil.example')
+  expect(text).not.toContain('intruder')
+  expect(text).not.toContain('leak-me')
+})
+
 test('unauthorized upgrade is refused with 403', async () => {
   start()
 
