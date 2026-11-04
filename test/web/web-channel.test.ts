@@ -637,3 +637,16 @@ test('setPushNotifier(null) disables pushing', () => {
 
   expect(pushes).toMatchObject([{ kind: 'report', text: 'Before' }])
 })
+
+test('a report that creates the chat also attaches the transcript reader', () => {
+  const attached: string[] = []
+  channel.setTranscriptAttacher(sessionId => {
+    attached.push(sessionId)
+  })
+  store.upsertSession(webSession)
+
+  channel.report(store.getSession(webSession.sessionId)!, { kind: 'session_started' })
+
+  expect(attached).toContain(webSession.sessionId)
+  expect(store.getSession(webSession.sessionId)?.chatId).not.toBeNull()
+})

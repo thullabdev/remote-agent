@@ -32,7 +32,7 @@ export type Config = {
   claudeConfigPath: string
 }
 
-const DEFAULT_VAPID_SUBJECT = 'mailto:remote-agent@localhost'
+export const DEFAULT_VAPID_SUBJECT = 'mailto:remote-agent@localhost'
 
 function splitList(raw: string): string[] {
   return raw.split(',').map(entry => entry.trim()).filter(entry => entry !== '')

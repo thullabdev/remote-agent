@@ -601,3 +601,21 @@ test('a declined AskUserQuestion result is dropped even without answers', async 
 
   expect(messagesOf(h, chatId)).toEqual([])
 })
+
+test('close stops the poll timer of every attached session', () => {
+  const stopped: string[] = []
+  const h = setup({
+    poll: () => () => {
+      stopped.push('tick')
+    },
+  })
+  h.reader.attach('sess-a')
+  h.reader.attach('sess-b')
+
+  h.reader.close()
+
+  expect(stopped).toEqual(['tick', 'tick'])
+  h.reader.attach('sess-c')
+  h.reader.close()
+  expect(stopped).toHaveLength(3)
+})

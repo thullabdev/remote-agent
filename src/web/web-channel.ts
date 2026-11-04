@@ -268,6 +268,8 @@ export class WebChannel implements Channel, ChatSink {
     if (report.kind === 'turn_complete') {
       this.busyChanged(session.id, false)
     }
+    // A Session's first report can arrive before the Bridge knew it (a mod /reports call), so the report starts its tail too.
+    this.transcriptAttach(session.id)
     const chatId = this.chatFor(session)
     if (report.kind === 'session_started') {
       this.appendSystem(session, `Session started in ${session.cwd}`)

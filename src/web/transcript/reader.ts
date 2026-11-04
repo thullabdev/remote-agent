@@ -132,6 +132,13 @@ export class TranscriptReader {
     this.tails.delete(sessionId)
   }
 
+  /** Stops every tail and its poll timer. Called at shutdown. */
+  close(): void {
+    for (const sessionId of [...this.tails.keys()]) {
+      this.detach(sessionId)
+    }
+  }
+
   /** True only while attached and the transcript file has been found at least once. */
   isActive(sessionId: string): boolean {
     return this.tails.get(sessionId)?.found === true
