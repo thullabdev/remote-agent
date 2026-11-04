@@ -9,7 +9,7 @@ const telegram = {
 
 const web = {
   REMOTE_AGENT_WEB_ALLOWED_LOGIN: 'alice@example.com',
-  REMOTE_AGENT_WEB_ORIGINS: 'box.tail1234.ts.net',
+  REMOTE_AGENT_WEB_ORIGINS: 'https://box.tail1234.ts.net',
 }
 
 const base = {
@@ -57,7 +57,7 @@ test('rejects a non-supergroup chat id', () => {
 test('defaults to channels ["web"] and requires REMOTE_AGENT_WEB_ALLOWED_LOGIN and REMOTE_AGENT_WEB_ORIGINS', () => {
   const config = loadConfig({ HOME: '/home/u', XDG_RUNTIME_DIR: '/run/user/1000', ...web })
   expect(config.channels).toEqual(['web'])
-  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_WEB_ORIGINS: 'box.tail1234.ts.net' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_WEB_ORIGINS: 'https://box.tail1234.ts.net' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
   expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_WEB_ALLOWED_LOGIN: 'alice@example.com' })).toThrow('REMOTE_AGENT_WEB_ORIGINS')
 })
 
@@ -67,7 +67,7 @@ test('web only: no Telegram vars needed and telegram is null', () => {
   expect(config.web).toEqual({
     port: 8787,
     allowedLogin: 'alice@example.com',
-    origins: ['box.tail1234.ts.net'],
+    origins: ['https://box.tail1234.ts.net'],
     token: null,
     staticDir: null,
     vapidSubject: 'mailto:remote-agent@localhost',
@@ -98,8 +98,19 @@ test('port defaults to 8787 and rejects non-integers', () => {
 })
 
 test('origins splits on commas and trims', () => {
-  const config = loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ORIGINS: ' box.tail1234.ts.net , other.tail1234.ts.net,, ' })
-  expect(config.web?.origins).toEqual(['box.tail1234.ts.net', 'other.tail1234.ts.net'])
+  const config = loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ORIGINS: ' https://box.tail1234.ts.net , http://localhost:8787,, ' })
+  expect(config.web?.origins).toEqual(['https://box.tail1234.ts.net', 'http://localhost:8787'])
+})
+
+test('each origin must be an exact http or https origin, and the error names the variable and the entry', () => {
+  const withOrigins = (value: string) => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ORIGINS: value })
+  expect(() => withOrigins('box.tail1234.ts.net')).toThrow('REMOTE_AGENT_WEB_ORIGINS')
+  expect(() => withOrigins('box.tail1234.ts.net')).toThrow('"box.tail1234.ts.net"')
+  expect(() => withOrigins('https://box.tail1234.ts.net/')).toThrow('"https://box.tail1234.ts.net/"')
+  expect(() => withOrigins('https://box.tail1234.ts.net/web')).toThrow('"https://box.tail1234.ts.net/web"')
+  expect(() => withOrigins('ftp://box.tail1234.ts.net')).toThrow('"ftp://box.tail1234.ts.net"')
+  expect(() => withOrigins('https://ok.example.com,box.tail1234.ts.net')).toThrow('"box.tail1234.ts.net"')
+  expect(withOrigins('https://box.tail1234.ts.net:8443').web?.origins).toEqual(['https://box.tail1234.ts.net:8443'])
 })
 
 test('unknown channel name is rejected', () => {

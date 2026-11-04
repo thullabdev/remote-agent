@@ -104,12 +104,28 @@ function isVapidSubject(value: string): boolean {
   }
 }
 
+/** An origin is scheme and host (and port), with no path, query or trailing slash. */
+function isExactHttpOrigin(entry: string): boolean {
+  try {
+    const url = new URL(entry)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === entry
+  } catch {
+    return false
+  }
+}
+
 const WebEnvSchema = z.object({
   REMOTE_AGENT_WEB_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   REMOTE_AGENT_WEB_ALLOWED_LOGIN: z.string({ required_error: 'REMOTE_AGENT_WEB_ALLOWED_LOGIN is required' }).trim().min(1, 'REMOTE_AGENT_WEB_ALLOWED_LOGIN is required'),
   REMOTE_AGENT_WEB_ORIGINS: z.string({ required_error: 'REMOTE_AGENT_WEB_ORIGINS is required' })
     .transform(splitList)
-    .pipe(z.array(z.string()).min(1, 'REMOTE_AGENT_WEB_ORIGINS is required')),
+    .pipe(z.array(z.string()).min(1, 'REMOTE_AGENT_WEB_ORIGINS is required').superRefine((entries, ctx) => {
+      for (const entry of entries) {
+        if (!isExactHttpOrigin(entry)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `entry "${entry}" must be an exact http or https origin (for example https://box.tail1234.ts.net)` })
+        }
+      }
+    })),
   REMOTE_AGENT_WEB_TOKEN: optionalText,
   REMOTE_AGENT_WEB_STATIC: optionalText,
   REMOTE_AGENT_VAPID_SUBJECT: VapidSubjectSchema,
