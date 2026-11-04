@@ -70,6 +70,23 @@ test('prompt does not push while a client is visible and focused', async () => {
   expect(sent).toEqual([])
 })
 
+test('a secret in a permission prompt is redacted in the push preview', async () => {
+  const secret = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWX'
+  await service().notify({ kind: 'prompt', chatId: 'c1', title: 'Allow Bash?', text: `curl -H x ${secret}` })
+  const payload = JSON.parse(sent[0]?.payload ?? '{}')
+  expect(payload.preview).not.toContain(secret)
+  expect(payload.preview).toContain('[REDACTED]')
+})
+
+test('redaction happens before the cap, so a secret straddling the 140 boundary leaks no prefix', async () => {
+  const secret = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWX'
+  await service().notify({ kind: 'prompt', chatId: 'c1', title: 'Allow Bash?', text: `${'x'.repeat(130)} ${secret}` })
+  const preview: string = JSON.parse(sent[0]?.payload ?? '{}').preview
+  expect(preview).not.toContain('sk-ant')
+  expect(preview).not.toContain('ABCDEF')
+  expect(preview.length).toBeLessThanOrEqual(140)
+})
+
 test('report pushes only in Away mode', async () => {
   await service().notify(report)
   expect(sent).toEqual([])

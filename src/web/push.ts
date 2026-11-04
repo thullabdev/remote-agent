@@ -4,6 +4,7 @@ import { generateVAPIDKeys, sendNotification, WebPushError } from 'web-push'
 import { z } from 'zod'
 import type { AwayMode } from '../bridge/notifier.ts'
 import type { Log } from '../bridge/prompts.ts'
+import { redactSecrets } from '../core/text.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { Hub } from './hub.ts'
 import type { PushSubscriptionRecord } from './protocol.ts'
@@ -69,10 +70,11 @@ export class PushService {
     const options: PushOptions = isPrompt
       ? { urgency: 'high', ttlSeconds: PROMPT_TTL_SECONDS }
       : { urgency: 'normal', ttlSeconds: REPORT_TTL_SECONDS }
+    // Redaction runs before the caps, so a secret cut by a cap cannot leak as a fragment.
     const payload = JSON.stringify({
       chatId: capChars(event.chatId, CHAT_ID_CHARS),
-      title: capChars(event.title, TITLE_CHARS),
-      preview: capChars(event.text, PREVIEW_CHARS),
+      title: capChars(redactSecrets(event.title), TITLE_CHARS),
+      preview: capChars(redactSecrets(event.text), PREVIEW_CHARS),
       kind: event.kind,
     })
     const subscriptions = this.deps.chatLog.listPushSubscriptions()
