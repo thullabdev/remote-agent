@@ -25,6 +25,7 @@ The web channel is the default (`REMOTE_AGENT_CHANNELS=web`). It serves a JSON A
 - **UI build:** point `REMOTE_AGENT_WEB_STATIC` at the built UI directory. Its files are served with an `index.html` fallback. Without it the Bridge serves only the API and the WebSocket.
 - **Push on iPhone and iPad:** Web Push works only for a page added to the Home Screen (Share, then Add to Home Screen) and opened from there. It also needs HTTPS, which `tailscale serve` provides.
 - **Push subject:** set `REMOTE_AGENT_VAPID_SUBJECT` to a `mailto:` address of yours. Push services such as Apple's may reject the default. The VAPID key pair is created once in `vapid.json` next to the database.
+- **Building a client or changing the backend:** see the [web channel developer guide](docs/web-channel-developer-guide.md) for the API reference, the WebSocket protocol, push, and how to extend the server.
 - **Away mode and push:** Prompts are always pushed. Reports (turn finished, session ended) are pushed only while Away mode is on, which it is when the Bridge starts (`/away`, `/back`). Nothing is pushed while a client is visible and focused.
 
 ## 3. Telegram setup (optional)
