@@ -76,7 +76,7 @@ type PromptBody =
   | { kind: 'permission'; tool: string; summary: string; reason: string | null; agentId: string | null }
 ```
 
-Secrets in any message body are replaced with `[REDACTED]` before they are stored. Apart from that, text is as the Session produced it.
+Secrets in any message body are replaced with `[REDACTED]` before they are stored. Apart from that, text is as the Session produced it. Transcript messages keep the time they were written (`at`, and `lastMessage.at`). History backfilled when a Session is first tailed is stored as read, so it does not count toward `unread`; messages after that count.
 
 Rendering notes from the prototype mapping:
 - Prototype "agent run / activity log" = consecutive `tool_run` messages of one turn; group them client-side (same turn, no `user_text` or `agent_text` between). The server does not group.

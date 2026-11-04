@@ -186,6 +186,25 @@ test('lastMessage previews the newest visible message in at most 140 chars', () 
   expect(log.getChat('c1')?.lastMessage).toEqual({ seq: message.seq, at: clock, preview: 'x'.repeat(140) })
 })
 
+test('opening a database created without counts_unread migrates it, and old rows count as unread', () => {
+  const store = new Store(':memory:', () => clock)
+  const first = new ChatLog(store, () => clock)
+  first.appendMessage('general', agent('old'))
+  store.database.exec('ALTER TABLE messages DROP COLUMN counts_unread')
+
+  const reopened = new ChatLog(store, () => clock)
+
+  expect(reopened.getChat('general')?.unread).toBe(1)
+})
+
+test('appendMessage stores the given time, and history does not count as unread', () => {
+  const at = 1_767_261_600_000
+  const message = log.appendMessage('general', agent('backfilled'), { at, history: true })
+  expect(message.at).toBe(at)
+  expect(log.getChat('general')?.unread).toBe(0)
+  expect(log.getChat('general')?.lastMessage?.at).toBe(at)
+})
+
 test('a backlog over the event limit resyncs', () => {
   const small = new ChatLog(new Store(':memory:', () => clock), () => clock, { maxReplayEvents: 3 })
   small.appendMessage('general', agent('one'))

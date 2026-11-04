@@ -13,6 +13,7 @@ export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number 
 const PREVIEW_MAX = 140
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
+const MESSAGE_ADDED_COLUMNS: [string, string][] = [['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1']]
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS chats (
@@ -22,7 +23,8 @@ CREATE TABLE IF NOT EXISTS chats (
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id), seq INTEGER NOT NULL UNIQUE,
-  kind TEXT NOT NULL, body TEXT NOT NULL, source_id TEXT, created_at INTEGER NOT NULL
+  kind TEXT NOT NULL, body TEXT NOT NULL, source_id TEXT, created_at INTEGER NOT NULL,
+  counts_unread INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS messages_chat_seq ON messages (chat_id, seq);
 CREATE UNIQUE INDEX IF NOT EXISTS messages_chat_source ON messages (chat_id, source_id);
@@ -133,6 +135,13 @@ export class ChatLog {
     this.maxReplayBytes = limits.maxReplayBytes ?? MAX_REPLAY_BYTES
     this.db = store.database
     this.db.exec(SCHEMA)
+    // Databases made before a column existed get it here; old rows keep the default (they count as unread).
+    const columns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(messages)').all().map(column => column.name))
+    for (const [name, definition] of MESSAGE_ADDED_COLUMNS) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE messages ADD COLUMN ${definition}`)
+      }
+    }
     this.write(() => {
       const inserted = this.db
         .query(`INSERT OR IGNORE INTO chats (id, title, pinned, created_at) VALUES (?, 'General', 1, ?)`)
@@ -185,20 +194,24 @@ export class ChatLog {
     })
   }
 
-  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string } = {}): Message {
+  /**
+   * `at` is the message's time (default: now); it is what lastMessage.at and the list order use. `history` marks backfilled
+   * transcript messages, which are stored as read. Seq stays creation order either way.
+   */
+  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string; at?: number; history?: boolean } = {}): Message {
     const stored = normalizeBody(body)
     const sourceId = options.sourceId ?? null
     return this.write(() => {
       this.chatOrThrow(chatId)
       const id = `m_${crypto.randomUUID()}`
       const seq = this.currentMessageSeq() + 1
-      const at = this.now()
+      const at = options.at ?? this.now()
       const inserted = this.db
         .query(
-          `INSERT INTO messages (id, chat_id, seq, kind, body, source_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO messages (id, chat_id, seq, kind, body, source_id, created_at, counts_unread) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(chat_id, source_id) DO NOTHING`,
         )
-        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at)
+        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at, options.history === true ? 0 : 1)
       if (sourceId !== null && inserted.changes === 0) {
         return { value: this.messageBySource(chatId, sourceId), events: [] }
       }
@@ -502,7 +515,7 @@ export class ChatLog {
   private toChat(record: ChatRecord): Chat {
     const floor = Math.max(record.cursor, record.hidden_before_seq)
     const unread = this.db
-      .query<{ count: number }, [string, number]>(`SELECT COUNT(*) AS count FROM messages WHERE chat_id = ? AND seq > ? AND kind IN ${UNREAD_KINDS}`)
+      .query<{ count: number }, [string, number]>(`SELECT COUNT(*) AS count FROM messages WHERE chat_id = ? AND seq > ? AND kind IN ${UNREAD_KINDS} AND counts_unread = 1`)
       .get(record.id, floor)
     const last = this.lastVisible(record.id)
     return {

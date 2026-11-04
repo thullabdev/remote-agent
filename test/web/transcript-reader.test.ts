@@ -619,3 +619,41 @@ test('close stops the poll timer of every attached session', () => {
   h.reader.close()
   expect(stopped).toHaveLength(3)
 })
+
+/** The time the reader attaches in the backfill tests: 10:00:30. Entries stamped before 10:00:28 are history. */
+const ATTACHED_AT = Date.UTC(2026, 0, 1, 10, 0, 30)
+const stampOf = (second: number): number => Date.UTC(2026, 0, 1, 10, 0, second)
+
+test('backfilled messages keep their transcript timestamps', async () => {
+  const h = setup({ now: () => ATTACHED_AT })
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'first', 5) + assistantText('a-1', 'second', 7))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.at)).toEqual([stampOf(5), stampOf(7)])
+})
+
+test('backfilled history does not count as unread but a live message after attach does', async () => {
+  const h = setup({ now: () => ATTACHED_AT })
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'old question', 1) + assistantText('a-1', 'old answer', 2))
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.unread).toBe(0)
+
+  write(h, prompt('p-1', 'old question', 1) + assistantText('a-1', 'old answer', 2) + assistantText('a-2', 'live answer', 40))
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.unread).toBe(1)
+})
+
+test('lastMessage.at reflects the transcript time', async () => {
+  const h = setup({ now: () => ATTACHED_AT })
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'first', 3) + assistantText('a-1', 'last', 9))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.lastMessage?.at).toBe(stampOf(9))
+})
+

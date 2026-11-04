@@ -12,6 +12,8 @@ const POLL_MS = 500
 const DEFAULT_WINDOW_BYTES = 4 * 1024 * 1024
 const DEFAULT_MAX_LINE_BYTES = 64 * 1024 * 1024
 const NEWLINE = 0x0a
+/** An entry this much older than the attach is backfilled history: stored as read. Live entries are newer than that. */
+const BACKFILL_SLACK_MS = 2_000
 const ENOENT = 'ENOENT'
 
 export type TranscriptReaderDeps = {
@@ -29,6 +31,7 @@ export type TranscriptReaderDeps = {
   windowBytes?: number
   /** A line longer than this is logged and skipped. */
   maxLineBytes?: number
+  now?: () => number
 }
 
 type Tail = {
@@ -38,6 +41,8 @@ type Tail = {
   offset: number
   found: boolean
   inFlight: boolean
+  /** When the reader attached this Session: entries older than this (minus a slack) are backfilled history. */
+  attachedAt: number
   /** True while skipping the rest of an oversized line, up to its newline. */
   skipping: boolean
   /** True while a turn is open: relevant entries came after the last turn_duration or interrupt marker. */
@@ -87,8 +92,10 @@ export class TranscriptReader {
   private readonly statSize: (path: string) => Promise<number | null>
   private readonly windowBytes: number
   private readonly maxLineBytes: number
+  private readonly now: () => number
 
   constructor(private readonly deps: TranscriptReaderDeps) {
+    this.now = deps.now ?? Date.now
     this.poll = deps.poll ?? defaultPoll
     this.readFrom = deps.readFrom ?? readFromFile
     this.statSize = deps.statSize ?? statFileSize
@@ -108,6 +115,7 @@ export class TranscriptReader {
       offset: 0,
       found: false,
       inFlight: false,
+      attachedAt: this.now(),
       skipping: false,
       open: false,
       busy: null,
@@ -264,11 +272,11 @@ export class TranscriptReader {
     tail.open = true
     const { chatLog } = this.deps
     if (item.kind === 'agent_text') {
-      chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: item.markdown }, { sourceId })
+      chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: item.markdown }, this.stamp(tail, at, sourceId))
       return
     }
     if (item.kind === 'user_text') {
-      this.applyUserText(chatId, sourceId, item.text)
+      this.applyUserText(tail, chatId, entry, item.text)
       return
     }
     if (item.kind === 'ignored_tool_use') {
@@ -282,7 +290,7 @@ export class TranscriptReader {
       chatLog.appendMessage(
         chatId,
         { kind: 'tool_run', tool: item.tool, input: item.input, result: null, resultTruncated: false, status: 'running', durationMs: null },
-        { sourceId },
+        this.stamp(tail, at, sourceId),
       )
       return
     }
@@ -296,8 +304,9 @@ export class TranscriptReader {
    * A transcript user line is either a prompt typed in the terminal, or the echo of an Instruction the web UI already shows.
    * Each Instruction matches at most one line, the oldest first; a line handled once (by its source id) is never handled again.
    */
-  private applyUserText(chatId: string, sourceId: string, text: string): void {
+  private applyUserText(tail: Tail, chatId: string, entry: TranscriptEntry, text: string): void {
     const { chatLog } = this.deps
+    const { sourceId } = entry
     if (chatLog.isClaimed(chatId, sourceId)) {
       return
     }
@@ -307,8 +316,16 @@ export class TranscriptReader {
       chatLog.claim(chatId, sourceId)
       return
     }
-    chatLog.appendMessage(chatId, { kind: 'user_text', text, status: 'delivered', instructionId: null }, { sourceId })
+    chatLog.appendMessage(chatId, { kind: 'user_text', text, status: 'delivered', instructionId: null }, this.stamp(tail, entry.at, sourceId))
     chatLog.claim(chatId, sourceId)
+  }
+
+  /** A transcript message keeps the time of its entry. An entry older than the attach is history, stored as read. */
+  private stamp(tail: Tail, at: number, sourceId: string): { sourceId: string; at?: number; history: boolean } {
+    if (at <= 0) {
+      return { sourceId, history: false }
+    }
+    return { sourceId, at, history: at < tail.attachedAt - BACKFILL_SLACK_MS }
   }
 
   private applyResult(tail: Tail, chatId: string, entry: TranscriptEntry, item: { toolUseId: string; text: string; isError: boolean }): void {
@@ -320,7 +337,7 @@ export class TranscriptReader {
     const existing = chatLog.findBySourceId(chatId, entry.sourceId)
     if (existing === undefined) {
       const body: MessageBody = { kind: 'tool_run', tool: 'unknown', input: null, result: item.text, resultTruncated: false, status, durationMs }
-      chatLog.appendMessage(chatId, body, { sourceId: entry.sourceId })
+      chatLog.appendMessage(chatId, body, this.stamp(tail, entry.at, entry.sourceId))
       return
     }
     // A run already finished (stored before a restart) is left as it is, so a re-read emits nothing.
