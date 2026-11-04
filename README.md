@@ -99,6 +99,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - The permission hook runs with `bun`; make sure `bun` is on the `PATH` Claude Code uses for hooks (`which bun` in a fresh shell).
 - An Instruction sent from Telegram appears in the terminal as "Prompt from the remote-agent plugin".
 - Sessions that were already running when the mod was installed need `/reload-plugins` once.
+- A Session already running when the Bridge starts gets its web chat at its next report, prompt or title, not at once: the mod's instruction poll carries only a session id, so the Bridge cannot create the chat from it.
 - If the Bridge is down for more than about 6 seconds while a Question waits, that Question can only be answered in the terminal.
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
 - Sessions started with `/new` run with your default permission mode and only in folders you trusted in Claude Code. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
