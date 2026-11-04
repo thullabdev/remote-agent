@@ -35,7 +35,7 @@ Why it matters beyond swapping Telegram out: the browser has no server-side chat
 ## Constraints
 
 - Stack: **Bun + TypeScript**, `Bun.serve` (HTTP + built-in WebSocket), `bun:sqlite` in the existing Store, zod for every wire schema. One new dependency at most (`web-push`, or a small VAPID implementation if it misbehaves under Bun; verify in a spike).
-- **One service**: the web server runs inside the Bridge process (`remote-agent.service`) as a second listener, behind a clear module boundary (`src/web/`) so it can be split out later. The Unix socket for the mod is unchanged.
+- **One service**: the web server runs inside the Bridge process (`remote-agent.service`) as a second listener, behind a clear module boundary (`src/channel/web/`) so it can be split out later. The Unix socket for the mod is unchanged.
 - Coding rule: no short-if early returns in TypeScript (use braces).
 
 ## Architecture
@@ -92,7 +92,7 @@ Today the Bridge sees only Prompts, turn-complete Reports (which do carry the **
 - De-duplication: when the reader is active for a Session, `turn_complete` Report text is **not** appended again as a message; Reports in the Web Channel only add `system` messages (started/ended). `AskUserQuestion` tool entries in the transcript are skipped because the Prompt message already represents them.
 - Instructions flow unchanged (queue → mod polls every 3 s → delivered); the UI shows `queued` then `delivered` from the existing delivery confirmation.
 
-### Web server (`src/web/`)
+### Web server (`src/channel/web/`)
 
 - `Bun.serve` on `127.0.0.1:REMOTE_AGENT_WEB_PORT` (default 8787). Never binds a public interface.
 - Routes: JSON API + one WebSocket + static files from `REMOTE_AGENT_WEB_STATIC` (the future UI build) with SPA fallback. Exact contract: see the handoff document.

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseTranscriptLine } from '../../src/web/transcript/parse.ts'
+import { parseTranscriptLine } from '../../../src/channel/web/transcript/parse.ts'
 
 const AT = '2026-01-01T10:00:00.000Z'
 const MS = Date.parse(AT)
@@ -101,7 +101,7 @@ test('unknown line types and unknown block shapes are ignored without throwing',
 })
 
 test('the synthetic finished-session fixture parses into its prompts, tool runs, answers and turn end', () => {
-  const lines = readFileSync(join(import.meta.dir, '../support/transcripts/finished-session.jsonl'), 'utf8').split('\n').filter(Boolean)
+  const lines = readFileSync(join(import.meta.dir, '../../support/transcripts/finished-session.jsonl'), 'utf8').split('\n').filter(Boolean)
   const kinds = lines.flatMap(line => parseTranscriptLine(line).map(entry => entry.item.kind))
 
   expect(kinds).toEqual(['user_text', 'agent_text', 'tool_use', 'tool_result', 'ignored_tool_use', 'agent_text', 'turn_end'])

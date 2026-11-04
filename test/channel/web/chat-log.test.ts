@@ -1,7 +1,7 @@
 import { beforeEach, expect, spyOn, test } from 'bun:test'
-import { Store } from '../../src/bridge/store.ts'
-import { ChatLog, TOOL_RESULT_MAX } from '../../src/web/chat-log.ts'
-import type { Message, MessageBody, ServerEvent } from '../../src/web/protocol.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import { ChatLog, TOOL_RESULT_MAX } from '../../../src/channel/web/chat-log.ts'
+import type { Message, MessageBody, ServerEvent } from '../../../src/channel/web/protocol.ts'
 
 let clock = 1_000
 let store: Store

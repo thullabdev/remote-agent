@@ -1,13 +1,13 @@
 import { beforeEach, expect, test } from 'bun:test'
-import { Inbound } from '../../src/bridge/inbound.ts'
-import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { PromptService } from '../../src/bridge/prompts.ts'
-import { Store } from '../../src/bridge/store.ts'
-import { createApi } from '../../src/web/api.ts'
-import { bindAway } from '../../src/web/away-events.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import type { ServerEvent } from '../../src/web/protocol.ts'
-import { WebChannel } from '../../src/web/web-channel.ts'
+import { Inbound } from '../../../src/bridge/inbound.ts'
+import { AwayMode, Notifier } from '../../../src/bridge/notifier.ts'
+import { PromptService } from '../../../src/bridge/prompts.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import { createApi } from '../../../src/channel/web/api.ts'
+import { bindAway } from '../../../src/channel/web/away-events.ts'
+import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import type { ServerEvent } from '../../../src/channel/web/protocol.ts'
+import { WebChannel } from '../../../src/channel/web/web-channel.ts'
 
 let store: Store
 let chatLog: ChatLog

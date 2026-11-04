@@ -2,19 +2,19 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createBridge, type Bridge } from '../../src/bridge/app.ts'
-import { loadConfig, type Config } from '../../src/bridge/config.ts'
-import { Launcher } from '../../src/bridge/launcher.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import type { ServerEvent } from '../../src/web/protocol.ts'
-import { transcriptPath } from '../../src/web/transcript/path.ts'
-import { FakeTmux } from '../support/fake-tmux.ts'
+import { createBridge, type Bridge } from '../../../src/bridge/app.ts'
+import { loadConfig, type Config } from '../../../src/bridge/config.ts'
+import { Launcher } from '../../../src/bridge/launcher.ts'
+import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import type { ServerEvent } from '../../../src/channel/web/protocol.ts'
+import { transcriptPath } from '../../../src/channel/web/transcript/path.ts'
+import { FakeTmux } from '../../support/fake-tmux.ts'
 
 const LOGIN = 'mod@example.com'
 const ORIGIN = 'https://remote-agent.example.ts.net'
 const CWD = '/home/u/app'
 const JSON_HEADERS = { 'content-type': 'application/json' }
-const FIXTURE = join(import.meta.dir, '../support/transcripts/finished-session.jsonl')
+const FIXTURE = join(import.meta.dir, '../../support/transcripts/finished-session.jsonl')
 
 let home: string
 let bridge: Bridge | null

@@ -2,12 +2,12 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AwayMode } from '../../src/bridge/notifier.ts'
-import { Store } from '../../src/bridge/store.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import { Hub } from '../../src/web/hub.ts'
-import type { PushSubscriptionRecord } from '../../src/web/protocol.ts'
-import { loadOrCreateVapid, PushService } from '../../src/web/push.ts'
+import { AwayMode } from '../../../src/bridge/notifier.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import { Hub } from '../../../src/channel/web/hub.ts'
+import type { PushSubscriptionRecord } from '../../../src/channel/web/protocol.ts'
+import { loadOrCreateVapid, PushService } from '../../../src/channel/web/push.ts'
 
 type Sent = { subscription: PushSubscriptionRecord; payload: string; options: { urgency: 'high' | 'normal'; ttlSeconds: number } }
 

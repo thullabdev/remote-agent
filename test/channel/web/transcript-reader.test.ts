@@ -1,12 +1,12 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Store } from '../../src/bridge/store.ts'
-import { ChatLog, TOOL_RESULT_MAX } from '../../src/web/chat-log.ts'
-import type { Message, ServerEvent } from '../../src/web/protocol.ts'
-import { TranscriptReader, type TranscriptReaderDeps } from '../../src/web/transcript/reader.ts'
-import { transcriptPath } from '../../src/web/transcript/path.ts'
-import { WebChannel } from '../../src/web/web-channel.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import { ChatLog, TOOL_RESULT_MAX } from '../../../src/channel/web/chat-log.ts'
+import type { Message, ServerEvent } from '../../../src/channel/web/protocol.ts'
+import { TranscriptReader, type TranscriptReaderDeps } from '../../../src/channel/web/transcript/reader.ts'
+import { transcriptPath } from '../../../src/channel/web/transcript/path.ts'
+import { WebChannel } from '../../../src/channel/web/web-channel.ts'
 
 const HOME = '/home/u'
 const CWD = '/home/u/app'
@@ -46,7 +46,7 @@ const toolResult = (uuid: string, id: string, text: string, second = 0, isError 
     message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text, is_error: isError }] },
   })
 const turnEnd = (uuid: string, second = 0) => line({ type: 'system', subtype: 'turn_duration', durationMs: 1000, uuid, timestamp: iso(second) })
-const fixture = (name: string): string => readFileSync(join(import.meta.dir, '../support/transcripts', name), 'utf8')
+const fixture = (name: string): string => readFileSync(join(import.meta.dir, '../../support/transcripts', name), 'utf8')
 
 type Overrides = Partial<TranscriptReaderDeps> & { files?: Map<string, Uint8Array> }
 

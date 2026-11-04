@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
-import type { Store } from '../bridge/store.ts'
-import { redactSecrets, truncate } from '../core/text.ts'
+import type { Store } from '../../bridge/store.ts'
+import { redactSecrets, truncate } from '../../core/text.ts'
 import type { Chat, Message, MessageBody, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000

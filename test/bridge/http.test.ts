@@ -4,9 +4,9 @@ import { Inbound } from '../../src/bridge/inbound.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
 import { Store } from '../../src/bridge/store.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import type { ServerEvent } from '../../src/web/protocol.ts'
-import { WebChannel } from '../../src/web/web-channel.ts'
+import { ChatLog } from '../../src/channel/web/chat-log.ts'
+import type { ServerEvent } from '../../src/channel/web/protocol.ts'
+import { WebChannel } from '../../src/channel/web/web-channel.ts'
 import { FakeChannel, flush } from '../support/fake-channel.ts'
 
 const session = { sessionId: 's1', cwd: '/home/u/app' }

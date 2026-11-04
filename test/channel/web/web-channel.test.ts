@@ -1,11 +1,11 @@
 import { beforeEach, expect, test } from 'bun:test'
-import type { PromptBody } from '../../mod/remote-agent/hooks/protocol.ts'
-import type { ButtonData, PromptView } from '../../src/channel/types.ts'
-import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { Store } from '../../src/bridge/store.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import { PushService, type PushEvent } from '../../src/web/push.ts'
-import { WebChannel } from '../../src/web/web-channel.ts'
+import type { PromptBody } from '../../../mod/remote-agent/hooks/protocol.ts'
+import type { ButtonData, PromptView } from '../../../src/channel/types.ts'
+import { AwayMode, Notifier } from '../../../src/bridge/notifier.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import { PushService, type PushEvent } from '../../../src/channel/web/push.ts'
+import { WebChannel } from '../../../src/channel/web/web-channel.ts'
 
 let clock = 1_000
 let store: Store

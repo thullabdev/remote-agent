@@ -1,8 +1,8 @@
 import { beforeEach, expect, test } from 'bun:test'
-import { Hub, type HubSocket } from '../../src/web/hub.ts'
-import { ChatLog } from '../../src/web/chat-log.ts'
-import { Store } from '../../src/bridge/store.ts'
-import type { ServerEvent } from '../../src/web/protocol.ts'
+import { Hub, type HubSocket } from '../../../src/channel/web/hub.ts'
+import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import { Store } from '../../../src/bridge/store.ts'
+import type { ServerEvent } from '../../../src/channel/web/protocol.ts'
 
 class FakeSocket implements HubSocket {
   sent: string[] = []

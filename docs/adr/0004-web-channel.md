@@ -1,6 +1,6 @@
-# The web channel is a second Channel inside the Bridge, behind a boundary in src/web
+# The web channel is a second Channel inside the Bridge, behind a boundary in src/channel/web
 
-The web chat is the Channel the user reaches first; Telegram stays switchable. We run it inside the Bridge process rather than as a separate service. The web code lives in `src/web/` and reaches the Bridge only through the seams the Bridge already has: `WebChannel` implements `Channel` (the same seam Telegram uses), and it is also the optional `ChatSink` the Notifier calls for structured output. `src/bridge/app.ts` is the only place that wires them together. Telegram-only behaviour is unchanged when `web` is not selected, and only one Channel runs at a time: if both are selected the Bridge logs that and starts the web channel alone.
+The web chat is the Channel the user reaches first; Telegram stays switchable. We run it inside the Bridge process rather than as a separate service. The web code lives in `src/channel/web/` and reaches the Bridge only through the seams the Bridge already has: `WebChannel` implements `Channel` (the same seam Telegram uses), and it is also the optional `ChatSink` the Notifier calls for structured output. `src/bridge/app.ts` is the only place that wires them together. Telegram-only behaviour is unchanged when `web` is not selected, and only one Channel runs at a time: if both are selected the Bridge logs that and starts the web channel alone.
 
 ## Why the message log lives in the Bridge
 

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { transcriptPath } from '../../src/web/transcript/path.ts'
+import { transcriptPath } from '../../../src/channel/web/transcript/path.ts'
 
 const SESSION = '8e38df20-0000-4000-8000-000000000001'
 

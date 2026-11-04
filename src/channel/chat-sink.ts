@@ -1,6 +1,6 @@
 import type { Instruction, Report } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { PromptRow, SessionRow } from '../bridge/store.ts'
-import type { Message } from '../web/protocol.ts'
+import type { Message } from './web/protocol.ts'
 
 /**
  * Structured chat output for the web channel. The Notifier calls it in addition to the Channel;

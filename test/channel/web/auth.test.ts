@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { type AuthConfig, authorize } from '../../src/web/auth.ts'
+import { type AuthConfig, authorize } from '../../../src/channel/web/auth.ts'
 
 const ORIGIN = 'https://agent.example.ts.net'
 const LOGIN = 'owner@example.com'

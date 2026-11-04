@@ -3,7 +3,7 @@ import type { PromptBody, Report } from '../../mod/remote-agent/hooks/protocol.t
 import type { ChatSink } from '../../src/channel/chat-sink.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { Store, type PromptRow, type SessionRow } from '../../src/bridge/store.ts'
-import type { Message } from '../../src/web/protocol.ts'
+import type { Message } from '../../src/channel/web/protocol.ts'
 import { FakeChannel } from '../support/fake-channel.ts'
 
 const session = { sessionId: 'abcdef1234', cwd: '/home/u/app' }
@@ -221,7 +221,7 @@ test('late mod traffic for an ended spawned session creates no thread and keeps 
 
 type SinkCall = string
 
-/** Records what the Notifier asks of a ChatSink; the web channel's behaviour is tested in test/web. */
+/** Records what the Notifier asks of a ChatSink; the web channel's behaviour is tested in test/channel/web. */
 class RecordingSink implements ChatSink {
   calls: SinkCall[] = []
   prompts: PromptRow[] = []
