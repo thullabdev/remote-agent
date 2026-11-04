@@ -30,6 +30,18 @@ test('launch passes --model to claude when a model is given', async () => {
   expect(tmux.calls[0]?.slice(-5)).toEqual(['claude', '--session-id', id, '--model', 'opus'])
 })
 
+test('launch with resumeFrom resumes that transcript into a new session id', async () => {
+  const resumed = '9b1c2d3e-0000-4000-8000-000000000000'
+  await launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: resumed })
+  expect(tmux.calls[0]?.slice(-6)).toEqual(['claude', '--resume', resumed, '--fork-session', '--session-id', id])
+})
+
+test('launch with resumeFrom and a model passes both', async () => {
+  const resumed = '9b1c2d3e-0000-4000-8000-000000000000'
+  await launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: resumed, model: 'haiku' })
+  expect(tmux.calls[0]?.slice(-8)).toEqual(['claude', '--resume', resumed, '--fork-session', '--session-id', id, '--model', 'haiku'])
+})
+
 test('a failed launch throws a redacted LaunchError', async () => {
   tmux.launchFails = 'Failed to connect to bus: token=abcdef123456'
   const failure = launcher.launch({ sessionId: id, cwd: '/x' })

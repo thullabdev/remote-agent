@@ -33,10 +33,14 @@ All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx.
 | `POST /api/chats/:id/read` `{ seq }` | Mark everything up to `seq` read (global, all devices). |
 | `PUT /api/away` `{ away: boolean }` | Away mode. |
 | `POST /api/chats/:id/end` | End a Spawned Session (same as `/end`). 409 with an error if it is not a Spawned Session. |
+| `POST /api/chats/:id/clear` | Hide the chat's history so far (global, all devices; later messages show). `{ ok: true }`. 404 for an unknown chat. |
+| `POST /api/chats/:id/fork` | Start a new Spawned Session with its own chat that resumes this chat's session transcript (the original is left as it was; works for ended sessions too). Returns `{ toast }`. 409 if the session's folder is no longer trusted; 404 if the chat has no session. 501 if the installed Claude Code cannot fork (`FORK_SUPPORTED` in `src/bridge/spawner.ts`; currently supported, checked against Claude Code 2.1.318). |
+| `GET /api/projects` | The trusted configured projects: `{ projects: { label, cwd }[] }`, for a project picker. 404 when no projects are configured. |
+| `POST /api/projects/start` `{ cwd, model? }` | Same as `/new [--model <model>] <path>`: `cwd` is an absolute or `~` path that must be trusted. Returns `{ toast }`. 409 for an untrusted folder, 400 for an unknown model. |
 | `GET /api/push/key` | VAPID public key for `pushManager.subscribe`. |
 | `POST /api/push/subscriptions` `{ subscription }` | Register this device. `DELETE /api/push/subscriptions` `{ endpoint }` to unregister. |
 
-Not in the first server version (see design, "Decisions for the user"): editing model/effort/cwd, skills list, fork. When agreed they get entries here.
+Not in the first server version (see design, "Decisions for the user"): editing model/effort/cwd, skills list (Claude Code refuses slash text sent as a prompt, so skills stay off). When agreed they get entries here.
 
 ## 4. Shapes
 
@@ -118,10 +122,10 @@ What `references/UI-prototype.html` shows that the server **does not provide yet
 | Prototype feature | Server today |
 |---|---|
 | Info panel editing model / effort / cwd; `/model`, `/effort`, `/cwd` | Read-only; model only at spawn. |
-| `/clear` | Not provided (UI-only hide proposed). |
-| Skills menu per session | Not provided. |
-| Fork from a message | Not provided; whole-session fork proposed. |
-| `/new <title>` creating its own folder | Only trusted projects, via a picker. |
+| `/clear` | Provided: `POST /api/chats/:id/clear` (hides history for all devices). |
+| Skills menu per session | Not provided: a skill is sent as `/<skill>` text through `prompt.submit`, which Claude Code refuses (spike), so the skills endpoint is not built. |
+| Fork from a message | Provided as a whole-session fork: `POST /api/chats/:id/fork`. Message-level fork is not provided. |
+| `/new <title>` creating its own folder | Only trusted projects: `GET /api/projects` lists them and `POST /api/projects/start` starts one. |
 | "General" as a chatty router agent | Command surface only. |
 | Message search | Client-side over titles only. |
 | Settings (theme, accent, glow, density, font) | Not server-side; keep in `localStorage`. |

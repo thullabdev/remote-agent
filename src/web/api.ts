@@ -2,8 +2,9 @@ import { z } from 'zod'
 import type { AwayMode } from '../bridge/notifier.ts'
 import { BadRequest } from '../bridge/errors.ts'
 import type { Log } from '../bridge/prompts.ts'
-import { NOT_SPAWNED, type Spawner } from '../bridge/spawner.ts'
+import { BAD_MODEL, FORK_UNSUPPORTED, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../bridge/spawner.ts'
 import type { SessionRow, Store } from '../bridge/store.ts'
+import type { Project } from '../bridge/trusted.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../channel/types.ts'
 import type { ChatLog } from './chat-log.ts'
@@ -21,12 +22,19 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork'>
   sink: Pick<ChatSink, 'instructionQueued'>
+  /** The trusted folders offered as projects. Absent when not configured; the projects routes then answer 404. */
+  projects?: () => Promise<Project[]>
   /** Absent when push is not configured; the push routes then answer 404. */
   push?: Pick<PushService, 'publicKey' | 'subscribe' | 'unsubscribe'>
   log: Log
 }
+
+const StartProjectSchema = z.object({
+  cwd: z.string().regex(/^[/~]/, 'cwd must be an absolute path or start with ~'),
+  model: z.string().regex(/^\S+$/, 'model must be one word').optional(),
+})
 
 const PushSubscribeSchema = z.object({
   subscription: z.object({
@@ -47,7 +55,7 @@ function isHttpsUrl(value: string): boolean {
 
 class ApiError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 500 | 503,
+    readonly status: 400 | 404 | 409 | 500 | 501 | 503,
     message: string,
   ) {
     super(message)
@@ -66,6 +74,10 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['prompts', ':id', 'reply'], run: ({ deps, request }, id) => promptReply(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'read'], run: ({ deps, request }, id) => markRead(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
+  { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
+  { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
   { method: 'PUT', pattern: ['away'], run: ({ deps, request }) => setAway(deps, request) },
   { method: 'GET', pattern: ['push', 'key'], run: ({ deps }) => pushKey(deps) },
   { method: 'POST', pattern: ['push', 'subscriptions'], run: ({ deps, request }) => subscribePush(deps, request) },
@@ -295,6 +307,54 @@ async function endChat(deps: ApiDeps, chatId: string): Promise<unknown> {
     throw new ApiError(409, 'This session has ended.')
   }
   return { toast: await deps.spawner.end(session.threadId) }
+}
+
+function clearHistory(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  deps.chatLog.clearChat(chatId)
+  return { ok: true }
+}
+
+async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const toast = await deps.spawner.fork(session.id)
+  if (toast === FORK_UNSUPPORTED) {
+    throw new ApiError(501, toast)
+  }
+  if (toast === NOT_TRUSTED) {
+    throw new ApiError(409, toast)
+  }
+  return { toast }
+}
+
+function requireProjects(deps: ApiDeps): NonNullable<ApiDeps['projects']> {
+  if (deps.projects === undefined) {
+    throw new ApiError(404, 'Projects are not configured.')
+  }
+  return deps.projects
+}
+
+async function listProjects(deps: ApiDeps): Promise<unknown> {
+  return { projects: await requireProjects(deps)() }
+}
+
+/** The same as `/new [--model <model>] <path>`; the picker is never posted here because the cwd is required. */
+async function startProject(deps: ApiDeps, request: Request): Promise<unknown> {
+  requireProjects(deps)
+  const body = await readBody(request, StartProjectSchema)
+  const args = body.model === undefined ? body.cwd : `--model ${body.model} ${body.cwd}`
+  const reply = await deps.spawner.newCommand(null, args)
+  if (reply === null) {
+    throw new ApiError(400, 'cwd is required')
+  }
+  if (reply === NOT_TRUSTED) {
+    throw new ApiError(409, reply)
+  }
+  if (reply === BAD_MODEL) {
+    throw new ApiError(400, reply)
+  }
+  return { toast: reply }
 }
 
 function requirePush(deps: ApiDeps): NonNullable<ApiDeps['push']> {

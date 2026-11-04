@@ -15,6 +15,10 @@ export const USAGE = 'Usage: /new [--model <model>] <trusted folder>. Set REMOTE
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started from Telegram can be ended remotely.'
+export const UNKNOWN_SESSION = 'Unknown session.'
+/** Claude Code honours `--resume <id> --fork-session --session-id <new>` (checked against claude 2.1.318). */
+export const FORK_SUPPORTED = true
+export const FORK_UNSUPPORTED = 'Forking is not supported by this version of Claude Code.'
 
 const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
@@ -112,6 +116,29 @@ export class Spawner {
     }
     try {
       return await this.startAt(project.cwd, picker.model)
+    } catch (error) {
+      if (error instanceof TrustedFoldersUnavailable) {
+        this.deps.log('reading trusted folders failed', error)
+        return CONFIG_UNREADABLE
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Starts a Spawned Session that resumes the transcript of `sessionId` under a new id, so the original is left alone.
+   * Works for ended and non-spawned sessions too. Returns the toast.
+   */
+  async fork(sessionId: string): Promise<string> {
+    if (!FORK_SUPPORTED) {
+      return FORK_UNSUPPORTED
+    }
+    const session = this.deps.store.getSession(sessionId)
+    if (session === undefined) {
+      return UNKNOWN_SESSION
+    }
+    try {
+      return await this.startAt(session.cwd, null, sessionId)
     } catch (error) {
       if (error instanceof TrustedFoldersUnavailable) {
         this.deps.log('reading trusted folders failed', error)
@@ -230,15 +257,15 @@ export class Spawner {
     return null
   }
 
-  private async startAt(path: string, model: string | null): Promise<string> {
+  private async startAt(path: string, model: string | null, resumeFrom?: string): Promise<string> {
     const cwd = await this.deps.trusted.isTrusted(path)
     if (cwd === null) {
       return NOT_TRUSTED
     }
-    return this.start(cwd, model)
+    return this.start(cwd, model, resumeFrom)
   }
 
-  private async start(cwd: string, model: string | null): Promise<string> {
+  private async start(cwd: string, model: string | null, resumeFrom?: string): Promise<string> {
     const { store, notifier, channel, launcher, log } = this.deps
     const sessionId = this.newId()
     const tmuxName = tmuxNameFor(sessionId)
@@ -253,7 +280,7 @@ export class Spawner {
       return '❌ Could not create a topic for the session.'
     }
     try {
-      await launcher.launch({ sessionId, cwd, model })
+      await launcher.launch({ sessionId, cwd, model, resumeFrom })
     } catch (error) {
       const reason = reasonOf(error)
       await channel.sendText(thread, `❌ Could not start the session:\n${reason}`, null).catch(sendError => {
@@ -266,7 +293,11 @@ export class Spawner {
     await channel.sendText(thread, `⏳ Starting… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
       log(`announcing the start of ${sessionId} failed`, sendError)
     })
-    return `🚀 Starting ${projectName(cwd)}${model === null ? '' : ` with ${model}`}. Open its topic.`
+    const withModel = model === null ? '' : ` with ${model}`
+    if (resumeFrom !== undefined) {
+      return `Forking ${projectName(cwd)}${withModel}. Open its topic.`
+    }
+    return `🚀 Starting ${projectName(cwd)}${withModel}. Open its topic.`
   }
 
   private armTimer(sessionId: string): void {

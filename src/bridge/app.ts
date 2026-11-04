@@ -122,6 +122,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         store,
         away,
         spawner,
+        projects: () => trusted.configuredProjects(),
         sink: webChannel,
         push,
         log,

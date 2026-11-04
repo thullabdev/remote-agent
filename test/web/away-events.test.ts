@@ -54,7 +54,7 @@ test('/away then /back then PUT /api/away broadcast three away.updated events in
     handlers: () => null,
     store,
     away,
-    spawner: { end: async () => 'Session ended.' },
+    spawner: { end: async () => 'Session ended.', newCommand: async () => null, fork: async () => '' },
     sink: channel,
     log: () => {},
   })

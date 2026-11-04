@@ -1,15 +1,21 @@
 import { beforeEach, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import type { QuestionItem } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { ButtonData, ChannelHandlers, InboundCommand, InboundText } from '../../src/channel/types.ts'
 import { createApi } from '../../src/web/api.ts'
 import { Inbound } from '../../src/bridge/inbound.ts'
+import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
+import { BAD_MODEL, NOT_TRUSTED, Spawner } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
+import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { ChatLog } from '../../src/web/chat-log.ts'
 import { WebChannel } from '../../src/web/web-channel.ts'
 import type { PushSubscriptionRecord } from '../../src/web/protocol.ts'
 import { flush } from '../support/fake-channel.ts'
+import { FakeTmux } from '../support/fake-tmux.ts'
 
 type Api = ReturnType<typeof createApi>
 type ApiDeps = Parameters<typeof createApi>[0]
@@ -22,6 +28,11 @@ let away: AwayMode
 let api: Api
 let handlers: ChannelHandlers | null
 let pushDeps: ApiDeps['push']
+let spawnerDep: ApiDeps['spawner']
+let projectsDep: ApiDeps['projects']
+let tmux: FakeTmux
+let home: string
+let configPath: string
 const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
 const spawnerCalls: (string | null)[] = []
@@ -46,24 +57,59 @@ function fakeHandlers(): ChannelHandlers {
   }
 }
 
+function stubSpawner(): ApiDeps['spawner'] {
+  return {
+    end: async thread => {
+      spawnerCalls.push(thread)
+      return 'Session ended.'
+    },
+    newCommand: async () => null,
+    fork: async () => 'Forking api. Open its topic.',
+  }
+}
+
 function build(): void {
   api = createApi({
     chatLog,
     handlers: () => handlers,
     store,
     away,
-    spawner: {
-      end: async thread => {
-        spawnerCalls.push(thread)
-        return 'Session ended.'
-      },
-    },
+    spawner: spawnerDep,
+    projects: projectsDep,
     sink: channel,
     log: message => {
       logged.push(message)
     },
     push: pushDeps,
   })
+}
+
+/** Swaps the stub for a real Spawner over a temp home with one trusted folder (`api`) and one untrusted (`secret`). */
+async function useRealSpawner(): Promise<void> {
+  home = await realpath(await mkdtemp(`${tmpdir()}/ra-api-`))
+  await mkdir(`${home}/Sites/api`, { recursive: true })
+  await mkdir(`${home}/Sites/secret`, { recursive: true })
+  configPath = `${home}/.claude.json`
+  await writeFile(configPath, JSON.stringify({ projects: {
+    [`${home}/Sites/api`]: { hasTrustDialogAccepted: true },
+    [`${home}/Sites/secret`]: { hasTrustDialogAccepted: false },
+  } }))
+  tmux = new FakeTmux()
+  const trusted = new TrustedFolders({ configPath, home, projects: ['~/Sites/api', '~/Sites/secret'] })
+  const notifier = new Notifier(store, channel, away, message => logged.push(message), channel)
+  spawnerDep = new Spawner({
+    store,
+    channel,
+    notifier,
+    launcher: new Launcher(tmux.run),
+    trusted,
+    log: () => {},
+    schedule: () => () => {},
+    sleep: async () => {},
+    newId: () => crypto.randomUUID(),
+  })
+  projectsDep = () => trusted.configuredProjects()
+  build()
 }
 
 function req(method: string, path: string, body?: unknown, raw?: string): Request {
@@ -110,6 +156,8 @@ beforeEach(() => {
   channel = new WebChannel(chatLog, message => logged.push(message), store)
   away = new AwayMode(false)
   handlers = fakeHandlers()
+  spawnerDep = stubSpawner()
+  projectsDep = undefined
   pushDeps = undefined
   pushCalls.subscribed.length = 0
   pushCalls.unsubscribed.length = 0
@@ -400,4 +448,95 @@ test('a non-https subscription is rejected with 400', async () => {
   })
   expect(response.status).toBe(400)
   expect(pushCalls.subscribed).toEqual([])
+})
+
+test('projects lists only trusted configured folders', async () => {
+  await useRealSpawner()
+  const { status, body } = await call('GET', '/api/projects')
+  expect(status).toBe(200)
+  expect(body).toEqual({ projects: [{ label: 'api', cwd: `${home}/Sites/api` }] })
+})
+
+test('start rejects an untrusted cwd with the NOT_TRUSTED text', async () => {
+  await useRealSpawner()
+  const { status, body } = await call('POST', '/api/projects/start', { cwd: `${home}/Sites/secret` })
+  expect(status).toBe(409)
+  expect(body).toEqual({ error: NOT_TRUSTED })
+  expect(tmux.calls).toEqual([])
+})
+
+test('start passes the model through and refuses a bad model or a missing cwd', async () => {
+  await useRealSpawner()
+  const started = await call('POST', '/api/projects/start', { cwd: `${home}/Sites/api`, model: 'opus' })
+  expect(started.status).toBe(200)
+  expect(started.body).toEqual({ toast: '🚀 Starting api with opus. Open its topic.' })
+  expect(tmux.calls[0]?.slice(-2)).toEqual(['--model', 'opus'])
+
+  const bad = await call('POST', '/api/projects/start', { cwd: `${home}/Sites/api`, model: 'gpt-5' })
+  expect(bad.status).toBe(400)
+  expect(bad.body).toEqual({ error: BAD_MODEL })
+
+  expect((await call('POST', '/api/projects/start', {})).status).toBe(400)
+  expect((await call('POST', '/api/projects/start', { cwd: 'relative/path' })).status).toBe(400)
+  expect(tmux.calls).toHaveLength(1)
+})
+
+test('clear hides history and a later message shows', async () => {
+  const chatId = seedSession()
+  chatLog.appendMessage(chatId, { kind: 'system', text: 'old' })
+  const cleared = await call('POST', `/api/chats/${chatId}/clear`)
+  expect(cleared).toEqual({ status: 200, body: { ok: true } })
+  expect((await call('GET', `/api/chats/${chatId}/messages`)).body.messages).toEqual([])
+  chatLog.appendMessage(chatId, { kind: 'system', text: 'new' })
+  const after = await call('GET', `/api/chats/${chatId}/messages`)
+  expect(after.body.messages.map((message: { text: string }) => message.text)).toEqual(['new'])
+})
+
+test('clear of an unknown chat is 404', async () => {
+  expect((await call('POST', '/api/chats/nope/clear')).status).toBe(404)
+})
+
+test('fork starts a spawned session with the resume flags (fake tmux argv assertion) and creates a new chat', async () => {
+  await useRealSpawner()
+  store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+
+  const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
+  expect(status).toBe(200)
+  expect(body).toEqual({ toast: 'Forking api. Open its topic.' })
+
+  const argv = tmux.calls[0] ?? []
+  const newId = argv[argv.indexOf('--session-id') + 1]!
+  expect(newId).not.toBe('s1')
+  expect(argv.slice(-6)).toEqual(['claude', '--resume', 's1', '--fork-session', '--session-id', newId])
+  const forked = store.getSession(newId)!
+  expect(forked).toMatchObject({ spawned: true, cwd: `${home}/Sites/api` })
+  expect(forked.chatId).not.toBe(chatId)
+  expect(chatLog.getChat(forked.chatId!)).toMatchObject({ spawned: true })
+  expect(chatLog.listChats().filter(chat => chat.id !== 'general')).toHaveLength(2)
+})
+
+test('fork of an unknown chat is 404', async () => {
+  expect((await call('POST', '/api/chats/nope/fork')).status).toBe(404)
+  const general = await call('POST', '/api/chats/general/fork')
+  expect(general.status).toBe(404)
+})
+
+test('fork of a session whose cwd is no longer trusted is 409', async () => {
+  await useRealSpawner()
+  store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+  await writeFile(configPath, JSON.stringify({ projects: {} }))
+
+  const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
+  expect(status).toBe(409)
+  expect(body).toEqual({ error: NOT_TRUSTED })
+  expect(tmux.calls).toEqual([])
+})
+
+test('routes answer 404 when the projects dep is absent', async () => {
+  expect((await call('GET', '/api/projects')).status).toBe(404)
+  expect((await call('POST', '/api/projects/start', { cwd: '/x' })).status).toBe(404)
 })
