@@ -4,6 +4,7 @@ import type { ButtonData, PromptView } from '../../src/channel/types.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { ChatLog } from '../../src/web/chat-log.ts'
+import { PushService, type PushEvent } from '../../src/web/push.ts'
 import { WebChannel } from '../../src/web/web-channel.ts'
 
 let clock = 1_000
@@ -481,4 +482,158 @@ test('sessionSeen attaches the transcript reader and chatEnded detaches it', () 
 
   channel.chatEnded(store.getSession(webSession.sessionId)!)
   expect(detached).toEqual([webSession.sessionId])
+})
+
+const permissionBody: PromptBody = { kind: 'permission', tool: 'Bash', input: { command: 'ls' } }
+const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+
+/** Installs a push notifier that records every event it is handed, and returns the record. */
+function recordPushes(): PushEvent[] {
+  const pushes: PushEvent[] = []
+  channel.setPushNotifier(async event => {
+    pushes.push(event)
+  })
+  return pushes
+}
+
+function sessionRow() {
+  store.upsertSession(webSession)
+  return store.getSession(webSession.sessionId)!
+}
+
+test('a stale prompt creates one system message and one push', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:stale', permissionBody)
+  const pushes = recordPushes()
+
+  channel.promptReminder(prompt, session)
+
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+  const chat = chatLog.getChat(chatId)!
+  const messages = chatLog.listMessages(chatId, { limit: 10 }).messages
+  expect(messages.map(message => message.kind)).toEqual(['system'])
+  expect(messages[0]).toMatchObject({ kind: 'system', text: `Still waiting for your answer (${chat.title})` })
+  expect(pushes).toMatchObject([{ kind: 'prompt', chatId, title: chat.title }])
+})
+
+test('a turn_complete in Away mode pushes, out of Away mode does not', () => {
+  // WebChannel always hands a turn_complete to notify; the Away filter lives in PushService (see the integration test below).
+  const session = sessionRow()
+  const pushes = recordPushes()
+
+  channel.report(session, turn('Done: tests pass'))
+  channel.report(session, turn('Second turn'))
+
+  expect(pushes).toMatchObject([
+    { kind: 'report', text: 'Done: tests pass' },
+    { kind: 'report', text: 'Second turn' },
+  ])
+})
+
+test('a turn_complete in Away mode is pushed by a real PushService, out of Away mode it is not', async () => {
+  const session = sessionRow()
+  let away = false
+  const sent: string[] = []
+  const push = new PushService({
+    chatLog,
+    hub: { anyActive: () => false },
+    away: { isAway: () => away },
+    vapid: { publicKey: 'pub-key', privateKey: 'priv-key', subject: 'mailto:ops@example.com' },
+    send: async (_subscription, payload) => {
+      sent.push(payload)
+      return { status: 201 }
+    },
+    log: message => {
+      logged.push(message)
+    },
+  })
+  chatLog.addPushSubscription({ endpoint: 'https://push.example/a', keys: { p256dh: 'p256dh-a', auth: 'auth-a' } })
+  channel.setPushNotifier(event => push.notify(event))
+
+  channel.report(session, turn('Out of Away'))
+  await settle()
+  expect(sent).toEqual([])
+
+  away = true
+  channel.report(session, turn('In Away'))
+  await settle()
+  expect(sent).toHaveLength(1)
+  expect(JSON.parse(sent[0]!)).toMatchObject({ kind: 'report', preview: 'In Away' })
+})
+
+test('a multi-question prompt pushes once', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+  const prompt = insertPrompt('q:multi', {
+    kind: 'question',
+    questions: [
+      { question: 'Which db?', header: 'Storage', multiSelect: false, options: [{ label: 'sqlite', description: '' }] },
+      { question: 'Which tests?', header: 'Testing', multiSelect: false, options: [{ label: 'unit', description: '' }] },
+    ],
+  })
+
+  const refs = channel.promptCreated(prompt, session)
+
+  expect(refs).toHaveLength(2)
+  expect(pushes).toMatchObject([{ kind: 'prompt', text: 'Which db?' }])
+})
+
+test('a push failure is logged and does not affect the stored message', async () => {
+  const session = sessionRow()
+  channel.setPushNotifier(async () => {
+    throw new Error('push service down')
+  })
+  const prompt = insertPrompt('p:fail', permissionBody)
+
+  const refs = channel.promptCreated(prompt, session)
+  await settle()
+
+  expect(logged).toEqual(['web push failed'])
+  expect(chatLog.findMessage(refs[0]!)).toMatchObject({ kind: 'prompt', status: 'pending', promptId: 'p:fail' })
+})
+
+test('session_started and session_ended push as reports', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+
+  channel.report(session, { kind: 'session_started' })
+  channel.report(session, { kind: 'session_ended', reason: 'exit' })
+
+  expect(pushes).toMatchObject([
+    { kind: 'report', text: 'Session started' },
+    { kind: 'report', text: 'Session ended' },
+  ])
+})
+
+test("an empty turn_complete text pushes 'Turn finished'", () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+
+  channel.report(session, turn(''))
+
+  expect(pushes).toMatchObject([{ kind: 'report', text: 'Turn finished' }])
+})
+
+test('a turn_complete pushes its text even when the transcript reader is active', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+  channel.setTranscriptProbe(() => true)
+
+  channel.report(session, turn('Done from the reader'))
+
+  expect(pushes).toMatchObject([{ kind: 'report', text: 'Done from the reader' }])
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+  expect(chatLog.listMessages(chatId, { limit: 10 }).messages).toEqual([])
+})
+
+test('setPushNotifier(null) disables pushing', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+  channel.report(session, turn('Before'))
+
+  channel.setPushNotifier(null)
+  channel.report(session, turn('After'))
+  channel.promptCreated(insertPrompt('p:off', permissionBody), session)
+
+  expect(pushes).toMatchObject([{ kind: 'report', text: 'Before' }])
 })

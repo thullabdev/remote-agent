@@ -186,6 +186,10 @@ export class Notifier implements PromptEvents {
     if (session === undefined || session.threadId === null) {
       return
     }
+    if (this.sink !== undefined) {
+      this.sink.promptReminder(prompt, session)
+      return
+    }
     const refs = this.store.listPromptMessageRefs(prompt.id)
     await this.channel.sendText(session.threadId, `⏰ Still waiting for your answer (${sessionLabel(session)})`, refs[0] ?? null)
   }

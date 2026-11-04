@@ -1,10 +1,11 @@
-import type { Instruction, Report } from '../../mod/remote-agent/hooks/protocol.ts'
+import type { Instruction, PromptBody, Report } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { Log } from '../bridge/prompts.ts'
 import type { PromptRow, SessionRow, Store } from '../bridge/store.ts'
 import { permissionSummaryFull, plainResolutionNote, sessionLabel, threadTitle } from '../bridge/views.ts'
 import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../channel/types.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
+import type { PushEvent } from './push.ts'
 import { clientSourceId, type Message, type PromptBodyView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
@@ -15,6 +16,7 @@ export class WebChannel implements Channel, ChatSink {
   private transcriptActive: (sessionId: string) => boolean = () => false
   private transcriptAttach: (sessionId: string) => void = () => {}
   private transcriptDetach: (sessionId: string) => void = () => {}
+  private pushNotifier: ((event: PushEvent) => Promise<void>) | null = null
 
   constructor(
     private readonly chatLog: ChatLog,
@@ -25,6 +27,11 @@ export class WebChannel implements Channel, ChatSink {
   /** Tells whether the transcript reader is active for a Session; its turn text then comes from the reader, not from the Report. */
   setTranscriptProbe(probe: (sessionId: string) => boolean): void {
     this.transcriptActive = probe
+  }
+
+  /** Sets who is told about prompts, reminders and reports by push; null turns pushing off. */
+  setPushNotifier(notify: ((event: PushEvent) => Promise<void>) | null): void {
+    this.pushNotifier = notify
   }
 
   /** Starts the transcript reader when a Session's chat is linked, and stops it when the chat ends. */
@@ -159,6 +166,19 @@ export class WebChannel implements Channel, ChatSink {
     const chatId = this.chatFor(session)
     const title = sessionLabel(session)
     const body = prompt.body
+    const refs = this.appendPromptMessages(chatId, prompt.id, title, body)
+    this.push(chatId, 'prompt', promptPushText(body))
+    return refs
+  }
+
+  /** Still waiting after the reminder delay: a system message in the chat, and a push. */
+  promptReminder(prompt: PromptRow, session: SessionRow): void {
+    const chatId = this.chatFor(session)
+    this.chatLog.appendMessage(chatId, { kind: 'system', text: `Still waiting for your answer (${this.chatTitle(chatId)})` })
+    this.push(chatId, 'prompt', promptPushText(prompt.body))
+  }
+
+  private appendPromptMessages(chatId: string, promptId: string, title: string, body: PromptBody): string[] {
     if (body.kind === 'question') {
       return body.questions.map(question => {
         const view: PromptBodyView = {
@@ -173,7 +193,7 @@ export class WebChannel implements Channel, ChatSink {
             },
           ],
         }
-        return this.chatLog.appendMessage(chatId, { kind: 'prompt', promptId: prompt.id, title, body: view, status: 'pending', resolution: null }).id
+        return this.chatLog.appendMessage(chatId, { kind: 'prompt', promptId, title, body: view, status: 'pending', resolution: null }).id
       })
     }
     const view: PromptBodyView = {
@@ -183,7 +203,7 @@ export class WebChannel implements Channel, ChatSink {
       reason: body.reason ?? null,
       agentId: body.agentId ?? null,
     }
-    return [this.chatLog.appendMessage(chatId, { kind: 'prompt', promptId: prompt.id, title, body: view, status: 'pending', resolution: null }).id]
+    return [this.chatLog.appendMessage(chatId, { kind: 'prompt', promptId, title, body: view, status: 'pending', resolution: null }).id]
   }
 
   promptResolved(prompt: PromptRow, refs: string[]): void {
@@ -248,18 +268,22 @@ export class WebChannel implements Channel, ChatSink {
     if (report.kind === 'turn_complete') {
       this.busyChanged(session.id, false)
     }
+    const chatId = this.chatFor(session)
     if (report.kind === 'session_started') {
       this.appendSystem(session, `Session started in ${session.cwd}`)
+      this.push(chatId, 'report', 'Session started')
       return
     }
     if (report.kind === 'session_ended') {
       this.appendSystem(session, `Session ended (${report.reason})`)
+      this.push(chatId, 'report', 'Session ended')
       return
     }
-    if (report.text === '' || this.transcriptActive(session.id)) {
-      return
+    if (report.text !== '' && !this.transcriptActive(session.id)) {
+      this.chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: report.text })
     }
-    this.chatLog.appendMessage(this.chatFor(session), { kind: 'agent_text', markdown: report.text })
+    // The push carries the report text even when the transcript reader is active: the reader only drives the chat.
+    this.push(chatId, 'report', report.text === '' ? 'Turn finished' : report.text)
   }
 
   chatEnded(session: SessionRow): void {
@@ -307,6 +331,26 @@ export class WebChannel implements Channel, ChatSink {
     this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text })
   }
 
+  /** Hands a push to the notifier without waiting for it. A push problem is logged and never reaches the chat or the Bridge. */
+  private push(chatId: string, kind: PushEvent['kind'], text: string): void {
+    const notify = this.pushNotifier
+    if (notify === null) {
+      return
+    }
+    const event: PushEvent = { kind, chatId, title: this.chatTitle(chatId), text }
+    try {
+      void notify(event).catch(error => {
+        this.log('web push failed', error)
+      })
+    } catch (error) {
+      this.log('web push failed', error)
+    }
+  }
+
+  private chatTitle(chatId: string): string {
+    return this.chatLog.getChat(chatId)?.title ?? ''
+  }
+
   private chatIdOf(sessionId: string): string | null {
     return this.store.getSession(sessionId)?.chatId ?? null
   }
@@ -329,4 +373,12 @@ export class WebChannel implements Channel, ChatSink {
     this.store.setSessionThread(current.id, id)
     return id
   }
+}
+
+/** The text a prompt push previews: the first question, or the permission summary. */
+function promptPushText(body: PromptBody): string {
+  if (body.kind === 'question') {
+    return body.questions[0]?.question ?? ''
+  }
+  return permissionSummaryFull(body.tool, body.input)
 }

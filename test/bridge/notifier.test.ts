@@ -266,6 +266,10 @@ class RecordingSink implements ChatSink {
     this.calls.push(`busyChanged ${sessionId} ${busy}`)
   }
 
+  promptReminder(prompt: PromptRow, session: SessionRow): void {
+    this.calls.push(`promptReminder ${prompt.id} ${session.id}`)
+  }
+
   systemMessage(sessionId: string | null, text: string): void {
     this.calls.push(`systemMessage ${sessionId} ${text}`)
   }
@@ -327,6 +331,26 @@ test('no sink: notifier behaviour is unchanged and prompts still go through the 
 
   expect(channel.prompts.map(sent => sent.thread)).toEqual(['t1'])
   expect(store.listPromptMessageRefs('p:1')).toEqual(channel.prompts[0]!.refs)
+})
+
+test('no sink: promptReminder still uses channel.sendText', async () => {
+  await notifier.promptCreated(addPrompt('p:1'))
+
+  await notifier.promptReminder(store.getPrompt('p:1')!)
+
+  expect(channel.texts.at(-1)?.text).toBe('⏰ Still waiting for your answer (app · abcdef12)')
+})
+
+test('promptReminder with a sink hands the prompt and session to the sink, not to the channel', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  store.setSessionThread(session.sessionId, 'c-app')
+  const prompt = addPrompt('p:1')
+
+  await notifier.promptReminder(prompt)
+
+  expect(sink.calls).toEqual([`promptReminder p:1 ${session.sessionId}`])
+  expect(channel.texts).toEqual([])
 })
 
 test('AwayMode.subscribe fires only on change and survives a throwing listener', () => {

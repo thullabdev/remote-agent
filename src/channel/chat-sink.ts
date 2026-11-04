@@ -24,4 +24,6 @@ export interface ChatSink {
   chatEnded(session: SessionRow): void
   busyChanged(sessionId: string, busy: boolean): void
   systemMessage(sessionId: string | null, text: string): void
+  /** A Prompt still waiting after the reminder delay: a system message in the Session's chat, and a push. */
+  promptReminder(prompt: PromptRow, session: SessionRow): void
 }
