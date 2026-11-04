@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AwayMode } from '../bridge/notifier.ts'
 import { BadRequest } from '../bridge/errors.ts'
 import type { Log } from '../bridge/prompts.ts'
-import { BAD_MODEL, FORK_UNSUPPORTED, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, FORK_UNSUPPORTED, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../bridge/spawner.ts'
 import type { SessionRow, Store } from '../bridge/store.ts'
 import type { Project } from '../bridge/trusted.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
@@ -325,6 +325,9 @@ async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }
+  if (toast === CONFIG_UNREADABLE) {
+    throw new ApiError(503, toast)
+  }
   return { toast }
 }
 
@@ -353,6 +356,9 @@ async function startProject(deps: ApiDeps, request: Request): Promise<unknown> {
   }
   if (reply === BAD_MODEL) {
     throw new ApiError(400, reply)
+  }
+  if (reply === CONFIG_UNREADABLE) {
+    throw new ApiError(503, reply)
   }
   return { toast: reply }
 }

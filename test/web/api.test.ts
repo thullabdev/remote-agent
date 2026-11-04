@@ -8,7 +8,7 @@ import { Inbound } from '../../src/bridge/inbound.ts'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
 import { PromptService } from '../../src/bridge/prompts.ts'
-import { BAD_MODEL, NOT_TRUSTED, Spawner } from '../../src/bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, NOT_TRUSTED, Spawner } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { ChatLog } from '../../src/web/chat-log.ts'
@@ -533,6 +533,22 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
   const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
   expect(status).toBe(409)
   expect(body).toEqual({ error: NOT_TRUSTED })
+  expect(tmux.calls).toEqual([])
+})
+
+test('start and fork answer 503 with the text when the trusted folders cannot be read', async () => {
+  await useRealSpawner()
+  store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+  await writeFile(configPath, 'this is not json')
+
+  const started = await call('POST', '/api/projects/start', { cwd: `${home}/Sites/api` })
+  expect(started.status).toBe(503)
+  expect(started.body).toEqual({ error: CONFIG_UNREADABLE })
+  const forked = await call('POST', `/api/chats/${chatId}/fork`)
+  expect(forked.status).toBe(503)
+  expect(forked.body).toEqual({ error: CONFIG_UNREADABLE })
   expect(tmux.calls).toEqual([])
 })
 
