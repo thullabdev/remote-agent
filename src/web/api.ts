@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AwayMode } from '../bridge/notifier.ts'
 import { BadRequest } from '../bridge/errors.ts'
 import type { Log } from '../bridge/prompts.ts'
-import { BAD_MODEL, CONFIG_UNREADABLE, FORK_UNSUPPORTED, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../bridge/spawner.ts'
 import type { SessionRow, Store } from '../bridge/store.ts'
 import type { Project } from '../bridge/trusted.ts'
 import type { ChatSink } from '../channel/chat-sink.ts'
@@ -55,7 +55,7 @@ function isHttpsUrl(value: string): boolean {
 
 class ApiError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 500 | 501 | 503,
+    readonly status: 400 | 404 | 409 | 500 | 503,
     message: string,
   ) {
     super(message)
@@ -319,9 +319,6 @@ async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
   const toast = await deps.spawner.fork(session.id)
-  if (toast === FORK_UNSUPPORTED) {
-    throw new ApiError(501, toast)
-  }
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }

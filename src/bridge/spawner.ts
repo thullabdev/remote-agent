@@ -16,9 +16,6 @@ export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a 
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started from Telegram can be ended remotely.'
 export const UNKNOWN_SESSION = 'Unknown session.'
-/** Claude Code honours `--resume <id> --fork-session --session-id <new>` (checked against claude 2.1.318). */
-export const FORK_SUPPORTED = true
-export const FORK_UNSUPPORTED = 'Forking is not supported by this version of Claude Code.'
 
 const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
@@ -130,9 +127,6 @@ export class Spawner {
    * Works for ended and non-spawned sessions too. Returns the toast.
    */
   async fork(sessionId: string): Promise<string> {
-    if (!FORK_SUPPORTED) {
-      return FORK_UNSUPPORTED
-    }
     const session = this.deps.store.getSession(sessionId)
     if (session === undefined) {
       return UNKNOWN_SESSION

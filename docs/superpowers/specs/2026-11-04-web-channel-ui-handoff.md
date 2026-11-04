@@ -34,8 +34,8 @@ All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx.
 | `PUT /api/away` `{ away: boolean }` | Away mode. |
 | `POST /api/chats/:id/end` | End a Spawned Session (same as `/end`). 409 with an error if it is not a Spawned Session. |
 | `POST /api/chats/:id/clear` | Hide the chat's history so far (global, all devices; later messages show). `{ ok: true }`. 404 for an unknown chat. |
-| `POST /api/chats/:id/fork` | Start a new Spawned Session with its own chat that resumes this chat's session transcript (the original is left as it was; works for ended sessions too). Returns `{ toast }`. 409 if the session's folder is no longer trusted; 404 if the chat has no session. 501 if the installed Claude Code cannot fork (`FORK_SUPPORTED` in `src/bridge/spawner.ts`; currently supported, checked against Claude Code 2.1.318). |
-| `GET /api/projects` | The trusted configured projects: `{ projects: { label, cwd }[] }`, for a project picker. 404 when no projects are configured. |
+| `POST /api/chats/:id/fork` | Start a new Spawned Session with its own chat that resumes this chat's session transcript (the original is left as it was; works for ended sessions too). Returns `{ toast }`. 409 if the session's folder is no longer trusted; 404 if the chat has no session; 503 `{ error }` if Claude Code's trusted folders cannot be read. Forking works with the installed Claude Code (`--resume <id> --fork-session --session-id <new>`, checked against 2.1.318), so there is no 501. |
+| `GET /api/projects` | The trusted configured projects: `{ projects: { label, cwd }[] }`, for a project picker. Returns `{ projects: [] }` when none are configured (not 404). |
 | `POST /api/projects/start` `{ cwd, model? }` | Same as `/new [--model <model>] <path>`: `cwd` is an absolute or `~` path that must be trusted. Returns `{ toast }`. 409 for an untrusted folder, 400 for an unknown model. |
 | `GET /api/push/key` | VAPID public key for `pushManager.subscribe`. |
 | `POST /api/push/subscriptions` `{ subscription }` | Register this device. `DELETE /api/push/subscriptions` `{ endpoint }` to unregister. |
