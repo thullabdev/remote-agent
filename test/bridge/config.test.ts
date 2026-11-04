@@ -1,19 +1,29 @@
 import { expect, test } from 'bun:test'
 import { loadConfig } from '../../src/bridge/config.ts'
 
-const base = {
+const telegram = {
   TELEGRAM_BOT_TOKEN: '123456:ABC-def_ghi',
   TELEGRAM_CHAT_ID: '-1001234567890',
   TELEGRAM_ALLOWED_USER_ID: '42',
+}
+
+const web = {
+  REMOTE_AGENT_WEB_ALLOWED_LOGIN: 'alice@example.com',
+  REMOTE_AGENT_WEB_ORIGINS: 'box.tail1234.ts.net',
+}
+
+const base = {
+  REMOTE_AGENT_CHANNELS: 'telegram',
+  ...telegram,
   HOME: '/home/u',
   XDG_RUNTIME_DIR: '/run/user/1000',
 }
 
 test('loads a valid environment with defaults', () => {
   expect(loadConfig(base)).toEqual({
-    botToken: '123456:ABC-def_ghi',
-    chatId: -1001234567890,
-    allowedUserId: 42,
+    channels: ['telegram'],
+    telegram: { botToken: '123456:ABC-def_ghi', chatId: -1001234567890, allowedUserId: 42 },
+    web: null,
     socketPath: '/run/user/1000/remote-agent/bridge.sock',
     dbPath: '/home/u/.local/state/remote-agent/bridge.db',
     reminderAfterMs: 30 * 60_000,
@@ -42,4 +52,60 @@ test('names the missing variable', () => {
 
 test('rejects a non-supergroup chat id', () => {
   expect(() => loadConfig({ ...base, TELEGRAM_CHAT_ID: '42' })).toThrow('TELEGRAM_CHAT_ID')
+})
+
+test('defaults to channels ["web"] and requires REMOTE_AGENT_WEB_ALLOWED_LOGIN and REMOTE_AGENT_WEB_ORIGINS', () => {
+  const config = loadConfig({ HOME: '/home/u', XDG_RUNTIME_DIR: '/run/user/1000', ...web })
+  expect(config.channels).toEqual(['web'])
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_WEB_ORIGINS: 'box.tail1234.ts.net' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_WEB_ALLOWED_LOGIN: 'alice@example.com' })).toThrow('REMOTE_AGENT_WEB_ORIGINS')
+})
+
+test('web only: no Telegram vars needed and telegram is null', () => {
+  const config = loadConfig({ HOME: '/home/u', XDG_RUNTIME_DIR: '/run/user/1000', REMOTE_AGENT_CHANNELS: 'web', ...web })
+  expect(config.telegram).toBeNull()
+  expect(config.web).toEqual({
+    port: 8787,
+    allowedLogin: 'alice@example.com',
+    origins: ['box.tail1234.ts.net'],
+    token: null,
+    staticDir: null,
+    vapidSubject: 'mailto:remote-agent@localhost',
+  })
+})
+
+test('telegram only: requires the three TELEGRAM_ vars and web is null', () => {
+  const config = loadConfig({ ...base })
+  expect(config.telegram).not.toBeNull()
+  expect(config.web).toBeNull()
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_CHANNELS: 'telegram' })).toThrow('TELEGRAM_BOT_TOKEN')
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_CHANNELS: 'telegram', TELEGRAM_BOT_TOKEN: telegram.TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: telegram.TELEGRAM_CHAT_ID })).toThrow('TELEGRAM_ALLOWED_USER_ID')
+})
+
+test('both selected: requires everything', () => {
+  const config = loadConfig({ ...base, REMOTE_AGENT_CHANNELS: 'web,telegram', ...web })
+  expect(config.channels).toEqual(['web', 'telegram'])
+  expect(config.telegram).not.toBeNull()
+  expect(config.web).not.toBeNull()
+  expect(() => loadConfig({ ...base, REMOTE_AGENT_CHANNELS: 'web,telegram' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
+  expect(() => loadConfig({ HOME: '/home/u', REMOTE_AGENT_CHANNELS: 'web,telegram', ...web })).toThrow('TELEGRAM_BOT_TOKEN')
+})
+
+test('port defaults to 8787 and rejects non-integers', () => {
+  expect(loadConfig({ HOME: '/home/u', ...web }).web?.port).toBe(8787)
+  expect(loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_PORT: '9000' }).web?.port).toBe(9000)
+  expect(() => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_PORT: '87.5' })).toThrow('REMOTE_AGENT_WEB_PORT')
+})
+
+test('origins splits on commas and trims', () => {
+  const config = loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ORIGINS: ' box.tail1234.ts.net , other.tail1234.ts.net,, ' })
+  expect(config.web?.origins).toEqual(['box.tail1234.ts.net', 'other.tail1234.ts.net'])
+})
+
+test('unknown channel name is rejected', () => {
+  expect(() => loadConfig({ ...base, REMOTE_AGENT_CHANNELS: 'telegram,slack' })).toThrow('slack')
+})
+
+test('error message names the missing variable', () => {
+  expect(() => loadConfig({ HOME: '/home/u', ...web, REMOTE_AGENT_WEB_ALLOWED_LOGIN: '' })).toThrow('REMOTE_AGENT_WEB_ALLOWED_LOGIN')
 })

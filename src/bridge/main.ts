@@ -28,7 +28,10 @@ await chmod(dirname(config.socketPath), 0o700)
 await rm(config.socketPath, { force: true })
 
 const store = new Store(config.dbPath)
-const channel = new TelegramChannel(config, log)
+if (config.telegram === null) {
+  throw new Error('Telegram channel is not selected: add telegram to REMOTE_AGENT_CHANNELS')
+}
+const channel = new TelegramChannel(config.telegram, log)
 const notifier = new Notifier(store, channel, new AwayMode(true), log)
 const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
 const trusted = new TrustedFolders({ configPath: config.claudeConfigPath, home: config.home, projects: config.projects })
