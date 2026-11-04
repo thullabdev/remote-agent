@@ -43,7 +43,6 @@ function webConfig(env: Record<string, string> = {}): Config {
     REMOTE_AGENT_WEB_ALLOWED_LOGIN: LOGIN,
     REMOTE_AGENT_WEB_ORIGINS: ORIGIN,
     REMOTE_AGENT_VAPID_SUBJECT: 'mailto:owner@example.com',
-    CLAUDE_CONFIG_PATH: join(home, 'claude.json'),
     ...env,
   })
   if (base.web === null) {

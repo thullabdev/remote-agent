@@ -8,7 +8,7 @@ import { Inbound } from '../../../src/bridge/inbound.ts'
 import { Launcher } from '../../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../../src/bridge/notifier.ts'
 import { PromptService } from '../../../src/bridge/prompts.ts'
-import { BAD_MODEL, CONFIG_UNREADABLE, NOT_TRUSTED, Spawner } from '../../../src/bridge/spawner.ts'
+import { BAD_MODEL, NOT_TRUSTED, Spawner } from '../../../src/bridge/spawner.ts'
 import { Store } from '../../../src/bridge/store.ts'
 import { TrustedFolders } from '../../../src/bridge/trusted.ts'
 import { ChatLog } from '../../../src/channel/web/chat-log.ts'
@@ -32,7 +32,7 @@ let spawnerDep: ApiDeps['spawner']
 let projectsDep: ApiDeps['projects']
 let tmux: FakeTmux
 let home: string
-let configPath: string
+let trustedProjects: string[]
 const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
 const spawnerCalls: (string | null)[] = []
@@ -84,18 +84,14 @@ function build(): void {
   })
 }
 
-/** Swaps the stub for a real Spawner over a temp home with one trusted folder (`api`) and one untrusted (`secret`). */
+/** Swaps the stub for a real Spawner over a temp home: `api` is listed in REMOTE_AGENT_PROJECTS (trusted), `secret` exists but is not listed. */
 async function useRealSpawner(): Promise<void> {
   home = await realpath(await mkdtemp(`${tmpdir()}/ra-api-`))
   await mkdir(`${home}/Sites/api`, { recursive: true })
   await mkdir(`${home}/Sites/secret`, { recursive: true })
-  configPath = `${home}/.claude.json`
-  await writeFile(configPath, JSON.stringify({ projects: {
-    [`${home}/Sites/api`]: { hasTrustDialogAccepted: true },
-    [`${home}/Sites/secret`]: { hasTrustDialogAccepted: false },
-  } }))
+  trustedProjects = ['~/Sites/api']
   tmux = new FakeTmux()
-  const trusted = new TrustedFolders({ configPath, home, projects: ['~/Sites/api', '~/Sites/secret'] })
+  const trusted = new TrustedFolders({ home, projects: trustedProjects })
   const notifier = new Notifier(store, channel, away, message => logged.push(message), channel)
   spawnerDep = new Spawner({
     store,
@@ -528,27 +524,11 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
   store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
-  await writeFile(configPath, JSON.stringify({ projects: {} }))
+  trustedProjects.length = 0 // the folder is no longer listed in REMOTE_AGENT_PROJECTS
 
   const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
   expect(status).toBe(409)
   expect(body).toEqual({ error: NOT_TRUSTED })
-  expect(tmux.calls).toEqual([])
-})
-
-test('start and fork answer 503 with the text when the trusted folders cannot be read', async () => {
-  await useRealSpawner()
-  store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
-  channel.sessionSeen(store.getSession('s1')!)
-  const chatId = store.getSession('s1')!.chatId!
-  await writeFile(configPath, 'this is not json')
-
-  const started = await call('POST', '/api/projects/start', { cwd: `${home}/Sites/api` })
-  expect(started.status).toBe(503)
-  expect(started.body).toEqual({ error: CONFIG_UNREADABLE })
-  const forked = await call('POST', `/api/chats/${chatId}/fork`)
-  expect(forked.status).toBe(503)
-  expect(forked.body).toEqual({ error: CONFIG_UNREADABLE })
   expect(tmux.calls).toEqual([])
 })
 

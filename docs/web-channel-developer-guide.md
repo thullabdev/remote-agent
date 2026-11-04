@@ -102,7 +102,7 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 
 > **Known gap: question index for multi-question prompts.** A Prompt with several questions is stored as several `prompt` messages that share one `promptId`, each holding exactly one question. The message does not say which question index it is, so a client must derive `questionIndex` as the message's position among the messages that share its `promptId`, ordered by `seq` (0 for the first). A Prompt with one question, which is by far the common case, and every Permission Request are always index 0. Making the index an explicit field is a small server change that has not been made yet.
 
-**Starting a Session.** Either send `/new` in General and tap a button on the resulting `picker` message (`POST …/actions {pickerId, choice}`), or skip the picker: `GET /api/projects` for the trusted folders and `POST /api/projects/start {cwd, model?}`. The new chat appears through `chat.updated` and `message.created` events; it is not in the response.
+**Starting a Session.** Either send `/new` in General and tap a button on the resulting `picker` message (`POST …/actions {pickerId, choice}`), or skip the picker: `GET /api/projects` for the listed project folders and `POST /api/projects/start {cwd, model?}`. The new chat appears through `chat.updated` and `message.created` events; it is not in the response.
 
 **Ending, clearing, forking.** `POST /api/chats/:id/end` ends a Session the Bridge started (other Sessions cannot be ended remotely). `POST /api/chats/:id/clear` hides the chat's history on all your devices (the agent's context is not touched). `POST /api/chats/:id/fork` starts a new Session that resumes the conversation of this one.
 
@@ -119,7 +119,7 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 
 All paths are under `/api`. Request and response bodies are JSON. Errors are `{ "error": "<message>" }`. Unknown routes, and known routes with the wrong method, answer `404 {"error":"Not found."}`. An unexpected server failure answers `500 {"error":"Something went wrong."}`; details go to the Bridge log, never to the client.
 
-**Status codes you will see:** `200` success; `400` invalid body or parameter (the message lists the problems); `401`/`403` the auth gate (1.2); `404` unknown chat, prompt, question or session; `409` the request conflicts with state (session ended, not spawned, folder not trusted); `503` the Bridge or Claude Code's trusted-folders file is unavailable.
+**Status codes you will see:** `200` success; `400` invalid body or parameter (the message lists the problems); `401`/`403` the auth gate (1.2); `404` unknown chat, prompt, question or session; `409` the request conflicts with state (session ended, not spawned, folder not listed in `REMOTE_AGENT_PROJECTS`); `503` the Bridge is not running.
 
 | Method and path | Purpose |
 |---|---|
@@ -186,12 +186,12 @@ No body. `200 { ok: true }`. Emits `chat.cleared` and `chat.updated`. It hides h
 
 ### POST /chats/:id/fork
 
-No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer trusted; `503` if Claude Code's trusted-folders file cannot be read. Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
+No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer listed in `REMOTE_AGENT_PROJECTS`. Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
 
 ### GET /projects and POST /projects/start
 
-`GET` → `200 { projects: { label: string, cwd: string }[] }`: the folders listed in `REMOTE_AGENT_PROJECTS` that Claude Code has trusted (empty when none).
-`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409 Not a trusted folder…`; `503 Can't read Claude Code's trusted folders.` Only trusted folders can be started; there is no way to create one from the API.
+`GET` → `200 { projects: { label: string, cwd: string }[] }`: the entries of `REMOTE_AGENT_PROJECTS` that exist as absolute folders (relative or missing entries are left out; the list is empty when none are configured).
+`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409` with the `Not a trusted folder…` text. A folder is trusted exactly when it is listed in `REMOTE_AGENT_PROJECTS`; there is no way to add or create one from the API.
 
 ### PUT /away
 

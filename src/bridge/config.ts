@@ -29,7 +29,6 @@ export type Config = {
   home: string
   /** Raw entries; `~` is expanded by TrustedFolders. */
   projects: string[]
-  claudeConfigPath: string
 }
 
 export const DEFAULT_VAPID_SUBJECT = 'mailto:remote-agent@localhost'
@@ -67,7 +66,6 @@ const EnvSchema = z.object({
   REMOTE_AGENT_DB: z.string().optional(),
   REMOTE_AGENT_REMINDER_MINUTES: z.coerce.number().positive().default(30),
   REMOTE_AGENT_PROJECTS: z.string().optional(),
-  CLAUDE_CONFIG_PATH: z.string().optional(),
   XDG_RUNTIME_DIR: z.string().optional(),
   HOME: z.string({ required_error: 'HOME is required' }),
 })
@@ -173,6 +171,5 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     reminderAfterMs: values.REMOTE_AGENT_REMINDER_MINUTES * 60_000,
     home: values.HOME,
     projects: splitList(values.REMOTE_AGENT_PROJECTS ?? ''),
-    claudeConfigPath: values.CLAUDE_CONFIG_PATH ?? `${values.HOME}/.claude.json`,
   }
 }

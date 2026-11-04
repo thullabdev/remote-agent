@@ -20,7 +20,7 @@ For the full API reference and a build-a-client walkthrough see [`docs/web-chann
 
 ## 3. HTTP API
 
-All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx. 400: `Invalid request. <field>: <problem>` for a bad body, or `The request body must be JSON.`. 404: `Unknown chat.`, `Unknown prompt.`, `Unknown question.`, `Unknown session.`, `No session in this chat.` or `Not found.` for an unknown route. 409: see the rows below. 500: `Something went wrong.` (the detail is only in the server log). 503: `The bridge is not running.` before the Bridge has started or after it has stopped, or the trusted-folders text when Claude Code's config cannot be read (start and fork).
+All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx. 400: `Invalid request. <field>: <problem>` for a bad body, or `The request body must be JSON.`. 404: `Unknown chat.`, `Unknown prompt.`, `Unknown question.`, `Unknown session.`, `No session in this chat.` or `Not found.` for an unknown route. 409: see the rows below. 500: `Something went wrong.` (the detail is only in the server log). 503: `The bridge is not running.` before the Bridge has started or after it has stopped.
 
 | Method & path | Purpose |
 |---|---|
@@ -34,9 +34,9 @@ All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx. 400: `Invali
 | `PUT /api/away` `{ away: boolean }` | Away mode. Returns `{ away }`. Every device gets an `away.updated` event. |
 | `POST /api/chats/:id/end` | End a Spawned Session (same as `/end`). Returns `{ toast }`. 409 with the reason as `error` if it is not a Spawned Session, or `This session has ended.` if it already has. |
 | `POST /api/chats/:id/clear` | Hide the chat's history so far (global, all devices; later messages show). Returns `{ ok: true }` and a `chat.cleared` event. 404 for an unknown chat. |
-| `POST /api/chats/:id/fork` | Start a new Spawned Session with its own chat that resumes this chat's session transcript (the original is left as it was; works for ended sessions too). Returns `{ toast }`. 409 if the session's folder is no longer trusted; 404 if the chat has no session; 503 `{ error }` if Claude Code's trusted folders cannot be read. Forking works with the installed Claude Code (`--resume <id> --fork-session --session-id <new>`, checked against 2.1.318), so there is no 501. |
+| `POST /api/chats/:id/fork` | Start a new Spawned Session with its own chat that resumes this chat's session transcript (the original is left as it was; works for ended sessions too). Returns `{ toast }`. 409 if the session's folder is no longer listed in `REMOTE_AGENT_PROJECTS`; 404 if the chat has no session. Forking works with the installed Claude Code (`--resume <id> --fork-session --session-id <new>`, checked against 2.1.318), so there is no 501. |
 | `GET /api/projects` | The trusted configured projects: `{ projects: { label, cwd }[] }`, for a project picker. Returns `{ projects: [] }` when none are configured (not 404). |
-| `POST /api/projects/start` `{ cwd, model? }` | Same as `/new [--model <model>] <path>`: `cwd` is an absolute or `~` path that must be trusted. Returns `{ toast }`. 400 for a missing or relative `cwd` or an unknown model, 409 for an untrusted folder, 503 `{ error }` when Claude Code's trusted folders cannot be read. |
+| `POST /api/projects/start` `{ cwd, model? }` | Same as `/new [--model <model>] <path>`: `cwd` is an absolute or `~` path that must be one of the folders listed in `REMOTE_AGENT_PROJECTS`. Returns `{ toast }`. 400 for a missing or relative `cwd` or an unknown model, 409 for a folder that is not listed. |
 | `GET /api/push/key` | Returns `{ key }`, the VAPID public key for `pushManager.subscribe`. |
 | `POST /api/push/subscriptions` `{ subscription }` | Register this device; `subscription` is the browser's `PushSubscription` JSON (`endpoint` must be https, `keys.p256dh` and `keys.auth` required). Returns `{ ok: true }`. `DELETE /api/push/subscriptions` `{ endpoint }` unregisters and returns `{ ok: true }`. |
 

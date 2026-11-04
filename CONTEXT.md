@@ -13,7 +13,7 @@ A Session the Bridge started on the user's request from the Channel, running in 
 _Avoid_: remote session, bot session
 
 **Trusted folder**:
-A directory where the user accepted Claude Code's trust dialog. The only places a Spawned Session may start.
+A directory listed in `REMOTE_AGENT_PROJECTS`. The only places a Spawned Session may start.
 
 **Prompt**:
 Anything a Session is blocked on that needs a human decision. Either a Question or a Permission Request.
