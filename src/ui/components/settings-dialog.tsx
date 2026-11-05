@@ -1,10 +1,20 @@
-import { Bell, BellOff, Check, Monitor } from 'lucide-react'
-import type { ChangeEvent } from 'react'
+import { Bell, BellOff, Check } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { PushStatus } from '../use-push-subscription.ts'
-import type { Preferences } from '../preferences.ts'
+import type { AccentPreference, Preferences } from '../preferences.ts'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog.tsx'
 import { Separator } from './ui/separator.tsx'
+
+const accents: { value: AccentPreference; color: string }[] = [
+  { value: 'ink', color: '#111111' },
+  { value: 'olive', color: '#3F4A3C' },
+  { value: 'blue', color: '#355C7D' },
+  { value: 'clay', color: '#A05237' },
+  { value: 'plum', color: '#704064' },
+  { value: 'amber', color: '#A8701E' },
+  { value: 'teal', color: '#1E6E6C' },
+]
 
 type SettingsDialogProps = {
   open: boolean
@@ -17,34 +27,49 @@ type SettingsDialogProps = {
 }
 
 export function SettingsDialog({ open, preferences, push, pushBusy, onPreferences, onPushToggle, onOpenChange }: SettingsDialogProps) {
-  const update = (event: ChangeEvent<HTMLSelectElement>) => {
-    const key = event.target.name as keyof Preferences
-    onPreferences({ ...preferences, [key]: event.target.value })
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-auto bottom-0 max-h-[90dvh] w-full translate-y-0 rounded-b-none rounded-t-3xl p-4 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,34rem)] sm:-translate-y-1/2 sm:rounded-3xl sm:p-6">
+      <DialogContent className="top-auto bottom-0 max-h-[90dvh] w-full translate-y-0 flex flex-col gap-5 rounded-b-none rounded-t-3xl bg-background p-5 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,28rem)] sm:-translate-y-1/2 sm:rounded-2xl">
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Settings</DialogTitle>
           <DialogDescription>These appearance preferences are stored on this device.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4">
-          <SettingSelect label="Theme" name="theme" value={preferences.theme} onChange={update} options={[
-            ['system', 'System'], ['light', 'Light'], ['dark', 'Dark'],
-          ]} icon={<Monitor className="size-4" />} />
-          <SettingSelect label="Accent" name="accent" value={preferences.accent} onChange={update} options={[
-            ['ink', 'Ink'], ['olive', 'Olive'], ['blue', 'Blue'], ['clay', 'Clay'], ['plum', 'Plum'], ['amber', 'Amber'], ['teal', 'Teal'],
+        <div className="grid gap-5">
+          <SettingSegments label="Theme" value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
+            ['light', 'Light'], ['dark', 'Dark'], ['system', 'System'],
           ]} />
-          <SettingSelect label="Chat glow" name="glow" value={preferences.glow} onChange={update} options={[
+          <section>
+            <SettingLabel>Accent</SettingLabel>
+            <div className="flex gap-3">
+              {accents.map(({ value, color }) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-label={`${value} accent`}
+                  aria-pressed={preferences.accent === value}
+                  onClick={() => onPreferences({ ...preferences, accent: value })}
+                  className={`size-9 shrink-0 rounded-full border-2 p-1 ${preferences.accent === value ? 'border-primary' : 'border-border'}`}
+                >
+                  <span className="block size-full rounded-full" style={{ backgroundColor: color }} />
+                </button>
+              ))}
+            </div>
+          </section>
+          <SettingSegments label="Glow (accent light in chat)" value={preferences.glow} onChange={glow => onPreferences({ ...preferences, glow })} options={[
             ['off', 'Off'], ['soft', 'Soft'], ['strong', 'Strong'],
           ]} />
-          <SettingSelect label="Density" name="density" value={preferences.density} onChange={update} options={[
-            ['comfortable', 'Comfortable'], ['compact', 'Compact'],
+          <SettingSegments label="Density" value={preferences.density} onChange={density => onPreferences({ ...preferences, density })} options={[
+            ['compact', 'Compact'], ['comfortable', 'Comfortable'],
           ]} />
-          <SettingSelect label="Message size" name="font" value={preferences.font} onChange={update} options={[
+          <SettingSegments label="Chat font size" value={preferences.font} onChange={font => onPreferences({ ...preferences, font })} options={[
             ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'],
           ]} />
+          <p
+            className="rounded-2xl bg-muted p-3 text-muted-foreground"
+            style={{ fontSize: { small: '14px', medium: '16px', large: '18px' }[preferences.font] }}
+          >
+            Preview: The more I learn, the more I realize how much I still have to learn.
+          </p>
         </div>
 
         <Separator />
@@ -80,32 +105,37 @@ export function SettingsDialog({ open, preferences, push, pushBusy, onPreference
   )
 }
 
-function SettingSelect({
+function SettingLabel({ children }: { children: ReactNode }) {
+  return <div className="mb-2 font-mono text-xs text-muted-foreground">{children}</div>
+}
+
+function SettingSegments<T extends string>({
   label,
-  name,
   value,
   options,
   onChange,
-  icon,
 }: {
   label: string
-  name: keyof Preferences
-  value: string
-  options: [string, string][]
-  onChange(event: ChangeEvent<HTMLSelectElement>): void
-  icon?: React.ReactNode
+  value: T
+  options: readonly (readonly [T, string])[]
+  onChange(value: T): void
 }) {
   return (
-    <label className="grid grid-cols-[7.5rem_1fr] items-center gap-3 text-sm">
-      <span className="flex items-center gap-2 text-muted-foreground">{icon}{label}</span>
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        className="h-10 min-w-0 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
-      >
-        {options.map(([option, title]) => <option value={option} key={option}>{title}</option>)}
-      </select>
-    </label>
+    <section>
+      <SettingLabel>{label}</SettingLabel>
+      <div className="flex gap-1 rounded-xl bg-muted p-1">
+        {options.map(([option, title]) => (
+          <button
+            type="button"
+            key={option}
+            aria-pressed={value === option}
+            onClick={() => onChange(option)}
+            className={`flex-1 rounded-lg py-1.5 text-sm transition-colors ${value === option ? 'bg-card font-medium text-foreground shadow-sm' : 'text-muted-foreground'}`}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }

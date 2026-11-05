@@ -1,4 +1,4 @@
-import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Wrench } from 'lucide-react'
+import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { formatTime, groupMessages, isInterruptedToolGroup, promptQuestionIndex, toolInputText } from '../presentation.ts'
@@ -214,13 +214,22 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
 
   if (message.kind === 'agent_text') {
     return (
-      <article className="max-w-full rounded-2xl border border-border/80 bg-card/85 px-4 py-3.5 shadow-sm sm:max-w-[90%]">
-        <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
-          <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
-            <MarkdownBody markdown={message.markdown} />
-          </Suspense>
+      <article className="flex w-full gap-3">
+        <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-muted">
+          <Sparkles className="size-4" aria-hidden="true" />
         </div>
-        <MessageTime at={message.at} />
+        <div className="min-w-0 max-w-2xl flex-1">
+          <div className="mb-2 flex items-center gap-2 text-sm">
+            <span className="font-display font-semibold">Thullab agent</span>
+            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
+            <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+          </div>
+          <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+            <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
+              <MarkdownBody markdown={message.markdown} />
+            </Suspense>
+          </div>
+        </div>
       </article>
     )
   }
