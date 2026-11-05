@@ -77,6 +77,14 @@ REMOTE_AGENT_DESKTOP_BRIDGE_URL=https://box.tail1234.ts.net
 
 The service must serve the built UI and `REMOTE_AGENT_WEB_ORIGINS` must include the exact URL origin. When the service authenticates through Tailscale Serve, the desktop app uses that service-provided identity. For a service configured with `REMOTE_AGENT_WEB_TOKEN`, also set `REMOTE_AGENT_DESKTOP_BRIDGE_TOKEN` to the same token. In this mode the desktop app does not start or stop a Bridge and shows that service's Chats. Remove the mode or set it to `managed` to return to the isolated local Bridge (the default).
 
+To use bearer-token authentication instead of the identity supplied by Tailscale Serve, generate a random token on the Bridge host:
+
+```bash
+openssl rand -hex 32
+```
+
+Copy the generated value into `~/.config/remote-agent/env` on the Bridge host as `REMOTE_AGENT_WEB_TOKEN=<generated-value>`, then restart the service with `systemctl --user restart remote-agent`. Put the same value in the desktop app's repository-root `.env` as `REMOTE_AGENT_DESKTOP_BRIDGE_TOKEN=<generated-value>`. Keep both env files private (for example, `chmod 600`) and do not commit or share the token. If Tailscale Serve already supplies the authenticated identity, no Bridge token is needed.
+
 ## 6. Install the mod
 
 ```bash
