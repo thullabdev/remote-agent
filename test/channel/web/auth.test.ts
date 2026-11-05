@@ -132,6 +132,26 @@ test('a valid bearer token substitutes for the login header but still needs a ma
   expect(wrongOrigin).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
 })
 
+test('a valid bearer token in the query authenticates only a WebSocket upgrade', () => {
+  const websocket = request({
+    url: `http://127.0.0.1:8787/ws?bridgeToken=${TOKEN}`,
+    headers: websocketUpgrade({ Origin: ORIGIN }),
+  })
+  expect(authorize(websocket, config)).toEqual({ ok: true })
+
+  const ordinaryRequest = request({
+    url: `http://127.0.0.1:8787/api/state?bridgeToken=${TOKEN}`,
+    headers: { Origin: ORIGIN },
+  })
+  expect(authorize(ordinaryRequest, config)).toEqual({ ok: false, status: 401, reason: 'missing identity' })
+
+  const wrongToken = request({
+    url: 'http://127.0.0.1:8787/ws?bridgeToken=wrong',
+    headers: websocketUpgrade({ Origin: ORIGIN }),
+  })
+  expect(authorize(wrongToken, config)).toEqual({ ok: false, status: 401, reason: 'missing identity' })
+})
+
 test('a wrong bearer token without a login header is 401', () => {
   const result = authorize(request({ headers: { Authorization: 'Bearer wrong-token', Origin: ORIGIN } }), config)
   expect(result).toEqual({ ok: false, status: 401, reason: 'missing identity' })
