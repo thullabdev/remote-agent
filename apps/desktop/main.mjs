@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron'
+import { readBridgeConfig } from './bridge-config.mjs'
 
 app.setName('Remote Agent')
 
@@ -32,13 +33,20 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     try {
-      if (!existsSync(join(staticDir, 'index.html'))) {
-        throw new Error('The desktop UI build is missing. Run `bun run desktop:dev` from the repository root.')
+      const config = readBridgeConfig(process.env)
+      if (config.mode === 'managed') {
+        if (!existsSync(join(staticDir, 'index.html'))) {
+          throw new Error('The desktop UI build is missing. Run `bun run desktop:dev` from the repository root.')
+        }
+        const managed = await startBridge()
+        bridge = managed.child
+        bridgeOrigin = managed.origin
+        bridgeToken = managed.token
+      } else {
+        bridgeOrigin = config.origin
+        bridgeToken = config.token
+        await waitForBridge(bridgeOrigin, bridgeToken, null, () => '', config.token === null)
       }
-      const { child, origin, token } = await startBridge()
-      bridge = child
-      bridgeOrigin = origin
-      bridgeToken = token
       ipcMain.on('remote-agent:bridge-token', event => {
         try {
           event.returnValue = new URL(event.senderFrame.url).origin === bridgeOrigin ? bridgeToken : null
@@ -46,7 +54,7 @@ if (!app.requestSingleInstanceLock()) {
           event.returnValue = null
         }
       })
-      installLocalAuthentication(origin, token)
+      installLocalAuthentication(bridgeOrigin, bridgeToken, config.mode === 'managed')
       await openWindow()
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -114,16 +122,19 @@ async function openWindow() {
   await window.loadURL(bridgeOrigin)
 }
 
-function installLocalAuthentication(origin, token) {
+function installLocalAuthentication(origin, token, useDesktopLogin) {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: [`${origin}/*`] },
     (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders }
+      if (token !== null) {
+        requestHeaders.Authorization = `Bearer ${token}`
+      }
+      if (useDesktopLogin) {
+        requestHeaders['Tailscale-User-Login'] = desktopLogin
+      }
       callback({
-        requestHeaders: {
-          ...details.requestHeaders,
-          'Tailscale-User-Login': desktopLogin,
-          Authorization: `Bearer ${token}`,
-        },
+        requestHeaders,
       })
     },
   )
@@ -162,7 +173,7 @@ async function startBridge() {
       process.stderr.write(chunk)
     })
     try {
-      await waitForBridge(child, origin, token, () => output)
+      await waitForBridge(origin, token, child, () => output)
       return { child, origin, token }
     } catch (error) {
       lastError = error
@@ -211,9 +222,9 @@ function availablePort() {
   })
 }
 
-async function waitForBridge(child, origin, token, getOutput) {
+async function waitForBridge(origin, token, child = null, getOutput = () => '', allowUnauthenticated = false) {
   let childError = null
-  child.once('error', error => {
+  child?.once('error', error => {
     childError = error
   })
   const deadline = Date.now() + 30_000
@@ -221,23 +232,28 @@ async function waitForBridge(child, origin, token, getOutput) {
     if (childError !== null) {
       throw new Error(`Could not launch Bun (${childError.message}). Install Bun or set BUN_EXECUTABLE.`)
     }
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (child !== null && (child.exitCode !== null || child.signalCode !== null)) {
       throw new Error(`The Bridge exited before it became ready (${child.exitCode ?? child.signalCode}).\n${getOutput()}`)
     }
     try {
+      const headers = {
+        Origin: origin,
+      }
+      if (token !== null) {
+        headers.Authorization = `Bearer ${token}`
+        headers['Tailscale-User-Login'] = desktopLogin
+      }
       const response = await fetch(`${origin}/api/state`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-          Origin: origin,
-          'Tailscale-User-Login': desktopLogin,
+          ...headers,
         },
         signal: AbortSignal.timeout(1_000),
       })
-      if (response.ok) {
+      if (response.ok || allowUnauthenticated) {
         return
       }
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(`The local Bridge rejected desktop authentication (${response.status}).`)
+      if (!allowUnauthenticated && (response.status === 401 || response.status === 403)) {
+        throw new Error(`The Bridge rejected desktop authentication (${response.status}). Check the URL origin and bearer token.`)
       }
     } catch (error) {
       if (error instanceof Error && error.message.includes('rejected desktop authentication')) {

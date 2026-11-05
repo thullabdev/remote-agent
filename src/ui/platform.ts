@@ -1,6 +1,6 @@
 declare global {
   interface Window {
-    remoteAgentDesktop?: { bridgeToken: string }
+    remoteAgentDesktop?: { bridgeToken: string | null }
   }
 }
 
@@ -16,7 +16,7 @@ export function webSocketUrl(after: number): string {
   url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   url.searchParams.set('after', String(after))
   const token = window.remoteAgentDesktop?.bridgeToken
-  if (token !== undefined) {
+  if (token !== undefined && token !== null) {
     url.searchParams.set('bridgeToken', token)
   }
   return url.toString()

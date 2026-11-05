@@ -68,6 +68,15 @@ bun run desktop:dev
 
 The desktop Bridge stores its database under Electron's user-data directory, uses a per-launch bearer token, and listens on a free loopback port. The token is sent on the WebSocket handshake only because browser WebSockets cannot set authorization headers; the Bridge still requires the exact local Origin. Its data is separate from a separately running web Bridge. Starting Sessions still requires Claude Code, `tmux`, and `systemd-run --user`. Set `BUN_EXECUTABLE` if Bun is not on `PATH`. Web Push and the service worker are disabled in the desktop app; the browser/PWA keeps its existing behavior.
 
+To connect the desktop app to an already-running web Bridge instead, set these in `.env` before launching:
+
+```bash
+REMOTE_AGENT_DESKTOP_BRIDGE_MODE=existing
+REMOTE_AGENT_DESKTOP_BRIDGE_URL=https://box.tail1234.ts.net
+```
+
+The service must serve the built UI and `REMOTE_AGENT_WEB_ORIGINS` must include the exact URL origin. When the service authenticates through Tailscale Serve, the desktop app uses that service-provided identity. For a service configured with `REMOTE_AGENT_WEB_TOKEN`, also set `REMOTE_AGENT_DESKTOP_BRIDGE_TOKEN` to the same token. In this mode the desktop app does not start or stop a Bridge and shows that service's Chats. Remove the mode or set it to `managed` to return to the isolated local Bridge (the default).
+
 ## 6. Install the mod
 
 ```bash
