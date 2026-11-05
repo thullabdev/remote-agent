@@ -152,7 +152,7 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 
 All paths are under `/api`. Request and response bodies are JSON. Errors are `{ "error": "<message>" }`. Unknown routes, and known routes with the wrong method, answer `404 {"error":"Not found."}`. An unexpected server failure answers `500 {"error":"Something went wrong."}`; details go to the Bridge log, never to the client.
 
-**Status codes you will see:** `200` success; `400` invalid body or parameter (the message lists the problems); `401`/`403` the auth gate (1.2); `404` unknown chat, prompt, question or session; `409` the request conflicts with state (session ended, not spawned, folder not listed in `REMOTE_AGENT_PROJECTS`); `503` the Bridge is not running.
+**Status codes you will see:** `200` success; `400` invalid body or parameter (the message lists the problems); `401`/`403` the auth gate (1.2); `404` unknown chat, prompt, question or session; `409` the request conflicts with state (session ended, not spawned, folder not trusted in Claude Code); `503` the Bridge is not running.
 
 | Method and path | Purpose |
 |---|---|
@@ -187,7 +187,7 @@ Query: `before` (message seq, optional, exclusive) and `limit` (default 50, clam
 Body `{ clientId: string, text: string }` (`text` must not be blank; there is no maximum length other than the 64 MiB request cap). `200 { message: Message }`.
 
 - Session chat: queues an Instruction; `message` is a `user_text` with `status: "queued"`. `404 No session in this chat.` if the chat has no Session; `409 This session has ended.`
-- General: `message` is a `user_text` with `status: "delivered"`. The text is run as a command if it starts with `/`; otherwise a hint reply (`Send a command like /new, /status, /away, /back.`) is posted. Commands: `/new [--model <model>] [path]`, `/end` (only meaningful in a session chat), `/status`, `/away`, `/back`; anything else answers `Unknown command…`. `503` if the Bridge is not running.
+- General: `message` is a `user_text` with `status: "delivered"`. The text is run as a command if it starts with `/`; otherwise a hint reply (`Send a command like /new, /status, /away, /back.`) is posted. Commands: `/new [--model <model>] [path]`, `/new --resume [path]` to list transcript histories and fork one into a new Session, `/end` (only meaningful in a session chat), `/status`, `/away`, `/back`; anything else answers `Unknown command…`. `503` if the Bridge is not running.
 - A `clientId` already used in this chat returns the existing message and does nothing else.
 
 ### POST /chats/:id/actions
@@ -219,12 +219,12 @@ No body. `200 { ok: true }`. Emits `chat.cleared` and `chat.updated`. It hides h
 
 ### POST /chats/:id/fork
 
-No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer listed in `REMOTE_AGENT_PROJECTS`. Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
+No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer marked trusted in Claude Code's config. Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
 
 ### GET /projects and POST /projects/start
 
-`GET` → `200 { projects: { label: string, cwd: string }[] }`: the entries of `REMOTE_AGENT_PROJECTS` that exist as absolute folders (relative or missing entries are left out; the list is empty when none are configured).
-`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409` with the `Not a trusted folder…` text. A folder is trusted exactly when it is listed in `REMOTE_AGENT_PROJECTS`; there is no way to add or create one from the API.
+`GET` → `200 { projects: { label: string, cwd: string }[] }`: existing folders whose `projects` entry in `~/.claude.json` has `hasTrustDialogAccepted: true`. `CLAUDE_CONFIG_PATH` can override the config location.
+`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409` with the `Not a trusted folder…` text. A folder is trusted exactly when Claude Code marks it trusted in `.claude.json`; there is no way to add or create one from the API.
 
 ### PUT /away
 

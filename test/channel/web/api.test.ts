@@ -32,7 +32,7 @@ let spawnerDep: ApiDeps['spawner']
 let projectsDep: ApiDeps['projects']
 let tmux: FakeTmux
 let home: string
-let trustedProjects: string[]
+let configPath: string
 const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
 const spawnerCalls: (string | null)[] = []
@@ -85,14 +85,15 @@ function build(): void {
   })
 }
 
-/** Swaps the stub for a real Spawner over a temp home: `api` is listed in REMOTE_AGENT_PROJECTS (trusted), `secret` exists but is not listed. */
+/** Swaps the stub for a real Spawner over a temp home: `api` is trusted in Claude config; `secret` is not. */
 async function useRealSpawner(): Promise<void> {
   home = await realpath(await mkdtemp(`${tmpdir()}/ra-api-`))
   await mkdir(`${home}/Sites/api`, { recursive: true })
   await mkdir(`${home}/Sites/secret`, { recursive: true })
-  trustedProjects = ['~/Sites/api']
+  configPath = `${home}/.claude.json`
+  await writeFile(configPath, JSON.stringify({ projects: { [`${home}/Sites/api`]: { hasTrustDialogAccepted: true } } }))
   tmux = new FakeTmux()
-  const trusted = new TrustedFolders({ home, projects: trustedProjects })
+  const trusted = new TrustedFolders({ home, configPath })
   const notifier = new Notifier(store, channel, away, message => logged.push(message), channel)
   spawnerDep = new Spawner({
     store,
@@ -100,6 +101,7 @@ async function useRealSpawner(): Promise<void> {
     notifier,
     launcher: new Launcher(tmux.run),
     trusted,
+    home,
     log: () => {},
     schedule: () => () => {},
     sleep: async () => {},
@@ -525,7 +527,7 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
   store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
-  trustedProjects.length = 0 // the folder is no longer listed in REMOTE_AGENT_PROJECTS
+  await writeFile(configPath, JSON.stringify({ projects: {} })) // the folder is no longer trusted in Claude Code
 
   const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
   expect(status).toBe(409)

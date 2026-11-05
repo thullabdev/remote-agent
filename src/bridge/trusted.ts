@@ -1,9 +1,15 @@
-import { realpath } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { basename, isAbsolute, resolve } from 'node:path'
 
 export type Project = { label: string; cwd: string }
 
-type Options = { home: string; projects: string[] }
+type Options = { home: string; configPath: string }
+type ClaudeProject = { hasTrustDialogAccepted?: unknown }
+type ClaudeConfig = { projects?: Record<string, ClaudeProject> }
+
+const ENOENT = 'ENOENT'
+
+export class TrustedFoldersUnavailable extends Error {}
 
 function expandHome(path: string, home: string): string {
   if (path === '~') {
@@ -22,13 +28,17 @@ async function normalise(path: string, home: string): Promise<string | null> {
     return null
   }
   try {
-    return await realpath(resolve(expanded))
-  } catch {
-    return null
+    const path = await realpath(resolve(expanded))
+    return (await stat(path)).isDirectory() ? path : null
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === ENOENT || (error as NodeJS.ErrnoException).code === 'ENOTDIR') {
+      return null
+    }
+    throw error
   }
 }
 
-/** The folders listed in REMOTE_AGENT_PROJECTS: the only places a Spawned Session may start. */
+/** Folders Claude Code has explicitly marked as trusted in its user config. */
 export class TrustedFolders {
   constructor(private readonly options: Options) {}
 
@@ -37,33 +47,52 @@ export class TrustedFolders {
     if (cwd === null) {
       return null
     }
-    return (await this.listed()).has(cwd) ? cwd : null
+    return (await this.listed()).includes(cwd) ? cwd : null
   }
 
   async configuredProjects(): Promise<Project[]> {
+    const entries = await this.listed()
     const projects: Project[] = []
-    for (const entry of this.options.projects) {
-      const cwd = await normalise(entry, this.options.home)
-      if (cwd !== null) {
-        projects.push({ label: basename(cwd), cwd })
+    for (const cwd of entries) {
+      const path = await normalise(cwd, this.options.home)
+      if (path !== null) {
+        projects.push({ label: basename(path), cwd: path })
       }
     }
     return projects
   }
 
-  /** Entries that are relative or do not exist, so they are left out. */
-  async unusableProjects(): Promise<string[]> {
-    const unusable: string[] = []
-    for (const entry of this.options.projects) {
-      if ((await normalise(entry, this.options.home)) === null) {
-        unusable.push(entry)
-      }
+  private async listed(): Promise<string[]> {
+    let raw: string
+    try {
+      raw = await readFile(this.options.configPath, 'utf8')
+    } catch (error) {
+      throw new TrustedFoldersUnavailable(
+        `Cannot read Claude Code config at ${this.options.configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
-    return unusable
-  }
-
-  /** Resolved fresh every time: a folder created since the Bridge started counts immediately. */
-  private async listed(): Promise<Set<string>> {
-    return new Set((await this.configuredProjects()).map(project => project.cwd))
+    let config: unknown
+    try {
+      config = JSON.parse(raw)
+    } catch (error) {
+      throw new TrustedFoldersUnavailable(
+        `Cannot parse Claude Code config at ${this.options.configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+      throw new TrustedFoldersUnavailable(`Claude Code config at ${this.options.configPath} has an invalid shape`)
+    }
+    const projects = (config as ClaudeConfig).projects
+    if (projects === undefined) {
+      return []
+    }
+    if (projects === null || typeof projects !== 'object' || Array.isArray(projects)) {
+      throw new TrustedFoldersUnavailable(`Claude Code config at ${this.options.configPath} has an invalid projects value`)
+    }
+    return Object.entries(projects)
+      .filter((entry): entry is [string, ClaudeProject] =>
+        entry[1] !== null && typeof entry[1] === 'object' && entry[1].hasTrustDialogAccepted === true,
+      )
+      .map(([cwd]) => cwd)
   }
 }

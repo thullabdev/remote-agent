@@ -5,12 +5,14 @@ import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log } from './prompts.ts'
+import { listSessionHistories, type SessionHistory } from './session-history.ts'
 import type { Store } from './store.ts'
-import type { Project, TrustedFolders } from './trusted.ts'
+import { TrustedFoldersUnavailable, type Project, type TrustedFolders } from './trusted.ts'
 
-export const NOT_TRUSTED = 'Not a trusted folder. Add it to REMOTE_AGENT_PROJECTS.'
+export const NOT_TRUSTED = 'Not a trusted folder. Open it in Claude Code and accept the trust dialog first.'
 export const STALE_PICKER = 'Project list changed. Send /new again.'
-export const USAGE = 'Usage: /new [--model <model>] <trusted folder>. Set REMOTE_AGENT_PROJECTS to get buttons for your projects.'
+export const CONFIG_UNREADABLE = "Can't read Claude Code's trusted folders."
+export const USAGE = 'Usage: /new [--model <model>] <trusted folder> or /new --resume [trusted folder]. Trust folders in Claude Code first.'
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended remotely.'
@@ -26,21 +28,28 @@ const MODEL_ID = /^claude-[a-z0-9][a-z0-9.-]*$/
 const MODEL_FIRST = /^(?:--model|-m)(?:\s+(\S+))?(?:\s+(.*))?$/s
 const MODEL_LAST = /^(.*?)\s+(?:--model|-m)\s+(\S+)$/s
 
-type Picker = { projects: Project[]; model: string | null }
+type Picker =
+  | { kind: 'projects'; projects: Project[]; model: string | null }
+  | { kind: 'resume-projects'; thread: ThreadRef | null; projects: Project[]; model: string | null }
+  | { kind: 'histories'; cwd: string; histories: SessionHistory[]; model: string | null }
 
-/** Splits `/new` args into a path and an optional `--model`/`-m` given before or after it. Null means a bad model. */
-export function parseNewArgs(args: string): { path: string; model: string | null } | null {
+/** Splits `/new` args into a path, optional model and resume mode. Null means a bad model. */
+export function parseNewArgs(args: string): { path: string; model: string | null; resume: boolean } | null {
+  if (args === '--resume' || args.startsWith('--resume ')) {
+    const parsed = parseNewArgs(args.slice('--resume'.length).trim())
+    return parsed === null ? null : { ...parsed, resume: true }
+  }
   const first = MODEL_FIRST.exec(args)
   const last = first === null ? MODEL_LAST.exec(args) : null
   if (first === null && last === null) {
-    return { path: args, model: null }
+    return { path: args, model: null, resume: false }
   }
   const model = first !== null ? first[1] : last?.[2]
   const path = (first !== null ? first[2] : last?.[1]) ?? ''
   if (model === undefined || !(MODEL_ALIASES.has(model) || MODEL_ID.test(model))) {
     return null
   }
-  return { path: path.trim(), model }
+  return { path: path.trim(), model, resume: false }
 }
 
 /** Runs `run` after `ms`; the returned function cancels it. */
@@ -52,6 +61,7 @@ export type SpawnerDeps = {
   notifier: Notifier
   launcher: Launcher
   trusted: TrustedFolders
+  home: string
   log: Log
   schedule?: Schedule
   sleep?: (ms: number) => Promise<void>
@@ -87,24 +97,44 @@ export class Spawner {
 
   /** `/new [--model <model>] [path]`. Returns the reply, or null when the project picker was posted instead. */
   async newCommand(thread: ThreadRef | null, args: string): Promise<string | null> {
-    const parsed = parseNewArgs(args)
-    if (parsed === null) {
-      return BAD_MODEL
-    }
-    if (parsed.path !== '') {
-      return await this.startAt(parsed.path, parsed.model)
-    }
-    return await this.postPicker(thread, parsed.model)
+    return this.withTrustedFolders(async () => {
+      const parsed = parseNewArgs(args)
+      if (parsed === null) {
+        return BAD_MODEL
+      }
+      if (parsed.resume) {
+        if (parsed.path !== '') {
+          return await this.postHistoryPicker(thread, parsed.path, parsed.model)
+        }
+        return await this.postResumeProjectPicker(thread, parsed.model)
+      }
+      if (parsed.path !== '') {
+        return await this.startAt(parsed.path, parsed.model)
+      }
+      return await this.postPicker(thread, parsed.model)
+    })
   }
 
   /** A tap on a picker button. Returns the toast. */
   async startFromPicker(pickerId: string, choice: number): Promise<string> {
-    const picker = this.pickers.get(pickerId)
-    const project = picker?.projects[choice]
-    if (picker === undefined || project === undefined) {
-      return STALE_PICKER
-    }
-    return await this.startAt(project.cwd, picker.model)
+    return this.withTrustedFolders(async () => {
+      const picker = this.pickers.get(pickerId)
+      if (picker === undefined) {
+        return STALE_PICKER
+      }
+      if (picker.kind === 'histories') {
+        const history = picker.histories[choice]
+        return history === undefined ? STALE_PICKER : await this.startAt(picker.cwd, picker.model, history.id)
+      }
+      const project = picker.projects[choice]
+      if (project === undefined) {
+        return STALE_PICKER
+      }
+      if (picker.kind === 'resume-projects') {
+        return (await this.postHistoryPicker(picker.thread, project.cwd, picker.model)) ?? 'Session histories listed.'
+      }
+      return await this.startAt(project.cwd, picker.model)
+    })
   }
 
   /**
@@ -116,7 +146,15 @@ export class Spawner {
     if (session === undefined) {
       return UNKNOWN_SESSION
     }
-    return await this.startAt(session.cwd, null, sessionId)
+    try {
+      return await this.startAt(session.cwd, null, sessionId)
+    } catch (error) {
+      if (error instanceof TrustedFoldersUnavailable) {
+        this.deps.log('reading Claude Code trusted folders failed', error)
+        return CONFIG_UNREADABLE
+      }
+      throw error
+    }
   }
 
   /** Restarts an ended Session with its existing Claude session id and transcript. */
@@ -135,7 +173,16 @@ export class Spawner {
 
     this.resuming.add(sessionId)
     try {
-      const cwd = await this.deps.trusted.isTrusted(session.cwd)
+      let cwd: string | null
+      try {
+        cwd = await this.deps.trusted.isTrusted(session.cwd)
+      } catch (error) {
+        if (error instanceof TrustedFoldersUnavailable) {
+          log('reading Claude Code trusted folders failed', error)
+          return CONFIG_UNREADABLE
+        }
+        throw error
+      }
       if (cwd === null) {
         return NOT_TRUSTED
       }
@@ -276,7 +323,7 @@ export class Spawner {
       return USAGE
     }
     const pickerId = this.newId().slice(0, 8)
-    this.pickers.set(pickerId, { projects, model })
+    this.pickers.set(pickerId, { kind: 'projects', projects, model })
     if (this.pickers.size > MAX_PICKERS) {
       const oldest = this.pickers.keys().next().value
       if (oldest !== undefined) {
@@ -286,6 +333,58 @@ export class Spawner {
     const buttons = projects.map((project, choice) => ({ label: project.label, data: { kind: 'launch' as const, pickerId, choice } }))
     await this.deps.channel.sendButtons(thread, `Start a session${model === null ? '' : ` with ${model}`} in:`, buttons)
     return null
+  }
+
+  private async postResumeProjectPicker(thread: ThreadRef | null, model: string | null): Promise<string | null> {
+    const projects = await this.deps.trusted.configuredProjects()
+    if (projects.length === 0) {
+      return USAGE
+    }
+    const pickerId = this.newId().slice(0, 8)
+    this.pickers.set(pickerId, { kind: 'resume-projects', thread, projects, model })
+    if (this.pickers.size > MAX_PICKERS) {
+      const oldest = this.pickers.keys().next().value
+      if (oldest !== undefined) {
+        this.pickers.delete(oldest)
+      }
+    }
+    const buttons = projects.map((project, choice) => ({ label: project.label, data: { kind: 'launch' as const, pickerId, choice } }))
+    await this.deps.channel.sendButtons(thread, 'Choose a project to resume from:', buttons)
+    return null
+  }
+
+  private async postHistoryPicker(thread: ThreadRef | null, path: string, model: string | null): Promise<string | null> {
+    const cwd = await this.deps.trusted.isTrusted(path)
+    if (cwd === null) {
+      return NOT_TRUSTED
+    }
+    const histories = await listSessionHistories(this.deps.home, cwd)
+    if (histories.length === 0) {
+      return `No session histories found in ${cwd}.`
+    }
+    const pickerId = this.newId().slice(0, 8)
+    this.pickers.set(pickerId, { kind: 'histories', cwd, histories, model })
+    if (this.pickers.size > MAX_PICKERS) {
+      const oldest = this.pickers.keys().next().value
+      if (oldest !== undefined) {
+        this.pickers.delete(oldest)
+      }
+    }
+    const buttons = histories.map((history, choice) => ({ label: history.label, data: { kind: 'launch' as const, pickerId, choice } }))
+    await this.deps.channel.sendButtons(thread, `Resume a history from ${projectName(cwd)}:`, buttons)
+    return null
+  }
+
+  private async withTrustedFolders<T extends string | null>(action: () => Promise<T>): Promise<T | string> {
+    try {
+      return await action()
+    } catch (error) {
+      if (!(error instanceof TrustedFoldersUnavailable)) {
+        throw error
+      }
+      this.deps.log('reading Claude Code trusted folders failed', error)
+      return CONFIG_UNREADABLE
+    }
   }
 
   private async startAt(path: string, model: string | null, resumeFrom?: string): Promise<string> {

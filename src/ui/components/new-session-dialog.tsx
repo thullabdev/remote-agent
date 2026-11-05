@@ -96,7 +96,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
           <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center">
             <Folder className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
             <p className="mt-2 text-sm font-medium">{projects.length === 0 ? 'No trusted projects are configured' : 'No projects match that search'}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Add project folders to REMOTE_AGENT_PROJECTS in the Bridge environment.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Open a folder in Claude Code and accept its trust dialog to add it here.</p>
           </div>
         )}
         {error && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</p>}

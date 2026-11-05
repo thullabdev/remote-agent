@@ -45,7 +45,7 @@ The default channel is now `web`. An existing Telegram deployment that keeps its
 
 ## 4. Run the Bridge
 
-Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. Set `REMOTE_AGENT_PROJECTS` in the env file to get one button per project.
+Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. The project picker uses folders Claude Code has marked as trusted in `~/.claude.json`.
 
 ```bash
 mkdir -p ~/.config/remote-agent && cp .env.example ~/.config/remote-agent/env && chmod 600 ~/.config/remote-agent/env
@@ -76,7 +76,8 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - Permission Request: Allow / Deny buttons. Replying `allow`/`yes` allows, `deny`/`no` denies, and any other reply denies with that text as feedback to the agent.
 - On resolution, the buttons are removed and a note is posted as a reply (for example `✅ Allowed (local)`).
 - Any other text in a Session's Thread is an Instruction. It is queued if the Session is busy and delivered when the Session is idle.
-- `/new` shows one button per project in `REMOTE_AGENT_PROJECTS`; `/new <path>` starts only in a folder listed in `REMOTE_AGENT_PROJECTS` (exact folder, not a subfolder). The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
+- `/new` shows one button per folder marked trusted in Claude Code's `~/.claude.json`; `/new <path>` starts only in an exactly matching trusted folder, not a subfolder. The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
+- `/new --resume [path]` lists the recent Claude histories in a trusted folder (or asks you to pick a project); selecting one starts a new Session forked from that transcript, leaving the original history unchanged.
 - `/new --model <model> [path]` (or `-m`) starts the Session with that model instead of your default: `opus`, `sonnet`, `haiku`, `opusplan` or a full id like `claude-sonnet-5-5`. With no path, the project buttons it posts all use that model.
 - Attach in a terminal with the command shown in the Thread and in `/status` (`tmux attach -t ra-xxxxxxxx`); detach with `Ctrl-b d`. Telegram keeps working while you are attached.
 - `/end` in the Thread of a Session started from Telegram sends `/exit` and kills it after 5 seconds if it is still running.
@@ -134,7 +135,7 @@ Settings (the variables read by `src/bridge/config.ts`):
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_ID` | required with telegram | See section 3. |
 | `REMOTE_AGENT_DB` | `~/.local/state/remote-agent/bridge.db` | SQLite database (chat log, sessions, prompts). |
 | `REMOTE_AGENT_REMINDER_MINUTES` | `30` | Reminder for a Prompt nobody answers. |
-| `REMOTE_AGENT_PROJECTS` | none | Trusted folders offered by `/new`. |
+| `CLAUDE_CONFIG_PATH` | `~/.claude.json` | Claude Code config used to find trusted folders. |
 
 Handy overrides for `.env` while developing:
 

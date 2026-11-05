@@ -87,8 +87,8 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
     }
     const notifier = new Notifier(store, channel, away, log, webChannel ?? undefined)
     const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
-    const trusted = new TrustedFolders({ home: config.home, projects: config.projects })
-    const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, log })
+    const trusted = new TrustedFolders({ home: config.home, configPath: config.claudeConfigPath })
+    const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, home: config.home, log })
     const inbound = new Inbound(store, prompts, notifier, spawner)
 
     if (config.web !== null && chatLog !== null && webChannel !== null) {
@@ -159,9 +159,6 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         await spawner.reconcile().catch(error => {
           log('reconciling spawned sessions failed', error)
         })
-        for (const entry of await trusted.unusableProjects()) {
-          log(`REMOTE_AGENT_PROJECTS entry is not an existing absolute folder and is left out of /new: ${entry}`)
-        }
         retryUndelivered()
         reminders = setInterval(() => {
           void prompts.remindStale()
