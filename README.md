@@ -57,7 +57,18 @@ journalctl --user -u remote-agent -f
 
 After changing `deploy/remote-agent.service`, copy it again and run `systemctl --user daemon-reload && systemctl --user restart remote-agent`.
 
-## 5. Install the mod
+## 5. Desktop development app
+
+The Electron shell reuses the web UI and starts its own local Bridge. On Linux, run:
+
+```bash
+bun install
+bun run desktop:dev
+```
+
+The desktop Bridge stores its database under Electron's user-data directory, uses a per-launch bearer token, and listens on a free loopback port. The token is sent on the WebSocket handshake only because browser WebSockets cannot set authorization headers; the Bridge still requires the exact local Origin. Its data is separate from a separately running web Bridge. Starting Sessions still requires Claude Code, `tmux`, and `systemd-run --user`. Set `BUN_EXECUTABLE` if Bun is not on `PATH`. Web Push and the service worker are disabled in the desktop app; the browser/PWA keeps its existing behavior.
+
+## 6. Install the mod
 
 ```bash
 claude plugin marketplace add /home/giganotosaurus/Sites/remote-agent/mod
@@ -67,7 +78,7 @@ claude plugin list
 
 Already-running sessions pick it up after `/reload-plugins`. The plugin also installs a `PermissionRequest` hook that carries Permission Requests to Telegram.
 
-## 6. Using it
+## 7. Using it
 
 The rules below are the same in the web chat, where a Session's Thread is its Chat. The wording is Telegram's.
 
@@ -83,7 +94,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - `/end` in the Thread of a Session started from Telegram sends `/exit` and kills it after 5 seconds if it is still running.
 - Commands: `/new`, `/end`, `/away` turns Away mode on (Reports are pushed), `/back` turns it off, `/status` lists Sessions and pending Prompts.
 
-## 7. Security notes
+## 8. Security notes
 
 - The socket is user-only (0600).
 - Web: the port is loopback only. Access needs the allowed Tailscale login and an allowed Origin (see section 2); the optional `REMOTE_AGENT_WEB_TOKEN` is a bearer fallback for access not through `tailscale serve`.
@@ -91,7 +102,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - Text is redacted and truncated, but Telegram bot chats are **not** end-to-end encrypted.
 - The mod runs with your permissions and never approves anything without an Answer.
 
-## 8. Known limitations
+## 9. Known limitations
 
 - Headless (`-p`/SDK) sessions are not bridged.
 - When Telegram answers a **Question** first, the terminal's question dialog stays on screen. Press **Esc** to clear it; this does not interrupt Claude (see `references/spike-results.md`, E3a). Permission dialogs close by themselves.
@@ -109,7 +120,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - `/end` works only for Sessions the Bridge started (`/new` or a project start, from Telegram or the web chat).
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
 
-## 9. Development
+## 10. Development
 
 Run the Bridge in the foreground instead of as a systemd service:
 
