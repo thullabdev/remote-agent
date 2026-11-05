@@ -1,4 +1,5 @@
 import { redactSecrets, truncate } from '../core/text.ts'
+import { claudeCodeAdapter, type AgentAdapter, type LaunchSpec } from './agent-adapter.ts'
 
 export type RunResult = { code: number; stdout: string; stderr: string }
 export type Run = (argv: string[]) => Promise<RunResult>
@@ -32,12 +33,15 @@ function failure(result: RunResult): LaunchError {
 /** Ids come from Claude Code and the Bridge, but a leading dash would let one be read as a flag. */
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
-/** Every tmux and systemd-run call a Spawned Session needs. */
+/** Every tmux and systemd-run call a Spawned Session needs. The agent program comes from the adapter. */
 export class Launcher {
-  constructor(private readonly run: Run = runCommand) {}
+  constructor(
+    private readonly run: Run = runCommand,
+    private readonly agent: AgentAdapter = claudeCodeAdapter,
+  ) {}
 
-  /** The scope keeps tmux (and claude) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
-  async launch(spec: { sessionId: string; cwd: string; model?: string | null; resumeFrom?: string; fork?: boolean }): Promise<{ tmuxName: string }> {
+  /** The scope keeps tmux (and the agent) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
+  async launch(spec: LaunchSpec): Promise<{ tmuxName: string }> {
     if (!SAFE_ID.test(spec.sessionId)) {
       throw new LaunchError(`refusing to launch: session id "${spec.sessionId}" is not a safe id`)
     }
@@ -45,19 +49,11 @@ export class Launcher {
       throw new LaunchError(`refusing to launch: resume id "${spec.resumeFrom}" is not a safe id`)
     }
     const tmuxName = tmuxNameFor(spec.sessionId)
-    // Forks use a new id; resuming in place keeps the original Claude session id and transcript.
-    const identity =
-      spec.resumeFrom === undefined
-        ? ['--session-id', spec.sessionId]
-        : spec.fork === false
-          ? ['--resume', spec.resumeFrom]
-          : ['--resume', spec.resumeFrom, '--fork-session', '--session-id', spec.sessionId]
     const result = await this.run([
       'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
       'systemd-run', '--user', '--scope', '--quiet', '--collect',
       'tmux', 'new-session', '-d', '-s', tmuxName, '-c', spec.cwd,
-      'claude', ...identity,
-      ...(spec.model == null ? [] : ['--model', spec.model]),
+      ...this.agent.launchArgv(spec),
     ])
     if (result.code !== 0) {
       throw failure(result)
