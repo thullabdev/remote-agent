@@ -16,6 +16,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
   const suggestions = matchingCommands(query, chat.id === 'general')
@@ -34,6 +35,25 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
       input.style.height = `${Math.min(input.scrollHeight, 140)}px`
     }
   }, [text])
+
+  useEffect(() => {
+    const dock = dockRef.current
+    const chatSurface = dock?.parentElement
+    if (dock === null || dock === undefined || chatSurface === null || chatSurface === undefined) {
+      return
+    }
+
+    const updateHeight = () => {
+      chatSurface.style.setProperty('--chat-composer-height', `${dock.getBoundingClientRect().height}px`)
+    }
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(dock)
+    updateHeight()
+    return () => {
+      observer.disconnect()
+      chatSurface.style.removeProperty('--chat-composer-height')
+    }
+  }, [])
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault()
@@ -73,7 +93,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
   }
 
   return (
-    <div className="relative shrink-0 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
+    <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-10 sm:px-6">
       {disabled && (
         <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
           <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
@@ -113,7 +133,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
         </div>
       )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
-        <div className={`flex items-end gap-2 rounded-3xl pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
+        <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
           <textarea
             ref={inputRef}
@@ -128,7 +148,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
             aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
             placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : `Message ${chat.title}…`}
             disabled={disabled}
-            className="max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
+            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
           <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || text.trim() === ''} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />

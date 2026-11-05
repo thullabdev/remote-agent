@@ -83,6 +83,27 @@ button, input, textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 ::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); }
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 75%, transparent); outline-offset: 2px; }
+.chat-composer-input:focus-visible { outline: none; }
+.chat-message-feed { padding-bottom: calc(var(--chat-composer-height, 5rem) + 1rem); }
+.chat-composer-dock {
+  isolation: isolate;
+}
+.chat-composer-dock::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 4rem;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--background) 52%, transparent),
+    color-mix(in srgb, var(--background) 24%, transparent) 55%,
+    transparent
+  );
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to top, #000 25%, transparent);
+}
 .chat-glow {
   position: relative;
   isolation: isolate;
