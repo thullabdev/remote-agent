@@ -25,4 +25,12 @@ describe('agent markdown rendering', () => {
     expect(markup).toContain('<pre class="m-0 w-max min-w-full">')
     expect(markup).toContain('a'.repeat(200))
   })
+
+  test('adds a copy button to every code block', () => {
+    const markup = renderToStaticMarkup(createElement(MarkdownBody, {
+      markdown: '```ts\nconst a = 1\n```\n\n```text\nb\n```',
+    }))
+
+    expect(markup.match(/aria-label="Copy code"/g)).toHaveLength(2)
+  })
 })
