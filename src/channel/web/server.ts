@@ -105,6 +105,12 @@ function frameText(raw: string | Buffer): string {
   return typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
 }
 
+/** Origin and Fetch Metadata as logged for a refused request; absent headers show as "(absent)". */
+function originDetails(request: Request): string {
+  const field = (name: string): string => JSON.stringify((request.headers.get(name) ?? '(absent)').slice(0, 200))
+  return `origin=${field('Origin')} fetch-site=${field('Sec-Fetch-Site')} fetch-mode=${field('Sec-Fetch-Mode')} fetch-dest=${field('Sec-Fetch-Dest')}`
+}
+
 /** Starts the HTTP and WebSocket server on loopback: auth, then /ws, then the API, then static files. */
 export function startWebServer(deps: WebServerDeps): WebServer {
   const { config, chatLog, hub, log } = deps
@@ -116,8 +122,8 @@ export function startWebServer(deps: WebServerDeps): WebServer {
     const auth = authorize(request, { allowedLogin: config.allowedLogin, origins: config.origins, token: config.token })
     if (!auth.ok) {
       // Method, path and the fixed reason only: never the query string, login or token.
-      // The Origin is logged only for origin refusals, so the allowlist entry to add is visible; JSON.stringify keeps it on one line.
-      const origin = auth.reason === 'origin not allowed' ? ` origin=${JSON.stringify((request.headers.get('Origin') ?? '(absent)').slice(0, 200))}` : ''
+      // For origin refusals, also the Origin and Fetch Metadata headers (short, client-chosen values), quoted so each stays on one line.
+      const origin = auth.reason === 'origin not allowed' ? ` ${originDetails(request)}` : ''
       log(`web request refused: ${request.method} ${new URL(request.url).pathname} ${auth.status} ${auth.reason}${origin}`)
       return json({ error: auth.reason }, auth.status)
     }
