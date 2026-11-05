@@ -22,6 +22,7 @@ const spawned: Chat = { ...general, id: 'spawned-chat', title: 'Spawned session'
 const endedSpawned: Chat = { ...spawned, id: 'ended-spawned-chat', title: 'Ended spawned session', status: 'ended' }
 const endedLaptop: Chat = { ...laptop, id: 'ended-laptop-chat', title: 'Ended active session', status: 'ended' }
 const archivedSpawned: Chat = { ...endedSpawned, id: 'archived-spawned-chat', title: 'Archived spawned session', archived: true }
+const archivedLaptop: Chat = { ...endedLaptop, id: 'archived-laptop-chat', title: 'Archived active session', archived: true }
 
 test('filters sessions by origin and keeps General in the All view only', () => {
   const chats = [general, laptop, spawned]
@@ -37,9 +38,9 @@ test('combines the origin filter with title search', () => {
 })
 
 test('shows ended sessions until archived and lists archived sessions in their own filter', () => {
-  const chats = [spawned, endedSpawned, endedLaptop, archivedSpawned]
+  const chats = [spawned, endedSpawned, endedLaptop, archivedSpawned, archivedLaptop]
 
   expect(filterChats(chats, '', 'all').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat', 'ended-laptop-chat'])
   expect(filterChats(chats, '', 'spawned').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat'])
-  expect(filterChats(chats, '', 'archived').map(chat => chat.id)).toEqual(['archived-spawned-chat'])
+  expect(filterChats(chats, '', 'archived').map(chat => chat.id)).toEqual(['archived-spawned-chat', 'archived-laptop-chat'])
 })

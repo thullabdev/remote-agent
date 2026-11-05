@@ -362,7 +362,7 @@ test('end on a spawned session ends it through the spawner and returns its toast
   expect(spawnerCalls).toEqual([threadId])
 })
 
-test('archives only ended spawned sessions and restores them from the archived list', async () => {
+test('archives and restores ended spawned and active sessions', async () => {
   store.createSpawnedSession({ id: 's2', cwd: '/home/u/app', tmuxName: 'ra-2' })
   channel.sessionSeen(store.getSession('s2')!)
   const session = store.getSession('s2')!
@@ -378,9 +378,20 @@ test('archives only ended spawned sessions and restores them from the archived l
   const restored = await call('POST', `/api/chats/${chatId}/unarchive`)
   expect(restored).toEqual({ status: 200, body: { toast: 'Session restored.' } })
   expect(chatLog.getChat(chatId)?.archived).toBe(false)
+
+  const activeChatId = seedSession()
+  store.endSession('s1')
+  chatLog.updateChat(activeChatId, { status: 'ended' })
+  const endedActive = await call('POST', `/api/chats/${activeChatId}/archive`)
+  expect(endedActive).toEqual({ status: 200, body: { toast: 'Session archived.' } })
+  expect(chatLog.getChat(activeChatId)?.archived).toBe(true)
+  expect(await call('POST', `/api/chats/${activeChatId}/unarchive`)).toEqual({
+    status: 200,
+    body: { toast: 'Session restored.' },
+  })
 })
 
-test('active or non-spawned chats cannot be archived', async () => {
+test('active sessions and General cannot be archived', async () => {
   const activeChatId = seedSession()
   expect((await call('POST', `/api/chats/${activeChatId}/archive`)).status).toBe(409)
 
@@ -388,6 +399,7 @@ test('active or non-spawned chats cannot be archived', async () => {
   channel.sessionSeen(store.getSession('s2')!)
   const spawnedChatId = store.getSession('s2')!.chatId!
   expect((await call('POST', `/api/chats/${spawnedChatId}/archive`)).status).toBe(409)
+  expect((await call('POST', '/api/chats/general/archive')).status).toBe(409)
 })
 
 test('an unknown chat id returns 404', async () => {

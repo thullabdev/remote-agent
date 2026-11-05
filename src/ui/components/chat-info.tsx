@@ -57,7 +57,7 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnar
   const description = confirm === 'end'
     ? 'The Bridge will end this Spawned Session. Its history will remain available.'
     : confirm === 'archive'
-      ? 'This removes the ended Spawned Session from the regular chat filters. You can find it and restore it from Archived.'
+      ? 'This removes the ended Session from the regular chat filters. You can find it and restore it from Archived.'
       : confirm === 'unarchive'
         ? 'This returns the Session to the regular chat filters.'
         : confirm === 'clear'
@@ -121,13 +121,13 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnar
                   End Spawned Session
                 </Button>
               )}
-              {chat.spawned && chat.status === 'ended' && !chat.archived && (
+              {chat.id !== 'general' && chat.status === 'ended' && !chat.archived && (
                 <Button variant="outline" className="justify-start" onClick={() => setConfirm('archive')}>
                   <Archive aria-hidden="true" />
-                  Archive Spawned Session
+                  Archive Session
                 </Button>
               )}
-              {chat.spawned && chat.archived && (
+              {chat.id !== 'general' && chat.archived && (
                 <Button variant="outline" className="justify-start" onClick={() => setConfirm('unarchive')}>
                   <ArchiveRestore aria-hidden="true" />
                   Restore from Archived

@@ -314,9 +314,12 @@ async function endChat(deps: ApiDeps, chatId: string): Promise<unknown> {
 
 function archiveChat(deps: ApiDeps, chatId: string): unknown {
   const chat = requireChat(deps, chatId)
+  if (chat.id === 'general') {
+    throw new ApiError(409, 'Only ended Sessions can be archived.')
+  }
   const session = requireSession(deps, chatId)
-  if (!chat.spawned || !session.spawned || chat.status !== 'ended' || session.endedAt === null) {
-    throw new ApiError(409, 'Only ended Spawned Sessions can be archived.')
+  if (chat.status !== 'ended' || session.endedAt === null) {
+    throw new ApiError(409, 'Only ended Sessions can be archived.')
   }
   deps.chatLog.setArchived(chatId, true)
   return { toast: 'Session archived.' }
@@ -324,8 +327,8 @@ function archiveChat(deps: ApiDeps, chatId: string): unknown {
 
 function unarchiveChat(deps: ApiDeps, chatId: string): unknown {
   const chat = requireChat(deps, chatId)
-  if (!chat.spawned || !chat.archived) {
-    throw new ApiError(409, 'This Spawned Session is not archived.')
+  if (chat.id === 'general' || !chat.archived) {
+    throw new ApiError(409, 'This Session is not archived.')
   }
   deps.chatLog.setArchived(chatId, false)
   return { toast: 'Session restored.' }
