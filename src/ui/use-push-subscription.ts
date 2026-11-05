@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ApiClient } from './api.ts'
+import { isDesktopApp } from './platform.ts'
 import type { PushSubscriptionRecord } from '../channel/web/protocol.ts'
 
 export type PushStatus = {
   supported: boolean
+  desktopApp: boolean
   subscribed: boolean
   permission: NotificationPermission | 'unsupported'
   iosHomeScreenRequired: boolean
@@ -32,12 +34,14 @@ function toSubscriptionRecord(subscription: PushSubscription): PushSubscriptionR
 }
 
 export function usePushSubscription(api: ApiClient) {
-  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+  const desktopApp = isDesktopApp()
+  const supported = !desktopApp && typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
   const [status, setStatus] = useState<PushStatus>({
     supported,
+    desktopApp,
     subscribed: false,
     permission: supported ? Notification.permission : 'unsupported',
-    iosHomeScreenRequired: typeof navigator !== 'undefined' && isIosSafariNotInstalled(),
+    iosHomeScreenRequired: !desktopApp && typeof navigator !== 'undefined' && isIosSafariNotInstalled(),
   })
   const [busy, setBusy] = useState(false)
 

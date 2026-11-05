@@ -1,9 +1,10 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app.tsx'
+import { isDesktopApp } from './platform.ts'
 import './styles.css'
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (!isDesktopApp() && import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register('/sw.js').catch(error => {
     console.error('Could not register the offline service worker:', error)
   })

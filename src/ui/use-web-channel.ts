@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Chat, Message, ServerEvent } from '../channel/web/protocol.ts'
 import type { ApiClient, MessagePage, WebState } from './api.ts'
+import { webSocketUrl } from './platform.ts'
 import { applyServerEvent, createRealtimeState, mergeHistory, type RealtimeState } from './realtime.ts'
 
 export type ConnectionStatus = 'loading' | 'connected' | 'reconnecting' | 'error' | 'resyncing'
@@ -136,8 +137,7 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
       if (stopped) {
         return
       }
-      const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${scheme}//${window.location.host}/ws?after=${after}`)
+      socket = new WebSocket(webSocketUrl(after))
       socketRef.current = socket
 
       socket.addEventListener('open', () => {

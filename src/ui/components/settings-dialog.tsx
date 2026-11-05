@@ -93,7 +93,11 @@ export function SettingsDialog({ open, preferences, push, pushBusy, onPreference
               {pushBusy ? 'Updating…' : push.subscribed ? <><Check className="size-3" /> On</> : 'Enable'}
             </Button>
           </div>
-          {!push.supported && <p className="mt-2 text-xs text-muted-foreground">This browser does not support Web Push notifications.</p>}
+          {!push.supported && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {push.desktopApp ? 'Web Push is not available in the desktop app.' : 'This browser does not support Web Push notifications.'}
+            </p>
+          )}
           {push.iosHomeScreenRequired && (
             <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
               On iPhone and iPad, Web Push works in Safari only after you add this page to your Home Screen.
