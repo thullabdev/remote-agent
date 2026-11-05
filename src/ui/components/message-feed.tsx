@@ -2,6 +2,7 @@ import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, S
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { commandToolInput, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
+import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
@@ -284,7 +285,7 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Result {message.resultTruncated && <span className="normal-case">(truncated by Bridge)</span>}
                     </div>
-                    <pre className="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">{message.result}</pre>
+                    <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">{message.result}</CodeBlock>
                   </div>
                 )}
               </div>
@@ -301,9 +302,9 @@ function ToolInput({ input }: { input: unknown }) {
   if (commandInput !== null) {
     return (
       <div className="overflow-hidden rounded-xl border border-border bg-muted">
-        <pre className="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed">
+        <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 pr-11 font-mono text-[11px] leading-relaxed">
           <code>{commandInput.command}</code>
-        </pre>
+        </CodeBlock>
         {(commandInput.description !== undefined || commandInput.timeout !== undefined || commandInput.runInBackground !== undefined) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
             {commandInput.description !== undefined && <span className="min-w-0 flex-1">{commandInput.description}</span>}
@@ -340,18 +341,18 @@ function ToolInput({ input }: { input: unknown }) {
             </div>
           </div>
         ) : (
-          <pre className="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-b-xl p-3 font-mono text-[11px] leading-relaxed">
+          <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-b-xl p-3 pr-11 font-mono text-[11px] leading-relaxed">
             <code>{writeInput.content}</code>
-          </pre>
+          </CodeBlock>
         )}
       </div>
     )
   }
 
   return (
-    <pre className="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">
+    <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">
       {toolInputText(input)}
-    </pre>
+    </CodeBlock>
   )
 }
 

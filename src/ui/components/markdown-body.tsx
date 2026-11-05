@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CodeBlock } from './code-block.tsx'
 
 export default function MarkdownBody({ markdown }: { markdown: string }) {
   return (
@@ -17,9 +18,9 @@ export default function MarkdownBody({ markdown }: { markdown: string }) {
           </div>
         ),
         pre: ({ children }) => (
-          <div className="my-4 max-w-full overflow-x-auto overscroll-x-contain">
-            <pre className="m-0 w-max min-w-full">{children}</pre>
-          </div>
+          <CodeBlock className="my-4" preClassName="m-0 w-max min-w-full">
+            {children}
+          </CodeBlock>
         ),
       }}
     >
