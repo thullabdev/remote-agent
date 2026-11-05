@@ -22,7 +22,7 @@ The web channel is the default (`REMOTE_AGENT_CHANNELS=web`). It serves a JSON A
 
 `REMOTE_AGENT_WEB_ORIGINS` must hold the MagicDNS URL with `https://`. A bare host such as `box.tail1234.ts.net` never matches a browser's `Origin`, and every write from the browser is refused. Same-origin GET and HEAD requests may omit `Origin` when the browser sends `Sec-Fetch-Site: same-origin`.
 
-- **UI build:** point `REMOTE_AGENT_WEB_STATIC` at the built UI directory. Its files are served with an `index.html` fallback. Without it the Bridge serves only the API and the WebSocket.
+- **UI build and install:** point `REMOTE_AGENT_WEB_STATIC` at the built UI directory. Its files are served with an `index.html` fallback. Without it the Bridge serves only the API and the WebSocket. The built UI is installable as a PWA (in a browser's install menu, or on iOS via Share → Add to Home Screen). After the first online load, the app shell and static assets are available offline; chat history, live updates and actions still require the Bridge.
 - **Push on iPhone and iPad:** Web Push works only for a page added to the Home Screen (Share, then Add to Home Screen) and opened from there. It also needs HTTPS, which `tailscale serve` provides.
 - **Push subject:** set `REMOTE_AGENT_VAPID_SUBJECT` to a `mailto:` address of yours. Push services such as Apple's may reject the default. The VAPID key pair is created once in `vapid.json` next to the database.
 - **Building a client or changing the backend:** see the [web channel developer guide](docs/web-channel-developer-guide.md) for the API reference, the WebSocket protocol, push, and how to extend the server.

@@ -275,7 +275,13 @@ export function App() {
       <FullPageState
         icon={<AlertCircle className="size-5" />}
         title="Could not connect to the Bridge"
-        detail={error === null ? 'Check that the Bridge is running and try again.' : errorText(error)}
+        detail={
+          !navigator.onLine
+            ? 'You are offline. The app shell is available, but Chats and actions need a connection to the Bridge.'
+            : error === null
+              ? 'Check that the Bridge is running and try again.'
+              : errorText(error)
+        }
         action={<Button onClick={reload}><RefreshCw />Try again</Button>}
       />
     )
