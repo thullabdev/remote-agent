@@ -1,11 +1,14 @@
+import { ACCENTS, COLOR_THEMES, DEFAULT_COLOR_THEME, type AccentId } from './themes.ts'
+
 export type ThemePreference = 'light' | 'dark' | 'system'
-export type AccentPreference = 'ink' | 'olive' | 'blue' | 'clay' | 'plum' | 'amber' | 'teal'
+export type AccentPreference = AccentId
 export type GlowPreference = 'off' | 'soft' | 'strong'
 export type DensityPreference = 'compact' | 'comfortable'
 export type FontPreference = 'small' | 'medium' | 'large'
 
 export type Preferences = {
   theme: ThemePreference
+  palette: string
   accent: AccentPreference
   glow: GlowPreference
   density: DensityPreference
@@ -14,6 +17,7 @@ export type Preferences = {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'system',
+  palette: DEFAULT_COLOR_THEME,
   accent: 'ink',
   glow: 'soft',
   density: 'comfortable',
@@ -31,7 +35,8 @@ export function readPreferences(storage: Pick<Storage, 'getItem'> = localStorage
     const value = stored as Partial<Preferences>
     return {
       theme: isOneOf(value.theme, ['light', 'dark', 'system']) ? value.theme : DEFAULT_PREFERENCES.theme,
-      accent: isOneOf(value.accent, ['ink', 'olive', 'blue', 'clay', 'plum', 'amber', 'teal']) ? value.accent : DEFAULT_PREFERENCES.accent,
+      palette: isOneOf(value.palette, COLOR_THEMES.map(theme => theme.id)) ? value.palette : DEFAULT_PREFERENCES.palette,
+      accent: isOneOf(value.accent, ACCENTS) ? value.accent : DEFAULT_PREFERENCES.accent,
       glow: isOneOf(value.glow, ['off', 'soft', 'strong']) ? value.glow : DEFAULT_PREFERENCES.glow,
       density: isOneOf(value.density, ['compact', 'comfortable']) ? value.density : DEFAULT_PREFERENCES.density,
       font: isOneOf(value.font, ['small', 'medium', 'large']) ? value.font : DEFAULT_PREFERENCES.font,
