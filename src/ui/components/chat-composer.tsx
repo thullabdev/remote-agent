@@ -113,7 +113,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
         </div>
       )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
-        <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 transition-colors focus-within:ring-2 focus-within:ring-primary/40 ${disabled ? 'opacity-65' : ''}`}>
+        <div className={`flex items-end gap-2 rounded-3xl pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
           <textarea
             ref={inputRef}

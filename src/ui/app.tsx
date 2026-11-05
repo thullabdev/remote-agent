@@ -366,13 +366,13 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                 />
+                <ChatComposer
+                  chat={activeChat}
+                  sending={busyChatIds.has(activeChat.id)}
+                  onSend={text => sendMessage(activeChat, text)}
+                  onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                />
               </div>
-              <ChatComposer
-                chat={activeChat}
-                sending={busyChatIds.has(activeChat.id)}
-                onSend={text => sendMessage(activeChat, text)}
-                onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
-              />
             </section>
             {infoOpen && (
               <ChatInfo
