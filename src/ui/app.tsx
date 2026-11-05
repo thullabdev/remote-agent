@@ -371,6 +371,7 @@ export function App() {
                 chat={activeChat}
                 sending={busyChatIds.has(activeChat.id)}
                 onSend={text => sendMessage(activeChat, text)}
+                onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
               />
             </section>
             {infoOpen && (
@@ -381,6 +382,7 @@ export function App() {
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
+                onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
               />
             )}
           </>

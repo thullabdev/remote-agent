@@ -37,7 +37,7 @@ export class Launcher {
   constructor(private readonly run: Run = runCommand) {}
 
   /** The scope keeps tmux (and claude) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
-  async launch(spec: { sessionId: string; cwd: string; model?: string | null; resumeFrom?: string }): Promise<{ tmuxName: string }> {
+  async launch(spec: { sessionId: string; cwd: string; model?: string | null; resumeFrom?: string; fork?: boolean }): Promise<{ tmuxName: string }> {
     if (!SAFE_ID.test(spec.sessionId)) {
       throw new LaunchError(`refusing to launch: session id "${spec.sessionId}" is not a safe id`)
     }
@@ -45,8 +45,13 @@ export class Launcher {
       throw new LaunchError(`refusing to launch: resume id "${spec.resumeFrom}" is not a safe id`)
     }
     const tmuxName = tmuxNameFor(spec.sessionId)
-    // A fork resumes the old transcript into a new session id, so the old session's transcript is left as it was.
-    const identity = spec.resumeFrom === undefined ? ['--session-id', spec.sessionId] : ['--resume', spec.resumeFrom, '--fork-session', '--session-id', spec.sessionId]
+    // Forks use a new id; resuming in place keeps the original Claude session id and transcript.
+    const identity =
+      spec.resumeFrom === undefined
+        ? ['--session-id', spec.sessionId]
+        : spec.fork === false
+          ? ['--resume', spec.resumeFrom]
+          : ['--resume', spec.resumeFrom, '--fork-session', '--session-id', spec.sessionId]
     const result = await this.run([
       'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
       'systemd-run', '--user', '--scope', '--quiet', '--collect',

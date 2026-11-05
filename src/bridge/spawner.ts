@@ -15,6 +15,7 @@ export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a 
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended remotely.'
 export const UNKNOWN_SESSION = 'Unknown session.'
+export const SESSION_ALREADY_ACTIVE = 'This Session is already active.'
 
 const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
@@ -72,6 +73,7 @@ function reasonOf(error: unknown): string {
 export class Spawner {
   private readonly timers = new Map<string, () => void>()
   private readonly ending = new Set<string>()
+  private readonly resuming = new Set<string>()
   private readonly pickers = new Map<string, Picker>()
   private readonly schedule: Schedule
   private readonly sleep: (ms: number) => Promise<void>
@@ -115,6 +117,66 @@ export class Spawner {
       return UNKNOWN_SESSION
     }
     return await this.startAt(session.cwd, null, sessionId)
+  }
+
+  /** Restarts an ended Session with its existing Claude session id and transcript. */
+  async resume(sessionId: string): Promise<string> {
+    const { store, launcher, notifier, channel, log } = this.deps
+    const session = store.getSession(sessionId)
+    if (session === undefined) {
+      return UNKNOWN_SESSION
+    }
+    if (session.endedAt === null) {
+      return SESSION_ALREADY_ACTIVE
+    }
+    if (this.resuming.has(sessionId)) {
+      return 'This Session is already being resumed.'
+    }
+
+    this.resuming.add(sessionId)
+    try {
+      const cwd = await this.deps.trusted.isTrusted(session.cwd)
+      if (cwd === null) {
+        return NOT_TRUSTED
+      }
+      const tmuxName = tmuxNameFor(sessionId)
+      if (await launcher.exists(tmuxName)) {
+        return `A tmux session already exists for this Session. Attach with: tmux attach -t ${tmuxName}`
+      }
+      if (!store.resumeSpawnedSession(sessionId, tmuxName)) {
+        return SESSION_ALREADY_ACTIVE
+      }
+
+      let thread: ThreadRef
+      try {
+        thread = await notifier.ensureThread(sessionId)
+      } catch (error) {
+        log(`preparing ${sessionId} for resume failed`, error)
+        await notifier.closeSession(sessionId).catch(closeError => {
+          log(`restoring ${sessionId} after a failed resume failed`, closeError)
+        })
+        return '❌ Could not resume this Session.'
+      }
+
+      try {
+        await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false })
+      } catch (error) {
+        const reason = reasonOf(error)
+        await channel.sendText(thread, `❌ Could not resume the Session:\n${reason}`, null).catch(sendError => {
+          log(`reporting the failed resume of ${sessionId} failed`, sendError)
+        })
+        await notifier.closeSession(sessionId)
+        return `❌ Could not resume the Session: ${reason}`
+      }
+
+      this.armTimer(sessionId)
+      await channel.sendText(thread, `⏳ Resuming this Session… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
+        log(`announcing the resume of ${sessionId} failed`, sendError)
+      })
+      return `Resuming ${projectName(cwd)} in this Session. Open its chat.`
+    } finally {
+      this.resuming.delete(sessionId)
+    }
   }
 
   /** Called for every mod request that names a Session; the first one for a Spawned Session marks it ready. */

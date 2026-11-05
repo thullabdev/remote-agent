@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, GitFork, Info, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, GitFork, Info, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
@@ -13,11 +13,12 @@ type ChatInfoProps = {
   onEnd(): Promise<void>
   onClear(): Promise<void>
   onFork(): Promise<void>
+  onResume(): Promise<void>
 }
 
-type Action = 'end' | 'clear' | 'fork'
+type Action = 'end' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, onResume }: ChatInfoProps) {
   const [confirm, setConfirm] = useState<Action | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -40,6 +41,8 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }
       await onEnd()
     } else if (action === 'clear') {
       await onClear()
+    } else if (action === 'resume') {
+      await onResume()
     } else {
       await onFork()
     }
@@ -49,7 +52,9 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }
     ? 'The Bridge will end this Spawned Session. Its history will remain available.'
     : confirm === 'clear'
       ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
-      : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
+      : confirm === 'resume'
+        ? 'The Bridge will restart this Claude Session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new Session ID.'
+        : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
 
   return (
     <>
@@ -106,10 +111,19 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }
                 </Button>
               )}
               {chat.id !== 'general' && (
-                <Button variant="outline" className="justify-start" onClick={() => setConfirm('fork')}>
-                  <GitFork aria-hidden="true" />
-                  Fork this Session
-                </Button>
+                chat.status === 'ended'
+                  ? (
+                    <Button variant="default" className="justify-start" onClick={() => setConfirm('resume')}>
+                      <RotateCcw aria-hidden="true" />
+                      Resume this Session
+                    </Button>
+                  )
+                  : (
+                    <Button variant="outline" className="justify-start" onClick={() => setConfirm('fork')}>
+                      <GitFork aria-hidden="true" />
+                      Fork this Session
+                    </Button>
+                  )
               )}
               <Button variant="outline" className="justify-start text-red-700 hover:text-red-800 dark:text-red-300" onClick={() => setConfirm('clear')}>
                 <Trash2 aria-hidden="true" />
@@ -123,13 +137,15 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork }
       <Dialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirm === 'end' ? 'End this Session?' : confirm === 'clear' ? 'Clear chat history?' : 'Fork this Session?'}</DialogTitle>
+            <DialogTitle>
+              {confirm === 'end' ? 'End this Session?' : confirm === 'clear' ? 'Clear chat history?' : confirm === 'resume' ? 'Resume this Session?' : 'Fork this Session?'}
+            </DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
             <Button variant={confirm === 'end' || confirm === 'clear' ? 'destructive' : 'default'} onClick={() => void runAction()}>
-              {confirm === 'end' ? 'End Session' : confirm === 'clear' ? 'Clear history' : 'Fork Session'}
+              {confirm === 'end' ? 'End Session' : confirm === 'clear' ? 'Clear history' : confirm === 'resume' ? 'Resume Session' : 'Fork Session'}
             </Button>
           </DialogFooter>
         </DialogContent>

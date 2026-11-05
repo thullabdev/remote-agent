@@ -137,7 +137,7 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 
 **Starting a Session.** Either send `/new` in General and tap a button on the resulting `picker` message (`POST …/actions {pickerId, choice}`), or skip the picker: `GET /api/projects` for the listed project folders and `POST /api/projects/start {cwd, model?}`. The new chat appears through `chat.updated` and `message.created` events; it is not in the response.
 
-**Ending, clearing, forking.** `POST /api/chats/:id/end` ends a Session the Bridge started (other Sessions cannot be ended remotely). `POST /api/chats/:id/clear` hides the chat's history on all your devices (the agent's context is not touched). `POST /api/chats/:id/fork` starts a new Session that resumes the conversation of this one.
+**Ending, clearing, resuming, forking.** `POST /api/chats/:id/end` ends a Session the Bridge started (other Sessions cannot be ended remotely). `POST /api/chats/:id/clear` hides the chat's history on all your devices (the agent's context is not touched). `POST /api/chats/:id/resume` restarts an ended Session with `claude --resume <same-id>`; its chat, transcript and Claude session id are retained, though the ended process itself cannot be revived and Claude starts in a new process. `POST /api/chats/:id/fork` instead starts a new Session id from this conversation.
 
 ### 1.5 Rendering notes
 

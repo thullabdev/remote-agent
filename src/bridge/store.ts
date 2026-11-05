@@ -215,6 +215,14 @@ export class Store {
     this.db.query('UPDATE sessions SET ended_at = ? WHERE id = ?').run(this.now(), id)
   }
 
+  /** Reopens an ended Session under its existing id as a Bridge-managed tmux Session. */
+  resumeSpawnedSession(id: string, tmuxName: string): boolean {
+    const result = this.db
+      .query('UPDATE sessions SET thread_id = NULL, ended_at = NULL, spawned = 1, tmux_name = ?, started_at = NULL WHERE id = ? AND ended_at IS NOT NULL')
+      .run(tmuxName, id)
+    return result.changes === 1
+  }
+
   insertPrompt(id: string, sessionId: string, body: PromptBody): boolean {
     const result = this.db
       .query('INSERT OR IGNORE INTO prompts (id, session_id, body, created_at) VALUES (?, ?, ?, ?)')

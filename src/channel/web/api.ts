@@ -22,7 +22,7 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
   sink: Pick<ChatSink, 'instructionQueued'>
   /** The trusted folders offered as projects. Absent when not configured; the projects routes then answer 404. */
   projects?: () => Promise<Project[]>
@@ -76,6 +76,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
   { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
   { method: 'PUT', pattern: ['away'], run: ({ deps, request }) => setAway(deps, request) },
@@ -319,6 +320,16 @@ async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
   const toast = await deps.spawner.fork(session.id)
+  if (toast === NOT_TRUSTED) {
+    throw new ApiError(409, toast)
+  }
+  return { toast }
+}
+
+async function resumeChat(deps: ApiDeps, chatId: string): Promise<unknown> {
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const toast = await deps.spawner.resume(session.id)
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }

@@ -65,6 +65,7 @@ function stubSpawner(): ApiDeps['spawner'] {
     },
     newCommand: async () => null,
     fork: async () => 'Forking api. Open its topic.',
+    resume: async () => 'Resuming the existing Session.',
   }
 }
 
@@ -530,6 +531,45 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
   expect(status).toBe(409)
   expect(body).toEqual({ error: NOT_TRUSTED })
   expect(tmux.calls).toEqual([])
+})
+
+test('resume reopens the same ended session and chat without forking the transcript', async () => {
+  await useRealSpawner()
+  store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+  chatLog.appendMessage(chatId, { kind: 'system', text: 'Original history' })
+  store.endSession('s1')
+  chatLog.updateChat(chatId, { status: 'ended' })
+
+  const { status, body } = await call('POST', `/api/chats/${chatId}/resume`)
+  expect(status).toBe(200)
+  expect(body).toEqual({ toast: 'Resuming api in this Session. Open its chat.' })
+  expect(tmux.calls.map(argv => argv.includes('systemd-run') ? 'launch' : argv[1])).toEqual(['has-session', 'launch'])
+  expect(tmux.calls[1]?.slice(-3)).toEqual(['claude', '--resume', 's1'])
+  expect(tmux.calls[1]).not.toContain('--fork-session')
+  expect(tmux.calls[1]).not.toContain('--session-id')
+  expect(store.getSession('s1')).toMatchObject({ endedAt: null, spawned: true, tmuxName: 'ra-s1', chatId })
+  expect(chatLog.getChat(chatId)).toMatchObject({ id: chatId, status: 'active' })
+  expect(chatLog.listMessages(chatId, { limit: 50 }).messages.map(message => message.kind === 'system' ? message.text : '')).toContain('Original history')
+  expect(chatLog.listChats().filter(chat => chat.id !== 'general')).toHaveLength(1)
+})
+
+test('a failed resume leaves the original session and chat ended', async () => {
+  await useRealSpawner()
+  store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+  store.endSession('s1')
+  chatLog.updateChat(chatId, { status: 'ended' })
+  tmux.launchFails = 'claude could not start'
+
+  const { status, body } = await call('POST', `/api/chats/${chatId}/resume`)
+
+  expect(status).toBe(200)
+  expect(body.toast).toContain('Could not resume the Session')
+  expect(store.getSession('s1')?.endedAt).not.toBeNull()
+  expect(chatLog.getChat(chatId)?.status).toBe('ended')
 })
 
 test('routes answer 404 when the projects dep is absent', async () => {

@@ -31,6 +31,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   endChat(chatId: string): Promise<{ toast: string }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
+  resumeChat(chatId: string): Promise<{ toast: string }>
   getProjects(): Promise<{ projects: Project[] }>
   startProject(body: { cwd: string; model?: string }): Promise<{ toast: string }>
   getPushKey(): Promise<{ key: string }>
@@ -86,6 +87,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     endChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/end`),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
+    resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),
     getProjects: () => get('/api/projects'),
     startProject: body => post('/api/projects/start', body),
     getPushKey: () => get('/api/push/key'),

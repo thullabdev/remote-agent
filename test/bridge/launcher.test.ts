@@ -36,6 +36,13 @@ test('launch with resumeFrom resumes that transcript into a new session id', asy
   expect(tmux.calls[0]?.slice(-6)).toEqual(['claude', '--resume', resumed, '--fork-session', '--session-id', id])
 })
 
+test('launch can resume the same Claude session without forking or assigning a new id', async () => {
+  await launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: id, fork: false })
+  expect(tmux.calls[0]?.slice(-3)).toEqual(['claude', '--resume', id])
+  expect(tmux.calls[0]).not.toContain('--fork-session')
+  expect(tmux.calls[0]).not.toContain('--session-id')
+})
+
 test('launch with resumeFrom and a model passes both', async () => {
   const resumed = '9b1c2d3e-0000-4000-8000-000000000000'
   await launcher.launch({ sessionId: id, cwd: '/x', resumeFrom: resumed, model: 'haiku' })

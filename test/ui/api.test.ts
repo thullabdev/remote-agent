@@ -76,6 +76,7 @@ describe('Web Channel API client', () => {
     await client.endChat('c/1')
     await client.clearChat('c/1')
     await client.forkChat('c/1')
+    await client.resumeChat('c/1')
     await client.getProjects()
     await client.startProject({ cwd: '/trusted/project', model: 'model-name' })
     await client.getPushKey()
@@ -93,6 +94,7 @@ describe('Web Channel API client', () => {
       'POST /api/chats/c%2F1/end',
       'POST /api/chats/c%2F1/clear',
       'POST /api/chats/c%2F1/fork',
+      'POST /api/chats/c%2F1/resume',
       'GET /api/projects',
       'POST /api/projects/start',
       'GET /api/push/key',

@@ -1,18 +1,31 @@
-import { Send } from 'lucide-react'
+import { RotateCcw, Send } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
+import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { Button } from './ui/button.tsx'
 
 type ChatComposerProps = {
   chat: Chat
   sending: boolean
   onSend(text: string): Promise<void>
+  onResume(): Promise<void>
 }
 
-export function ChatComposer({ chat, sending, onSend }: ChatComposerProps) {
+export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerProps) {
   const [text, setText] = useState('')
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0)
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const disabled = chat.status === 'ended'
+  const query = slashCommandQuery(text)
+  const suggestions = matchingCommands(query, chat.id === 'general')
+  const suggestionsOpen = suggestions.length > 0 && !suggestionsDismissed
+  const activeSuggestionIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1))
+
+  useEffect(() => {
+    setSelectedSuggestion(0)
+    setSuggestionsDismissed(false)
+  }, [query])
 
   useEffect(() => {
     const input = inputRef.current
@@ -34,6 +47,25 @@ export function ChatComposer({ chat, sending, onSend }: ChatComposerProps) {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestionsOpen) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSelectedSuggestion(index =>
+          moveCommandSelection(index, suggestions.length, event.key === 'ArrowDown' ? 1 : -1),
+        )
+        return
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing && suggestions[activeSuggestionIndex]) {
+        event.preventDefault()
+        setText(current => insertCommand(current, suggestions[activeSuggestionIndex]!.name))
+        inputRef.current?.focus()
+        return
+      }
+      if (event.key === 'Escape') {
+        setSuggestionsDismissed(true)
+        return
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       void submit()
@@ -43,8 +75,41 @@ export function ChatComposer({ chat, sending, onSend }: ChatComposerProps) {
   return (
     <div className="relative shrink-0 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
       {disabled && (
-        <div className="mx-auto mb-2 max-w-4xl rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
-          This Session has ended. Its history is read-only; fork it to continue.
+        <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
+          <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
+          <Button type="button" size="sm" onClick={() => void onResume()}>
+            <RotateCcw aria-hidden="true" />
+            Resume this Session
+          </Button>
+        </div>
+      )}
+      {suggestionsOpen && (
+        <div
+          id="chat-command-suggestions"
+          role="listbox"
+          aria-label="Command suggestions"
+          className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-64 max-w-4xl overflow-auto rounded-2xl border border-border bg-card py-1 shadow-xl sm:left-6 sm:right-6"
+        >
+          {suggestions.map((suggestion, index) => (
+            <button
+              key={suggestion.name}
+              id={`chat-command-${suggestion.name}`}
+              type="button"
+              role="option"
+              aria-selected={index === activeSuggestionIndex}
+              onMouseDown={event => event.preventDefault()}
+              onMouseEnter={() => setSelectedSuggestion(index)}
+              onClick={() => {
+                setText(current => insertCommand(current, suggestion.name))
+                inputRef.current?.focus()
+              }}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left ${index === activeSuggestionIndex ? 'bg-muted' : 'hover:bg-muted/70'}`}
+            >
+              <span className="font-mono text-sm">/{suggestion.name}</span>
+              <span className="flex-1 truncate text-xs text-muted-foreground">{suggestion.description}</span>
+              <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Command</span>
+            </button>
+          ))}
         </div>
       )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
@@ -57,7 +122,11 @@ export function ChatComposer({ chat, sending, onSend }: ChatComposerProps) {
             value={text}
             onChange={event => setText(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away…' : `Message ${chat.title}…`}
+            aria-autocomplete="list"
+            aria-controls={suggestionsOpen ? 'chat-command-suggestions' : undefined}
+            aria-expanded={suggestionsOpen}
+            aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
+            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : `Message ${chat.title}…`}
             disabled={disabled}
             className="max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
           />

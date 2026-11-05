@@ -128,3 +128,23 @@ test('upsertSession keeps an ended spawned session ended', () => {
   const row = store.upsertSession({ sessionId: 'sp1', cwd: '/home/u/Sites/api' })
   expect(row.endedAt).toBe(1_000)
 })
+
+test('resumeSpawnedSession reopens the existing session record and resets its runtime state', () => {
+  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
+  store.setSessionThread('sp1', 'old-thread')
+  store.setSessionChat('sp1', 'chat-1')
+  store.markSpawnedStarted('sp1')
+  store.endSession('sp1')
+
+  expect(store.resumeSpawnedSession('sp1', 'ra-sp1')).toBe(true)
+  expect(store.getSession('sp1')).toMatchObject({
+    id: 'sp1',
+    threadId: null,
+    chatId: 'chat-1',
+    endedAt: null,
+    spawned: true,
+    tmuxName: 'ra-sp1',
+    startedAt: null,
+  })
+  expect(store.resumeSpawnedSession('sp1', 'ra-sp1')).toBe(false)
+})
