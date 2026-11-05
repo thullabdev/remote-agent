@@ -173,6 +173,23 @@ test('every mod request reports session activity', async () => {
   expect(seen).toEqual(['s1', 's1', 's1', 's1', 's1'])
 })
 
+test('instruction polling refreshes the session stale-pruning heartbeat', async () => {
+  let now = 1_000
+  const heartbeatStore = new Store(':memory:', () => now)
+  heartbeatStore.upsertSession(session)
+  now = 2_000
+  expect(heartbeatStore.listStaleSessions(1_500).map(row => row.id)).toEqual(['s1'])
+
+  const heartbeatNotifier = new Notifier(heartbeatStore, new FakeChannel(), new AwayMode(false))
+  const heartbeatPrompts = new PromptService(heartbeatStore, heartbeatNotifier, { reminderAfterMs: 60_000 })
+  const heartbeatHandler = createHandler({ prompts: heartbeatPrompts, notifier: heartbeatNotifier, store: heartbeatStore, log: () => {} })
+  const response = await heartbeatHandler(new Request('http://bridge/sessions/s1/instructions'))
+
+  expect(response.status).toBe(200)
+  expect(heartbeatStore.listStaleSessions(1_500)).toEqual([])
+  heartbeatStore.close()
+})
+
 test('a failing activity hook never fails the request', async () => {
   const handler = createHandler({
     prompts: new PromptService(store, new Notifier(store, channel, new AwayMode(false)), { reminderAfterMs: 60_000 }),

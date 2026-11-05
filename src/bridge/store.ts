@@ -56,7 +56,7 @@ type InstructionRecord = { id: string; session_id: string; text: string }
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, cwd TEXT NOT NULL, project TEXT NOT NULL, thread_id TEXT,
-  created_at INTEGER NOT NULL, ended_at INTEGER
+  created_at INTEGER NOT NULL, ended_at INTEGER, last_seen INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS prompts (
   id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), body TEXT NOT NULL,
@@ -127,12 +127,14 @@ export class Store {
       ['tmux_name', 'tmux_name TEXT'],
       ['started_at', 'started_at INTEGER'],
       ['chat_id', 'chat_id TEXT'],
+      ['last_seen', 'last_seen INTEGER NOT NULL DEFAULT 0'],
     ]
     for (const [name, definition] of added) {
       if (!columns.has(name)) {
         this.db.exec(`ALTER TABLE sessions ADD COLUMN ${definition}`)
       }
     }
+    this.db.query('UPDATE sessions SET last_seen = ? WHERE last_seen = 0').run(this.now())
   }
 
   get database(): Database {
@@ -144,13 +146,15 @@ export class Store {
   }
 
   upsertSession(info: SessionInfo): SessionRow {
+    const now = this.now()
     this.db
       .query(
-        `INSERT INTO sessions (id, cwd, project, created_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO sessions (id, cwd, project, created_at, last_seen) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET cwd = excluded.cwd, project = excluded.project,
-         ended_at = CASE WHEN sessions.spawned = 1 THEN sessions.ended_at ELSE NULL END`,
+         ended_at = CASE WHEN sessions.spawned = 1 THEN sessions.ended_at ELSE NULL END,
+         last_seen = excluded.last_seen`,
       )
-      .run(info.sessionId, info.cwd, projectName(info.cwd), this.now())
+      .run(info.sessionId, info.cwd, projectName(info.cwd), now, now)
     const session = this.getSession(info.sessionId)
     if (session === undefined) {
       throw new Error(`Session ${info.sessionId} vanished after upsert`)
@@ -160,8 +164,8 @@ export class Store {
 
   createSpawnedSession(spawn: { id: string; cwd: string; tmuxName: string }): SessionRow {
     this.db
-      .query('INSERT INTO sessions (id, cwd, project, created_at, spawned, tmux_name) VALUES (?, ?, ?, ?, 1, ?)')
-      .run(spawn.id, spawn.cwd, projectName(spawn.cwd), this.now(), spawn.tmuxName)
+      .query('INSERT INTO sessions (id, cwd, project, created_at, spawned, tmux_name, last_seen) VALUES (?, ?, ?, ?, 1, ?, ?)')
+      .run(spawn.id, spawn.cwd, projectName(spawn.cwd), this.now(), spawn.tmuxName, this.now())
     const session = this.getSession(spawn.id)
     if (session === undefined) {
       throw new Error(`Session ${spawn.id} vanished after insert`)
@@ -197,6 +201,27 @@ export class Store {
       .query<SessionRecord, []>(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE ended_at IS NULL ORDER BY created_at`)
       .all()
       .map(toSession)
+  }
+
+  /** Active laptop Sessions with no recent mod traffic; Spawned Sessions are checked against tmux instead. */
+  listStaleSessions(before: number): SessionRow[] {
+    return this.db
+      .query<SessionRecord, [number]>(
+        `SELECT ${SESSION_COLUMNS} FROM sessions
+         WHERE ended_at IS NULL AND spawned = 0 AND last_seen < ? ORDER BY created_at`,
+      )
+      .all(before)
+      .map(toSession)
+  }
+
+  /** Records mod traffic as a heartbeat. A laptop Session that reconnects after pruning becomes active again. */
+  touchSession(id: string): void {
+    this.db
+      .query(
+        `UPDATE sessions SET last_seen = ?,
+         ended_at = CASE WHEN spawned = 1 THEN ended_at ELSE NULL END WHERE id = ?`,
+      )
+      .run(this.now(), id)
   }
 
   setSessionThread(id: string, threadId: string | null): void {

@@ -3,6 +3,7 @@ import { defaultSocketPath } from '../../mod/remote-agent/hooks/protocol.ts'
 
 export const STARTUP_TIMEOUT_MS = 30_000
 export const END_GRACE_MS = 5_000
+export const STALE_SESSION_AFTER_MS = 10 * 60_000
 
 export type ChannelName = 'web' | 'telegram'
 

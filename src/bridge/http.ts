@@ -12,6 +12,7 @@ export type SessionActivity = { onSessionStarted(sessionId: string): Promise<voi
 export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log; activity?: SessionActivity }
 
 function sessionSeen(deps: HttpDeps, sessionId: string): void {
+  deps.store.touchSession(sessionId)
   deps.notifier.sessionSeen(sessionId)
   if (deps.activity === undefined) {
     return

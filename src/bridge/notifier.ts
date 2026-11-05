@@ -251,6 +251,17 @@ export class Notifier implements PromptEvents {
     await this.endSession(session, null, null)
   }
 
+  /** Ends laptop Sessions that have stopped sending mod traffic, preserving their chat history. */
+  async closeStaleSessions(before: number): Promise<void> {
+    for (const session of this.store.listStaleSessions(before)) {
+      try {
+        await this.closeSession(session.id)
+      } catch (error) {
+        this.log(`closing stale Session ${session.id} failed`, error)
+      }
+    }
+  }
+
   private async endSession(session: SessionRow, text: string | null, report: Report | null): Promise<void> {
     // Read before endSession writes: a late request for a Spawned Session that already ended must not post into its chat.
     const late = this.isEndedSpawned(session)
