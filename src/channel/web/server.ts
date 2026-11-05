@@ -115,8 +115,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
   async function handle(request: Request, server: Server<SocketData>): Promise<Response | undefined> {
     const auth = authorize(request, { allowedLogin: config.allowedLogin, origins: config.origins, token: config.token })
     if (!auth.ok) {
-      // Method, path and the fixed reason only: never the query string, headers, Origin, login or token.
-      log(`web request refused: ${request.method} ${new URL(request.url).pathname} ${auth.status} ${auth.reason}`)
+      // Method, path and the fixed reason only: never the query string, login or token.
+      // The Origin is logged only for origin refusals, so the allowlist entry to add is visible; JSON.stringify keeps it on one line.
+      const origin = auth.reason === 'origin not allowed' ? ` origin=${JSON.stringify((request.headers.get('Origin') ?? '(absent)').slice(0, 200))}` : ''
+      log(`web request refused: ${request.method} ${new URL(request.url).pathname} ${auth.status} ${auth.reason}${origin}`)
       return json({ error: auth.reason }, auth.status)
     }
     const url = new URL(request.url)
