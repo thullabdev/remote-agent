@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '../../src/channel/web/protocol.ts'
-import { groupMessages, isInterruptedToolGroup, promptQuestionIndex } from '../../src/ui/presentation.ts'
+import { commandToolInput, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -17,6 +17,42 @@ const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> =
 })
 
 describe('chat message presentation', () => {
+  test('recognizes command, description, and optional timeout tool inputs', () => {
+    expect(commandToolInput({ command: 'bun test', description: 'Run tests', timeout: 5000 })).toEqual({
+      command: 'bun test',
+      description: 'Run tests',
+      timeout: 5000,
+    })
+    expect(commandToolInput({ command: 'pwd' })).toEqual({ command: 'pwd' })
+  })
+
+  test('leaves other tool input shapes as plain JSON', () => {
+    expect(commandToolInput({ path: '/tmp/file' })).toBeNull()
+    expect(commandToolInput({ command: 'bun test', cwd: '/tmp' })).toBeNull()
+    expect(commandToolInput({ command: 'bun test', timeout: 'soon' })).toBeNull()
+  })
+
+  test('recognizes file path and content for Write tool inputs', () => {
+    expect(writeToolInput({ file_path: 'src/example.ts', content: 'export const value = 1\n' })).toEqual({
+      filePath: 'src/example.ts',
+      content: 'export const value = 1\n',
+    })
+    expect(writeToolInput({ file_path: 'empty.txt', content: '' })).toEqual({ filePath: 'empty.txt', content: '' })
+  })
+
+  test('leaves unrecognized Write inputs as plain JSON', () => {
+    expect(writeToolInput({ file_path: 'src/example.ts' })).toBeNull()
+    expect(writeToolInput({ file_path: 'src/example.ts', content: 'ok', extra: true })).toBeNull()
+    expect(writeToolInput({ file_path: 42, content: 'ok' })).toBeNull()
+  })
+
+  test('detects Markdown Write targets case-insensitively', () => {
+    expect(isMarkdownFilePath('README.md')).toBe(true)
+    expect(isMarkdownFilePath('docs/guide.MARKDOWN')).toBe(true)
+    expect(isMarkdownFilePath('src/example.ts')).toBe(false)
+    expect(isMarkdownFilePath('notes.md.ts')).toBe(false)
+  })
+
   test('groups only adjacent tool messages into one run', () => {
     const first = tool('m_1', 1)
     const second = tool('m_2', 2)

@@ -58,6 +58,45 @@ export function formatRelativeTime(at: number, now = Date.now()): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(at)
 }
 
+export function commandToolInput(input: unknown): { command: string; description?: string; timeout?: number } | null {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return null
+  }
+  const record = input as Record<string, unknown>
+  if (
+    typeof record.command !== 'string'
+    || Object.keys(record).some(key => !['command', 'description', 'timeout'].includes(key))
+    || ('description' in record && typeof record.description !== 'string')
+    || ('timeout' in record && (typeof record.timeout !== 'number' || !Number.isFinite(record.timeout)))
+  ) {
+    return null
+  }
+  return {
+    command: record.command,
+    ...(typeof record.description === 'string' ? { description: record.description } : {}),
+    ...(typeof record.timeout === 'number' ? { timeout: record.timeout } : {}),
+  }
+}
+
+export function writeToolInput(input: unknown): { filePath: string; content: string } | null {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return null
+  }
+  const record = input as Record<string, unknown>
+  if (
+    typeof record.file_path !== 'string'
+    || typeof record.content !== 'string'
+    || Object.keys(record).some(key => !['file_path', 'content'].includes(key))
+  ) {
+    return null
+  }
+  return { filePath: record.file_path, content: record.content }
+}
+
+export function isMarkdownFilePath(filePath: string): boolean {
+  return /\.(?:md|markdown)$/i.test(filePath)
+}
+
 export function toolInputText(input: unknown): string {
   if (typeof input === 'string') {
     return input

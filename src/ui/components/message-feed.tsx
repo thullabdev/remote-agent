@@ -1,7 +1,7 @@
 import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
-import { formatTime, groupMessages, isInterruptedToolGroup, promptQuestionIndex, toolInputText } from '../presentation.ts'
+import { commandToolInput, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
@@ -274,17 +274,17 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
                 <span className="font-mono font-medium">{message.tool}</span>
                 <span className="ml-auto text-muted-foreground">{message.status === 'running' && interrupted ? 'interrupted' : message.durationMs === null ? message.status : `${(message.durationMs / 1000).toFixed(1)}s`}</span>
               </summary>
-              <div className="mt-3 grid gap-3 pl-4">
-                <div>
+              <div className="mt-3 grid min-w-0 gap-3 pl-4">
+                <div className="min-w-0">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Input</div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">{toolInputText(message.input)}</pre>
+                  <ToolInput input={message.input} />
                 </div>
                 {message.result !== null && (
-                  <div>
+                  <div className="min-w-0">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Result {message.resultTruncated && <span className="normal-case">(truncated by Bridge)</span>}
                     </div>
-                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">{message.result}</pre>
+                    <pre className="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">{message.result}</pre>
                   </div>
                 )}
               </div>
@@ -293,6 +293,60 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
         </div>
       )}
     </section>
+  )
+}
+
+function ToolInput({ input }: { input: unknown }) {
+  const commandInput = commandToolInput(input)
+  if (commandInput !== null) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+        <pre className="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed">
+          <code>{commandInput.command}</code>
+        </pre>
+        {(commandInput.description !== undefined || commandInput.timeout !== undefined) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
+            {commandInput.description !== undefined && <span className="min-w-0 flex-1">{commandInput.description}</span>}
+            {commandInput.timeout !== undefined && (
+              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+                Timeout · {commandInput.timeout} ms
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const writeInput = writeToolInput(input)
+  if (writeInput !== null) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+        <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</span>
+          <code className="min-w-0 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
+        </div>
+        {isMarkdownFilePath(writeInput.filePath) ? (
+          <div className="max-h-96 max-w-full overflow-auto overscroll-x-contain p-3">
+            <div className="prose prose-sm max-w-none break-words text-foreground dark:prose-invert prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-card/70 prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-card/70 prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+              <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering Markdown…</div>}>
+                <MarkdownBody markdown={writeInput.content} />
+              </Suspense>
+            </div>
+          </div>
+        ) : (
+          <pre className="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-b-xl p-3 font-mono text-[11px] leading-relaxed">
+            <code>{writeInput.content}</code>
+          </pre>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <pre className="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 font-mono text-[11px] leading-relaxed">
+      {toolInputText(input)}
+    </pre>
   )
 }
 
