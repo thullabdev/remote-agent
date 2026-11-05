@@ -18,11 +18,27 @@ type ChatListProps = {
   onAway(): void
 }
 
+type SessionSourceFilter = 'all' | 'laptop' | 'spawned' | 'archived'
+
+export function filterChats(chats: Chat[], query: string, source: SessionSourceFilter): Chat[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  return chats.filter(chat => {
+    if (source === 'archived') {
+      return chat.id !== 'general' && chat.archived && chat.title.toLocaleLowerCase().includes(normalizedQuery)
+    }
+    if (chat.archived) return false
+    const sourceMatches =
+      source === 'all' || (chat.id !== 'general' && chat.spawned === (source === 'spawned'))
+    return sourceMatches && chat.title.toLocaleLowerCase().includes(normalizedQuery)
+  })
+}
+
 export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSettings, onAway }: ChatListProps) {
   const [query, setQuery] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<SessionSourceFilter>('all')
   const filteredChats = useMemo(
-    () => chats.filter(chat => chat.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())),
-    [chats, query],
+    () => filterChats(chats, query, sourceFilter),
+    [chats, query, sourceFilter],
   )
 
   return (
@@ -75,6 +91,25 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
         </Button>
       </div>
 
+      <div className="flex items-center gap-1 px-4 pb-2" role="group" aria-label="Filter sessions">
+        {([
+          ['all', 'All'],
+          ['laptop', 'Active Session'],
+          ['spawned', 'Spawned'],
+          ['archived', 'Archived'],
+        ] as const).map(([source, label]) => (
+          <Button
+            key={source}
+            variant={sourceFilter === source ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={sourceFilter === source}
+            onClick={() => setSourceFilter(source)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
           Chats <span className="ml-1 font-mono normal-case tracking-normal">{filteredChats.length}</span>
@@ -94,6 +129,11 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{chat.title}</span>
+                  {chat.id !== 'general' && (
+                    <span className="shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                      {chat.spawned ? 'Spawned' : 'Active Session'}
+                    </span>
+                  )}
                   {chat.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned" />}
                   {chat.status === 'ended' && (
                     <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -119,7 +159,15 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
           ))}
           {filteredChats.length === 0 && (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-              {query.trim() ? 'No chats match that search.' : 'Your chats will appear here.'}
+              {query.trim()
+                ? 'No chats match that search.'
+                : sourceFilter === 'all'
+                  ? 'Your chats will appear here.'
+                  : sourceFilter === 'laptop'
+                    ? 'No active sessions.'
+                    : sourceFilter === 'spawned'
+                      ? 'No spawned sessions.'
+                      : 'No archived sessions.'}
             </div>
           )}
         </div>

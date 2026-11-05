@@ -18,18 +18,21 @@ const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> =
 
 describe('chat message presentation', () => {
   test('recognizes command, description, and optional timeout tool inputs', () => {
-    expect(commandToolInput({ command: 'bun test', description: 'Run tests', timeout: 5000 })).toEqual({
+    expect(commandToolInput({ command: 'bun test', description: 'Run tests', timeout: 5000, run_in_background: true })).toEqual({
       command: 'bun test',
       description: 'Run tests',
       timeout: 5000,
+      runInBackground: true,
     })
     expect(commandToolInput({ command: 'pwd' })).toEqual({ command: 'pwd' })
+    expect(commandToolInput({ command: 'pwd', run_in_background: false })).toEqual({ command: 'pwd', runInBackground: false })
   })
 
   test('leaves other tool input shapes as plain JSON', () => {
     expect(commandToolInput({ path: '/tmp/file' })).toBeNull()
     expect(commandToolInput({ command: 'bun test', cwd: '/tmp' })).toBeNull()
     expect(commandToolInput({ command: 'bun test', timeout: 'soon' })).toBeNull()
+    expect(commandToolInput({ command: 'bun test', run_in_background: 'yes' })).toBeNull()
   })
 
   test('recognizes file path and content for Write tool inputs', () => {

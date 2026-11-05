@@ -58,16 +58,17 @@ export function formatRelativeTime(at: number, now = Date.now()): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(at)
 }
 
-export function commandToolInput(input: unknown): { command: string; description?: string; timeout?: number } | null {
+export function commandToolInput(input: unknown): { command: string; description?: string; timeout?: number; runInBackground?: boolean } | null {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return null
   }
   const record = input as Record<string, unknown>
   if (
     typeof record.command !== 'string'
-    || Object.keys(record).some(key => !['command', 'description', 'timeout'].includes(key))
+    || Object.keys(record).some(key => !['command', 'description', 'timeout', 'run_in_background'].includes(key))
     || ('description' in record && typeof record.description !== 'string')
     || ('timeout' in record && (typeof record.timeout !== 'number' || !Number.isFinite(record.timeout)))
+    || ('run_in_background' in record && typeof record.run_in_background !== 'boolean')
   ) {
     return null
   }
@@ -75,6 +76,7 @@ export function commandToolInput(input: unknown): { command: string; description
     command: record.command,
     ...(typeof record.description === 'string' ? { description: record.description } : {}),
     ...(typeof record.timeout === 'number' ? { timeout: record.timeout } : {}),
+    ...(typeof record.run_in_background === 'boolean' ? { runInBackground: record.run_in_background } : {}),
   }
 }
 

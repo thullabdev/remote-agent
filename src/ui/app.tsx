@@ -380,6 +380,8 @@ export function App() {
                 messageCount={messages.length}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
+                onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}
+                onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}

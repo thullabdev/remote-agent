@@ -74,6 +74,8 @@ describe('Web Channel API client', () => {
     await client.markRead('c/1', 42)
     await client.setAway(true)
     await client.endChat('c/1')
+    await client.archiveChat('c/1')
+    await client.unarchiveChat('c/1')
     await client.clearChat('c/1')
     await client.forkChat('c/1')
     await client.resumeChat('c/1')
@@ -92,6 +94,8 @@ describe('Web Channel API client', () => {
       'POST /api/chats/c%2F1/read',
       'PUT /api/away',
       'POST /api/chats/c%2F1/end',
+      'POST /api/chats/c%2F1/archive',
+      'POST /api/chats/c%2F1/unarchive',
       'POST /api/chats/c%2F1/clear',
       'POST /api/chats/c%2F1/fork',
       'POST /api/chats/c%2F1/resume',

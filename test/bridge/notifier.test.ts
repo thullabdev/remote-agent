@@ -202,24 +202,6 @@ test('closeSession ends the session and closes its thread silently, once', async
   await notifier.closeSession('unknown')
 })
 
-test('closeStaleSessions ends inactive laptop sessions but leaves spawned sessions to tmux reconciliation', async () => {
-  let clock = 1_000
-  const staleStore = new Store(':memory:', () => clock)
-  const staleChannel = new FakeChannel()
-  const staleNotifier = new Notifier(staleStore, staleChannel, new AwayMode(false))
-  staleStore.upsertSession(session)
-  const staleThread = await staleNotifier.ensureThread(session.sessionId)
-  staleStore.createSpawnedSession({ id: 'sp1', cwd: '/home/u/api', tmuxName: 'ra-sp1' })
-  clock = 2_000
-
-  await staleNotifier.closeStaleSessions(1_500)
-
-  expect(staleStore.getSession(session.sessionId)?.endedAt).not.toBeNull()
-  expect(staleStore.getSession('sp1')?.endedAt).toBeNull()
-  expect(staleChannel.threads.find(thread => thread.ref === staleThread)?.closed).toBe(true)
-  staleStore.close()
-})
-
 test('late mod traffic for an ended spawned session creates no thread and keeps it ended', async () => {
   store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
   store.setSessionThread('sp1', 't-sp1')

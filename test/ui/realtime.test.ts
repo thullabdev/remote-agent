@@ -9,6 +9,7 @@ const general: Chat = {
   cwd: null,
   status: 'active',
   spawned: false,
+  archived: false,
   busy: false,
   unread: 0,
   lastMessage: null,

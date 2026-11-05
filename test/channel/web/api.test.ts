@@ -362,6 +362,34 @@ test('end on a spawned session ends it through the spawner and returns its toast
   expect(spawnerCalls).toEqual([threadId])
 })
 
+test('archives only ended spawned sessions and restores them from the archived list', async () => {
+  store.createSpawnedSession({ id: 's2', cwd: '/home/u/app', tmuxName: 'ra-2' })
+  channel.sessionSeen(store.getSession('s2')!)
+  const session = store.getSession('s2')!
+  const chatId = session.chatId!
+  store.endSession('s2')
+  await channel.closeThread(session.threadId!)
+
+  const archived = await call('POST', `/api/chats/${chatId}/archive`)
+  expect(archived).toEqual({ status: 200, body: { toast: 'Session archived.' } })
+  expect(chatLog.getChat(chatId)?.archived).toBe(true)
+  expect((await call('GET', '/api/state')).body.chats.find((chat: { id: string }) => chat.id === chatId).archived).toBe(true)
+
+  const restored = await call('POST', `/api/chats/${chatId}/unarchive`)
+  expect(restored).toEqual({ status: 200, body: { toast: 'Session restored.' } })
+  expect(chatLog.getChat(chatId)?.archived).toBe(false)
+})
+
+test('active or non-spawned chats cannot be archived', async () => {
+  const activeChatId = seedSession()
+  expect((await call('POST', `/api/chats/${activeChatId}/archive`)).status).toBe(409)
+
+  store.createSpawnedSession({ id: 's2', cwd: '/home/u/app', tmuxName: 'ra-2' })
+  channel.sessionSeen(store.getSession('s2')!)
+  const spawnedChatId = store.getSession('s2')!.chatId!
+  expect((await call('POST', `/api/chats/${spawnedChatId}/archive`)).status).toBe(409)
+})
+
 test('an unknown chat id returns 404', async () => {
   expect((await call('GET', '/api/chats/nope/messages')).status).toBe(404)
   expect((await call('POST', '/api/chats/nope/messages', { clientId: 'c', text: 'hi' })).status).toBe(404)
@@ -543,6 +571,7 @@ test('resume reopens the same ended session and chat without forking the transcr
   chatLog.appendMessage(chatId, { kind: 'system', text: 'Original history' })
   store.endSession('s1')
   chatLog.updateChat(chatId, { status: 'ended' })
+  chatLog.setArchived(chatId, true)
 
   const { status, body } = await call('POST', `/api/chats/${chatId}/resume`)
   expect(status).toBe(200)
@@ -553,6 +582,7 @@ test('resume reopens the same ended session and chat without forking the transcr
   expect(tmux.calls[1]).not.toContain('--session-id')
   expect(store.getSession('s1')).toMatchObject({ endedAt: null, spawned: true, tmuxName: 'ra-s1', chatId })
   expect(chatLog.getChat(chatId)).toMatchObject({ id: chatId, status: 'active' })
+  expect(chatLog.getChat(chatId)?.archived).toBe(false)
   expect(chatLog.listMessages(chatId, { limit: 50 }).messages.map(message => message.kind === 'system' ? message.text : '')).toContain('Original history')
   expect(chatLog.listChats().filter(chat => chat.id !== 'general')).toHaveLength(1)
 })
@@ -564,6 +594,7 @@ test('a failed resume leaves the original session and chat ended', async () => {
   const chatId = store.getSession('s1')!.chatId!
   store.endSession('s1')
   chatLog.updateChat(chatId, { status: 'ended' })
+  chatLog.setArchived(chatId, true)
   tmux.launchFails = 'claude could not start'
 
   const { status, body } = await call('POST', `/api/chats/${chatId}/resume`)
@@ -572,6 +603,7 @@ test('a failed resume leaves the original session and chat ended', async () => {
   expect(body.toast).toContain('Could not resume the Session')
   expect(store.getSession('s1')?.endedAt).not.toBeNull()
   expect(chatLog.getChat(chatId)?.status).toBe('ended')
+  expect(chatLog.getChat(chatId)?.archived).toBe(true)
 })
 
 test('routes answer 404 when the projects dep is absent', async () => {

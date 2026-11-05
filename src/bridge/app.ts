@@ -11,7 +11,7 @@ import { loadOrCreateVapid, PushService } from '../channel/web/push.ts'
 import { startWebServer, type WebServer } from '../channel/web/server.ts'
 import { TranscriptReader } from '../channel/web/transcript/reader.ts'
 import { WebChannel } from '../channel/web/web-channel.ts'
-import { DEFAULT_VAPID_SUBJECT, STALE_SESSION_AFTER_MS, type Config } from './config.ts'
+import { DEFAULT_VAPID_SUBJECT, type Config } from './config.ts'
 import { createHandler } from './http.ts'
 import { Inbound } from './inbound.ts'
 import { Launcher } from './launcher.ts'
@@ -163,13 +163,10 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         reminders = setInterval(() => {
           void prompts.remindStale()
           retryUndelivered()
-          void notifier.closeStaleSessions(Date.now() - STALE_SESSION_AFTER_MS)
         }, REMINDER_INTERVAL_MS)
-        // A restart resumes tailing for every Session that already has a chat.
+        // Make every active Session visible after a Bridge restart, including Sessions first seen before web chat creation.
         for (const session of store.listActiveSessions()) {
-          if (session.chatId !== null) {
-            tails?.attach(session.id)
-          }
+          notifier.sessionSeen(session.id)
         }
         log(`listening on ${config.socketPath}`)
         const text = httpServer === null ? '🟢 Bridge started. Away mode is on.' : 'Bridge started. Away mode is on.'

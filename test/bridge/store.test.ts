@@ -25,22 +25,6 @@ test('threads are stored and looked up', () => {
   expect(store.listActiveSessions().map(session => session.id)).toEqual(['s1'])
 })
 
-test('stale sessions are laptop-only and mod activity refreshes their heartbeat', () => {
-  store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
-  clock = 2_000
-  expect(store.listStaleSessions(1_500).map(session => session.id)).toEqual(['s1'])
-
-  store.touchSession('s1')
-  expect(store.listStaleSessions(1_500)).toEqual([])
-
-  store.endSession('s1')
-  store.touchSession('s1')
-  expect(store.getSession('s1')?.endedAt).toBeNull()
-  store.endSession('sp1')
-  store.touchSession('sp1')
-  expect(store.getSession('sp1')?.endedAt).not.toBeNull()
-})
-
 test('setSessionChat persists and survives endSession', () => {
   store.setSessionChat('s1', 'c1')
   store.endSession('s1')

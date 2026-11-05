@@ -14,12 +14,13 @@ const PREVIEW_MAX = 140
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
 const MESSAGE_ADDED_COLUMNS: [string, string][] = [['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1']]
+const CHAT_ADDED_COLUMNS: [string, string][] = [['archived', 'archived INTEGER NOT NULL DEFAULT 0']]
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id), title TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active', busy INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0,
-  hidden_before_seq INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+  hidden_before_seq INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id), seq INTEGER NOT NULL UNIQUE,
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 `
 
 const CHAT_SELECT = `SELECT c.id, c.title, c.status, c.busy, c.pinned, c.hidden_before_seq,
-  s.project, s.cwd, s.spawned, s.tmux_name,
+  c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
@@ -56,6 +57,7 @@ type ChatRecord = {
   busy: number
   pinned: number
   hidden_before_seq: number
+  archived: number
   project: string | null
   cwd: string | null
   spawned: number | null
@@ -142,6 +144,12 @@ export class ChatLog {
         this.db.exec(`ALTER TABLE messages ADD COLUMN ${definition}`)
       }
     }
+    const chatColumns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(chats)').all().map(column => column.name))
+    for (const [name, definition] of CHAT_ADDED_COLUMNS) {
+      if (!chatColumns.has(name)) {
+        this.db.exec(`ALTER TABLE chats ADD COLUMN ${definition}`)
+      }
+    }
     this.write(() => {
       const inserted = this.db
         .query(`INSERT OR IGNORE INTO chats (id, title, pinned, created_at) VALUES (?, 'General', 1, ?)`)
@@ -190,6 +198,17 @@ export class ChatLog {
         busy: patch.busy ?? current.busy,
       }
       this.db.query('UPDATE chats SET title = ?, status = ?, busy = ? WHERE id = ?').run(next.title, next.status, next.busy ? 1 : 0, id)
+      return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
+    })
+  }
+
+  setArchived(id: string, archived: boolean): Chat {
+    return this.write(() => {
+      const current = this.chatOrThrow(id)
+      if (current.archived === archived) {
+        return { value: current, events: [] }
+      }
+      this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -525,6 +544,7 @@ export class ChatLog {
       cwd: record.cwd,
       status: record.status,
       spawned: record.spawned === 1,
+      archived: record.archived === 1,
       busy: record.busy === 1,
       unread: unread?.count ?? 0,
       lastMessage: last === undefined ? null : { seq: last.seq, at: last.at, preview: previewOf(last) },

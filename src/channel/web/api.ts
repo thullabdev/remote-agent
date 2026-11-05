@@ -24,7 +24,7 @@ export type ApiDeps = {
   away: AwayMode
   spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
   sink: Pick<ChatSink, 'instructionQueued'>
-  /** The trusted folders offered as projects. Absent when not configured; the projects routes then answer 404. */
+  /** The folders Claude Code marks as trusted. Absent when project listing is not configured; the routes then answer 404. */
   projects?: () => Promise<Project[]>
   /** Absent when push is not configured; the push routes then answer 404. */
   push?: Pick<PushService, 'publicKey' | 'subscribe' | 'unsubscribe'>
@@ -74,6 +74,8 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['prompts', ':id', 'reply'], run: ({ deps, request }, id) => promptReply(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'read'], run: ({ deps, request }, id) => markRead(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
@@ -310,6 +312,25 @@ async function endChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   return { toast: await deps.spawner.end(session.threadId) }
 }
 
+function archiveChat(deps: ApiDeps, chatId: string): unknown {
+  const chat = requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  if (!chat.spawned || !session.spawned || chat.status !== 'ended' || session.endedAt === null) {
+    throw new ApiError(409, 'Only ended Spawned Sessions can be archived.')
+  }
+  deps.chatLog.setArchived(chatId, true)
+  return { toast: 'Session archived.' }
+}
+
+function unarchiveChat(deps: ApiDeps, chatId: string): unknown {
+  const chat = requireChat(deps, chatId)
+  if (!chat.spawned || !chat.archived) {
+    throw new ApiError(409, 'This Spawned Session is not archived.')
+  }
+  deps.chatLog.setArchived(chatId, false)
+  return { toast: 'Session restored.' }
+}
+
 function clearHistory(deps: ApiDeps, chatId: string): unknown {
   requireChat(deps, chatId)
   deps.chatLog.clearChat(chatId)
@@ -332,6 +353,9 @@ async function resumeChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   const toast = await deps.spawner.resume(session.id)
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
+  }
+  if (deps.store.getSession(session.id)?.endedAt === null) {
+    deps.chatLog.setArchived(chatId, false)
   }
   return { toast }
 }

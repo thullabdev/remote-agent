@@ -78,6 +78,18 @@ test('createChat fills project, cwd and spawned from the session row', () => {
   expect(log.listChats().map(chat => chat.id)).toEqual(['general', 'c1'])
 })
 
+test('archiving a chat is persisted and emits updated chat state', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+
+  const archived = log.setArchived('c1', true)
+  expect(archived.archived).toBe(true)
+  expect(events.at(-1)).toMatchObject({ type: 'chat.updated', chat: { id: 'c1', archived: true } })
+  expect(new ChatLog(store, () => clock).getChat('c1')?.archived).toBe(true)
+
+  expect(log.setArchived('c1', false).archived).toBe(false)
+})
+
 test('createChat rejects an unknown session', () => {
   expect(() => log.createChat({ id: 'c2', sessionId: 'nope', title: 'x' })).toThrow()
 })
@@ -195,6 +207,16 @@ test('opening a database created without counts_unread migrates it, and old rows
   const reopened = new ChatLog(store, () => clock)
 
   expect(reopened.getChat('general')?.unread).toBe(1)
+})
+
+test('opening a database created without archived migrates existing chats as unarchived', () => {
+  const store = new Store(':memory:', () => clock)
+  new ChatLog(store, () => clock)
+  store.database.exec('ALTER TABLE chats DROP COLUMN archived')
+
+  const reopened = new ChatLog(store, () => clock)
+
+  expect(reopened.getChat('general')?.archived).toBe(false)
 })
 
 test('appendMessage stores the given time, and history does not count as unread', () => {

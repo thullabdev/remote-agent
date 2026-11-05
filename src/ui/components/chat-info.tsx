@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, GitFork, Info, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
@@ -11,14 +11,16 @@ type ChatInfoProps = {
   messageCount: number
   onClose(): void
   onEnd(): Promise<void>
+  onArchive(): Promise<void>
+  onUnarchive(): Promise<void>
   onClear(): Promise<void>
   onFork(): Promise<void>
   onResume(): Promise<void>
 }
 
-type Action = 'end' | 'clear' | 'fork' | 'resume'
+type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, onResume }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnarchive, onClear, onFork, onResume }: ChatInfoProps) {
   const [confirm, setConfirm] = useState<Action | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -39,6 +41,10 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, 
     setConfirm(null)
     if (action === 'end') {
       await onEnd()
+    } else if (action === 'archive') {
+      await onArchive()
+    } else if (action === 'unarchive') {
+      await onUnarchive()
     } else if (action === 'clear') {
       await onClear()
     } else if (action === 'resume') {
@@ -50,11 +56,15 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, 
 
   const description = confirm === 'end'
     ? 'The Bridge will end this Spawned Session. Its history will remain available.'
-    : confirm === 'clear'
-      ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
-      : confirm === 'resume'
-        ? 'The Bridge will restart this Claude Session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new Session ID.'
-        : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
+    : confirm === 'archive'
+      ? 'This removes the ended Spawned Session from the regular chat filters. You can find it and restore it from Archived.'
+      : confirm === 'unarchive'
+        ? 'This returns the Session to the regular chat filters.'
+        : confirm === 'clear'
+          ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
+          : confirm === 'resume'
+            ? 'The Bridge will restart this Claude Session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new Session ID.'
+            : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
 
   return (
     <>
@@ -77,6 +87,7 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, 
               <div className="mt-2 flex flex-wrap gap-2">
                 <Badge>{chat.status}</Badge>
                 {chat.spawned && <Badge>Spawned</Badge>}
+                {chat.archived && <Badge>Archived</Badge>}
                 {chat.busy && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">Working</Badge>}
               </div>
             </section>
@@ -110,6 +121,18 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, 
                   End Spawned Session
                 </Button>
               )}
+              {chat.spawned && chat.status === 'ended' && !chat.archived && (
+                <Button variant="outline" className="justify-start" onClick={() => setConfirm('archive')}>
+                  <Archive aria-hidden="true" />
+                  Archive Spawned Session
+                </Button>
+              )}
+              {chat.spawned && chat.archived && (
+                <Button variant="outline" className="justify-start" onClick={() => setConfirm('unarchive')}>
+                  <ArchiveRestore aria-hidden="true" />
+                  Restore from Archived
+                </Button>
+              )}
               {chat.id !== 'general' && (
                 chat.status === 'ended'
                   ? (
@@ -138,14 +161,34 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onClear, onFork, 
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {confirm === 'end' ? 'End this Session?' : confirm === 'clear' ? 'Clear chat history?' : confirm === 'resume' ? 'Resume this Session?' : 'Fork this Session?'}
+              {confirm === 'end'
+                ? 'End this Session?'
+                : confirm === 'archive'
+                  ? 'Archive this Session?'
+                  : confirm === 'unarchive'
+                    ? 'Restore this Session?'
+                    : confirm === 'clear'
+                      ? 'Clear chat history?'
+                      : confirm === 'resume'
+                        ? 'Resume this Session?'
+                        : 'Fork this Session?'}
             </DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
             <Button variant={confirm === 'end' || confirm === 'clear' ? 'destructive' : 'default'} onClick={() => void runAction()}>
-              {confirm === 'end' ? 'End Session' : confirm === 'clear' ? 'Clear history' : confirm === 'resume' ? 'Resume Session' : 'Fork Session'}
+              {confirm === 'end'
+                ? 'End Session'
+                : confirm === 'archive'
+                  ? 'Archive Session'
+                  : confirm === 'unarchive'
+                    ? 'Restore Session'
+                    : confirm === 'clear'
+                      ? 'Clear history'
+                      : confirm === 'resume'
+                        ? 'Resume Session'
+                        : 'Fork Session'}
             </Button>
           </DialogFooter>
         </DialogContent>

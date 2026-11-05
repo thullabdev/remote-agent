@@ -9,6 +9,7 @@ export type Chat = {
   cwd: string | null
   status: 'active' | 'ended'
   spawned: boolean
+  archived: boolean
   busy: boolean
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null

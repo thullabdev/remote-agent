@@ -304,12 +304,17 @@ function ToolInput({ input }: { input: unknown }) {
         <pre className="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed">
           <code>{commandInput.command}</code>
         </pre>
-        {(commandInput.description !== undefined || commandInput.timeout !== undefined) && (
+        {(commandInput.description !== undefined || commandInput.timeout !== undefined || commandInput.runInBackground !== undefined) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
             {commandInput.description !== undefined && <span className="min-w-0 flex-1">{commandInput.description}</span>}
             {commandInput.timeout !== undefined && (
               <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
                 Timeout · {commandInput.timeout} ms
+              </span>
+            )}
+            {commandInput.runInBackground !== undefined && (
+              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+                {commandInput.runInBackground ? 'Background' : 'Foreground'}
               </span>
             )}
           </div>
