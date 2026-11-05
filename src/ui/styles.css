@@ -84,7 +84,7 @@ button { -webkit-tap-highlight-color: transparent; }
 ::selection { background: color-mix(in srgb, var(--primary) 22%, transparent); }
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 75%, transparent); outline-offset: 2px; }
 .chat-composer-input:focus-visible { outline: none; }
-.chat-message-feed { padding-bottom: calc(var(--chat-composer-height, 5rem) + 1rem); }
+.chat-message-feed { padding-bottom: var(--chat-composer-height, 5rem); }
 .chat-composer-dock {
   isolation: isolate;
 }

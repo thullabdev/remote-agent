@@ -93,7 +93,7 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
   }
 
   return (
-    <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-10 sm:px-6">
+    <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
       {disabled && (
         <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
           <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
