@@ -90,6 +90,18 @@ test('archiving a chat is persisted and emits updated chat state', () => {
   expect(log.setArchived('c1', false).archived).toBe(false)
 })
 
+test('bulk archive emits an update per chat and rolls back if any chat is unknown', () => {
+  log.createChat({ id: 'c2', sessionId: 's1', title: 'Second chat' })
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+
+  expect(log.setArchivedMany(['c1', 'c2'], true).map(chat => chat.archived)).toEqual([true, true])
+  expect(events.filter(event => event.type === 'chat.updated')).toHaveLength(2)
+  expect(() => log.setArchivedMany(['c1', 'missing'], false)).toThrow('Unknown chat missing')
+  expect(log.getChat('c1')?.archived).toBe(true)
+  expect(log.getChat('c2')?.archived).toBe(true)
+})
+
 test('createChat rejects an unknown session', () => {
   expect(() => log.createChat({ id: 'c2', sessionId: 'nope', title: 'x' })).toThrow()
 })

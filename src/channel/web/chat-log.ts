@@ -213,6 +213,21 @@ export class ChatLog {
     })
   }
 
+  setArchivedMany(ids: string[], archived: boolean): Chat[] {
+    return this.write(() => {
+      const events: ServerEvent[] = []
+      for (const id of ids) {
+        const current = this.chatOrThrow(id)
+        if (current.archived === archived) {
+          continue
+        }
+        this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+        events.push(this.emitChat(id))
+      }
+      return { value: ids.map(id => this.chatOrThrow(id)), events }
+    })
+  }
+
   /**
    * `at` is the message's time (default: now); it is what lastMessage.at and the list order use. `history` marks backfilled
    * transcript messages, which are stored as read. Seq stays creation order either way.

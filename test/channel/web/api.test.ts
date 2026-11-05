@@ -402,6 +402,28 @@ test('active sessions and General cannot be archived', async () => {
   expect((await call('POST', '/api/chats/general/archive')).status).toBe(409)
 })
 
+test('bulk archive archives ended sessions together and rejects mixed active selections without partial changes', async () => {
+  const activeChatId = seedSession()
+  store.endSession('s1')
+  chatLog.updateChat(activeChatId, { status: 'ended' })
+
+  store.createSpawnedSession({ id: 's2', cwd: '/home/u/app', tmuxName: 'ra-2' })
+  channel.sessionSeen(store.getSession('s2')!)
+  const spawnedChatId = store.getSession('s2')!.chatId!
+  store.endSession('s2')
+  chatLog.updateChat(spawnedChatId, { status: 'ended' })
+
+  const archived = await call('POST', '/api/chats/archive', { chatIds: [activeChatId, spawnedChatId] })
+  expect(archived).toEqual({ status: 200, body: { toast: 'Archived 2 Sessions.' } })
+  expect(chatLog.getChat(activeChatId)?.archived).toBe(true)
+  expect(chatLog.getChat(spawnedChatId)?.archived).toBe(true)
+
+  const pendingChatId = seedSession('s3')
+  const rejected = await call('POST', '/api/chats/archive', { chatIds: [activeChatId, pendingChatId] })
+  expect(rejected.status).toBe(409)
+  expect(chatLog.getChat(pendingChatId)?.archived).toBe(false)
+})
+
 test('an unknown chat id returns 404', async () => {
   expect((await call('GET', '/api/chats/nope/messages')).status).toBe(404)
   expect((await call('POST', '/api/chats/nope/messages', { clientId: 'c', text: 'hi' })).status).toBe(404)

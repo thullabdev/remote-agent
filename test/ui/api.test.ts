@@ -75,6 +75,7 @@ describe('Web Channel API client', () => {
     await client.setAway(true)
     await client.endChat('c/1')
     await client.archiveChat('c/1')
+    await client.archiveChats(['c/1', 'c2'])
     await client.unarchiveChat('c/1')
     await client.clearChat('c/1')
     await client.forkChat('c/1')
@@ -95,6 +96,7 @@ describe('Web Channel API client', () => {
       'PUT /api/away',
       'POST /api/chats/c%2F1/end',
       'POST /api/chats/c%2F1/archive',
+      'POST /api/chats/archive',
       'POST /api/chats/c%2F1/unarchive',
       'POST /api/chats/c%2F1/clear',
       'POST /api/chats/c%2F1/fork',
@@ -106,5 +108,33 @@ describe('Web Channel API client', () => {
       'DELETE /api/push/subscriptions',
     ])
     expect(calls.filter(call => call.method !== 'GET').every(call => call.contentType === 'application/json')).toBe(true)
+  })
+
+  test('archives one chat through the existing route when the Bridge does not have the bulk route', async () => {
+    const calls: string[] = []
+    const client = createApiClient(async (url, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
+      if (url === '/api/chats/archive') {
+        return Response.json({ error: 'Not found.' }, { status: 404 })
+      }
+      return Response.json({ toast: 'Session archived.' })
+    })
+
+    await expect(client.archiveChats(['c/1'])).resolves.toEqual({ toast: 'Archived 1 Session.' })
+    expect(calls).toEqual([
+      'POST /api/chats/archive',
+      'POST /api/chats/c%2F1/archive',
+    ])
+  })
+
+  test('does not retry a bulk archive when the Bridge reports an unknown chat', async () => {
+    const calls: string[] = []
+    const client = createApiClient(async (url, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
+      return Response.json({ error: 'Unknown chat.' }, { status: 404 })
+    })
+
+    await expect(client.archiveChats(['missing'])).rejects.toMatchObject({ status: 404, message: 'Unknown chat.' })
+    expect(calls).toEqual(['POST /api/chats/archive'])
   })
 })

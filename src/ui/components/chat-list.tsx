@@ -1,5 +1,5 @@
-import { MessageCircle, Pin, Plus, Search, Settings2, ShieldCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Archive, Check, ListChecks, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings2, ShieldCheck, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { formatRelativeTime } from '../presentation.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
@@ -16,9 +16,15 @@ type ChatListProps = {
   onNew(): void
   onSettings(): void
   onAway(): void
+  onArchiveSelected(chatIds: string[]): Promise<void>
+  onActionError(error: unknown): void
 }
 
 type SessionSourceFilter = 'all' | 'laptop' | 'spawned' | 'archived'
+
+export function isSelectableChat(chat: Chat): boolean {
+  return chat.id !== 'general' && chat.status === 'ended' && !chat.archived
+}
 
 export function filterChats(chats: Chat[], query: string, source: SessionSourceFilter): Chat[] {
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -33,13 +39,84 @@ export function filterChats(chats: Chat[], query: string, source: SessionSourceF
   })
 }
 
-export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSettings, onAway }: ChatListProps) {
+export function ChatList({
+  chats,
+  activeId,
+  away,
+  status,
+  onOpen,
+  onNew,
+  onSettings,
+  onAway,
+  onArchiveSelected,
+  onActionError,
+}: ChatListProps) {
   const [query, setQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SessionSourceFilter>('all')
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [archiving, setArchiving] = useState(false)
+  const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const suppressClick = useRef<string | null>(null)
   const filteredChats = useMemo(
     () => filterChats(chats, query, sourceFilter),
     [chats, query, sourceFilter],
   )
+  const selectableIds = useMemo(() => new Set(chats.filter(isSelectableChat).map(chat => chat.id)), [chats])
+
+  useEffect(() => {
+    setSelectedIds(current => new Set([...current].filter(id => selectableIds.has(id))))
+  }, [selectableIds])
+
+  useEffect(() => () => {
+    if (longPress.current !== null) {
+      clearTimeout(longPress.current.timer)
+    }
+  }, [])
+
+  const cancelLongPress = () => {
+    if (longPress.current !== null) {
+      clearTimeout(longPress.current.timer)
+      longPress.current = null
+    }
+  }
+
+  const beginSelection = (chatId: string) => {
+    setSelectionMode(true)
+    setSelectedIds(new Set([chatId]))
+  }
+
+  const toggleSelection = (chatId: string) => {
+    setSelectedIds(current => {
+      const next = new Set(current)
+      if (next.has(chatId)) {
+        next.delete(chatId)
+        if (next.size === 0) setSelectionMode(false)
+      } else {
+        next.add(chatId)
+      }
+      return next
+    })
+  }
+
+  const cancelSelection = () => {
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+  }
+
+  const archiveSelected = async () => {
+    const ids = [...selectedIds].filter(id => selectableIds.has(id))
+    if (ids.length === 0 || archiving) return
+    setArchiving(true)
+    try {
+      await onArchiveSelected(ids)
+      cancelSelection()
+    } catch (error) {
+      onActionError(error)
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   return (
     <aside
@@ -75,21 +152,54 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
         </div>
       </header>
 
-      <div className="flex items-center gap-2 px-4 py-3">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input
-            aria-label="Search chats"
-            placeholder="Search sessions"
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            className="h-10 rounded-full border-transparent bg-muted pl-9 shadow-none focus-visible:border-border"
-          />
+      {selectionMode ? (
+        <div className="flex h-[4.5rem] shrink-0 items-center gap-2 px-4 py-3" aria-live="polite">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium">
+            {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select ended sessions'}
+          </div>
+          <Button variant="ghost" size="icon" aria-label="Cancel selection" onClick={cancelSelection}>
+            <X aria-hidden="true" />
+          </Button>
+          <Button aria-label="Archive selected" onClick={() => void archiveSelected()} disabled={selectedIds.size === 0 || archiving}>
+            {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+            <span className="sm:hidden">Archive</span>
+            <span className="hidden sm:inline">Archive selected</span>
+          </Button>
         </div>
-        <Button size="icon" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
-          <Plus aria-hidden="true" />
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center gap-2 px-4 py-3">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              aria-label="Search chats"
+              placeholder="Search sessions"
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              className="h-10 rounded-full border-transparent bg-muted pl-9 shadow-none focus-visible:border-border"
+            />
+          </div>
+          {filteredChats.some(isSelectableChat) && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="md:hidden"
+                aria-label="Select ended sessions"
+                title="Select ended sessions"
+                onClick={() => setSelectionMode(true)}
+              >
+                <ListChecks aria-hidden="true" />
+              </Button>
+              <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={() => setSelectionMode(true)}>
+                Select
+              </Button>
+            </>
+          )}
+          <Button size="icon" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
+            <Plus aria-hidden="true" />
+          </Button>
+        </div>
+      )}
 
       <div className="flex items-center gap-1 px-4 pb-2" role="group" aria-label="Filter sessions">
         {([
@@ -103,7 +213,10 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
             variant={sourceFilter === source ? 'secondary' : 'ghost'}
             size="sm"
             aria-pressed={sourceFilter === source}
-            onClick={() => setSourceFilter(source)}
+            onClick={() => {
+              setSourceFilter(source)
+              if (source === 'archived') cancelSelection()
+            }}
           >
             {label}
           </Button>
@@ -119,13 +232,65 @@ export function ChatList({ chats, activeId, away, status, onOpen, onNew, onSetti
             <button
               type="button"
               key={chat.id}
-              onClick={() => onOpen(chat.id)}
+              onClick={event => {
+                if (suppressClick.current === chat.id) {
+                  suppressClick.current = null
+                  event.preventDefault()
+                  return
+                }
+                if (selectionMode) {
+                  if (selectableIds.has(chat.id)) toggleSelection(chat.id)
+                  return
+                }
+                onOpen(chat.id)
+              }}
+              onPointerDown={event => {
+                if (selectionMode || !isSelectableChat(chat) || event.button !== 0) return
+                cancelLongPress()
+                const { clientX: x, clientY: y } = event
+                const timer = setTimeout(() => {
+                  longPress.current = null
+                  suppressClick.current = chat.id
+                  beginSelection(chat.id)
+                }, 500)
+                longPress.current = { chatId: chat.id, x, y, timer }
+              }}
+              onPointerMove={event => {
+                const pending = longPress.current
+                if (
+                  pending?.chatId === chat.id &&
+                  (Math.abs(event.clientX - pending.x) > 10 || Math.abs(event.clientY - pending.y) > 10)
+                ) {
+                  cancelLongPress()
+                }
+              }}
+              onPointerUp={cancelLongPress}
+              onPointerCancel={cancelLongPress}
+              onContextMenu={event => {
+                if (isSelectableChat(chat)) event.preventDefault()
+              }}
+              aria-disabled={selectionMode && !selectableIds.has(chat.id)}
               aria-current={activeId === chat.id ? 'page' : undefined}
+              aria-pressed={selectableIds.has(chat.id) ? selectedIds.has(chat.id) : undefined}
+              aria-label={selectionMode && selectableIds.has(chat.id)
+                ? `${chat.title}, ${selectedIds.has(chat.id) ? 'selected' : 'not selected'}`
+                : undefined}
               className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
                 activeId === chat.id ? 'bg-muted' : 'hover:bg-muted/70'
               }`}
             >
-              <Avatar fallback={chat.id === 'general' ? '⌘' : chat.title} className="size-11 rounded-2xl text-sm" />
+              {selectionMode && selectableIds.has(chat.id) ? (
+                <span
+                  className={`grid size-11 shrink-0 place-items-center rounded-2xl border ${
+                    selectedIds.has(chat.id) ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-muted text-transparent'
+                  }`}
+                  aria-hidden="true"
+                >
+                  <Check className="size-5" />
+                </span>
+              ) : (
+                <Avatar fallback={chat.id === 'general' ? '⌘' : chat.title} className="size-11 rounded-2xl text-sm" />
+              )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{chat.title}</span>

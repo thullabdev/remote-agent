@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { filterChats } from '../../src/ui/components/chat-list.tsx'
+import { filterChats, isSelectableChat } from '../../src/ui/components/chat-list.tsx'
 
 const general: Chat = {
   id: 'general',
@@ -43,4 +43,12 @@ test('shows ended sessions until archived and lists archived sessions in their o
   expect(filterChats(chats, '', 'all').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat', 'ended-laptop-chat'])
   expect(filterChats(chats, '', 'spawned').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat'])
   expect(filterChats(chats, '', 'archived').map(chat => chat.id)).toEqual(['archived-spawned-chat', 'archived-laptop-chat'])
+})
+
+test('only ended unarchived sessions can be selected for archive', () => {
+  expect(isSelectableChat(endedLaptop)).toBe(true)
+  expect(isSelectableChat(endedSpawned)).toBe(true)
+  expect(isSelectableChat(laptop)).toBe(false)
+  expect(isSelectableChat(archivedLaptop)).toBe(false)
+  expect(isSelectableChat(general)).toBe(false)
 })

@@ -44,6 +44,9 @@ const PushSubscribeSchema = z.object({
 })
 
 const PushUnsubscribeSchema = z.object({ endpoint: z.string().min(1) })
+const ArchiveChatsSchema = z.object({
+  chatIds: z.array(z.string().min(1)).min(1).refine(ids => new Set(ids).size === ids.length, 'chatIds must be unique'),
+})
 
 function isHttpsUrl(value: string): boolean {
   try {
@@ -68,6 +71,7 @@ type Route = { method: string; pattern: string[]; run: (ctx: Ctx, id: string) =>
 
 const ROUTES: Route[] = [
   { method: 'GET', pattern: ['state'], run: ({ deps }) => state(deps) },
+  { method: 'POST', pattern: ['chats', 'archive'], run: ({ deps, request }) => archiveChats(deps, request) },
   { method: 'GET', pattern: ['chats', ':id', 'messages'], run: ({ deps, url }, id) => history(deps, id, url) },
   { method: 'POST', pattern: ['chats', ':id', 'messages'], run: ({ deps, request }, id) => sendMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'actions'], run: ({ deps, request }, id) => action(deps, request, id) },
@@ -323,6 +327,22 @@ function archiveChat(deps: ApiDeps, chatId: string): unknown {
   }
   deps.chatLog.setArchived(chatId, true)
   return { toast: 'Session archived.' }
+}
+
+async function archiveChats(deps: ApiDeps, request: Request): Promise<unknown> {
+  const { chatIds } = await readBody(request, ArchiveChatsSchema)
+  for (const chatId of chatIds) {
+    const chat = requireChat(deps, chatId)
+    if (chat.id === GENERAL_ID) {
+      throw new ApiError(409, 'Only ended Sessions can be archived.')
+    }
+    const session = requireSession(deps, chatId)
+    if (chat.status !== 'ended' || session.endedAt === null) {
+      throw new ApiError(409, 'Only ended Sessions can be archived.')
+    }
+  }
+  deps.chatLog.setArchivedMany(chatIds, true)
+  return { toast: `Archived ${chatIds.length} ${chatIds.length === 1 ? 'Session' : 'Sessions'}.` }
 }
 
 function unarchiveChat(deps: ApiDeps, chatId: string): unknown {

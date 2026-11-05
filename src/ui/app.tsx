@@ -301,6 +301,11 @@ export function App() {
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onAway={toggleAway}
+        onArchiveSelected={async chatIds => {
+          const result = await api.archiveChats(chatIds)
+          notify(result.toast)
+        }}
+        onActionError={handleError}
       />
 
       <main

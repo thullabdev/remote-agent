@@ -30,6 +30,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   setAway(away: boolean): Promise<{ away: boolean }>
   endChat(chatId: string): Promise<{ toast: string }>
   archiveChat(chatId: string): Promise<{ toast: string }>
+  archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
@@ -88,6 +89,19 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       }),
     endChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/end`),
     archiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/archive`),
+    archiveChats: async chatIds => {
+      try {
+        return await post('/api/chats/archive', { chatIds })
+      } catch (error) {
+        if (!(error instanceof RequestError) || error.status !== 404 || error.message !== 'Not found.') {
+          throw error
+        }
+        for (const chatId of chatIds) {
+          await post(`/api/chats/${encodeURIComponent(chatId)}/archive`)
+        }
+        return { toast: `Archived ${chatIds.length} ${chatIds.length === 1 ? 'Session' : 'Sessions'}.` }
+      }
+    },
     unarchiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/unarchive`),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
