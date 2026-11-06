@@ -40,6 +40,23 @@ test('GET without Origin and Sec-Fetch-Site same-site is 403', () => {
   expect(result).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
 })
 
+test('a top-level page load without Origin is allowed from any site', () => {
+  for (const dest of ['document', 'empty']) {
+    const headers = { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': dest }
+    expect(authorize(request({ headers }), config)).toEqual({ ok: true })
+  }
+})
+
+test('a cross-site navigation embedded in a frame is still 403', () => {
+  const headers = { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'iframe' }
+  expect(authorize(request({ headers }), config)).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
+test('a cross-site subresource request without Origin is still 403', () => {
+  const headers = { 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty' }
+  expect(authorize(request({ headers }), config)).toEqual({ ok: false, status: 403, reason: 'origin not allowed' })
+})
+
 test('GET with a mismatching Origin is 403 even if Sec-Fetch-Site is same-origin', () => {
   const headers = { 'Tailscale-User-Login': LOGIN, Origin: 'https://evil.example.com', 'Sec-Fetch-Site': 'same-origin' }
   const result = authorize(request({ headers }), config)

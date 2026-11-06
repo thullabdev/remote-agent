@@ -37,10 +37,19 @@ function isSafeMethod(request: Request): boolean {
  * Browsers send no Origin on same-origin GET/HEAD page and asset loads, but do send it on WebSocket
  * upgrades and state-changing requests. So those GET/HEAD requests may omit Origin when Fetch Metadata
  * says the request came from this origin.
+ *
+ * A top-level page load (navigation, not an embedded frame) may also omit Origin from any site: an installed
+ * app or a link from another app navigates cross-site. It cannot read the response cross-site, and the
+ * page's own API calls are same-origin and still checked here.
  */
 function originAbsentButSameOrigin(request: Request): boolean {
   if (!isSafeMethod(request) || isWebSocketUpgrade(request)) {
     return false
+  }
+  // "empty" is what Chrome reports for a top-level navigation the installed app starts; frames report "iframe" or "frame".
+  const dest = request.headers.get('Sec-Fetch-Dest')
+  if (request.headers.get('Sec-Fetch-Mode') === 'navigate' && (dest === 'document' || dest === 'empty')) {
+    return true
   }
   const site = request.headers.get('Sec-Fetch-Site')
   return site === 'same-origin' || site === 'none'
