@@ -10,7 +10,8 @@ import { ChatList } from './components/chat-list.tsx'
 import { MessageFeed } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
-import { readPreferences, resolvedTheme, savePreferences, type Preferences } from './preferences.ts'
+import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
+import { applyAppearance } from './appearance.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
 
@@ -67,17 +68,8 @@ export function App() {
   }, [error])
 
   useEffect(() => {
-    const root = document.documentElement
     const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const applyTheme = () => {
-      root.classList.toggle('dark', resolvedTheme(preferences.theme, media.matches) === 'dark')
-      root.dataset.accent = preferences.accent
-      root.dataset.glow = preferences.glow
-      document.querySelector('meta[name="theme-color"]')?.setAttribute(
-        'content',
-        resolvedTheme(preferences.theme, media.matches) === 'dark' ? '#1e1e1c' : '#f5f3ec',
-      )
-    }
+    const applyTheme = () => applyAppearance(preferences, media.matches)
     applyTheme()
     media.addEventListener('change', applyTheme)
     return () => media.removeEventListener('change', applyTheme)
@@ -387,6 +379,7 @@ export function App() {
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}
                 onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
+                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}

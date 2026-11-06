@@ -2,6 +2,7 @@ import { Bell, BellOff, Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { PushStatus } from '../use-push-subscription.ts'
 import type { AccentPreference, Preferences } from '../preferences.ts'
+import { COLOR_THEMES } from '../themes.ts'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog.tsx'
 import { Separator } from './ui/separator.tsx'
@@ -38,6 +39,27 @@ export function SettingsDialog({ open, preferences, push, pushBusy, onPreference
           <SettingSegments label="Theme" value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
             ['light', 'Light'], ['dark', 'Dark'], ['system', 'System'],
           ]} />
+          <section>
+            <SettingLabel>Color theme</SettingLabel>
+            <div className="grid grid-cols-2 gap-2">
+              {COLOR_THEMES.map(theme => (
+                <button
+                  type="button"
+                  key={theme.id}
+                  aria-pressed={preferences.palette === theme.id}
+                  onClick={() => onPreferences({ ...preferences, palette: theme.id })}
+                  className={`flex items-center gap-2 rounded-xl border-2 p-2 text-left text-sm ${preferences.palette === theme.id ? 'border-primary' : 'border-border'}`}
+                >
+                  <span className="flex size-6 shrink-0 overflow-hidden rounded-full border border-border" aria-hidden="true">
+                    <span className="h-full w-1/2" style={{ backgroundColor: theme.light.background }} />
+                    <span className="h-full w-1/2" style={{ backgroundColor: theme.dark.background }} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{theme.label}</span>
+                  <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: theme.dark.primary }} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </section>
           <section>
             <SettingLabel>Accent</SettingLabel>
             <div className="flex gap-3">

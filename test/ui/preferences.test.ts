@@ -17,11 +17,11 @@ describe('device appearance preferences', () => {
 
   test('persists and restores valid choices while ignoring unknown values', () => {
     const storage = createStorage()
-    const saved: Preferences = { theme: 'dark', accent: 'teal', glow: 'strong', density: 'compact', font: 'large' }
+    const saved: Preferences = { theme: 'dark', palette: 'nord', accent: 'teal', glow: 'strong', density: 'compact', font: 'large' }
     savePreferences(saved, storage)
     expect(readPreferences(storage)).toEqual(saved)
 
-    const invalid = createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'neon', accent: 'olive' }) })
+    const invalid = createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'neon', palette: 'hotdog', accent: 'olive' }) })
     expect(readPreferences(invalid)).toEqual({ ...DEFAULT_PREFERENCES, accent: 'olive' })
   })
 

@@ -20,49 +20,18 @@
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Colors (--background, --primary, --glow, ...) are set from src/ui/themes.ts so every theme and accent shares one source. */
 :root {
   color-scheme: light;
-  --background: #f5f3ec;
-  --foreground: #171715;
-  --card: #fcfbf7;
-  --muted: #e9e6dd;
-  --muted-foreground: #6c6960;
-  --border: #d4d0c5;
-  --primary: #171715;
-  --primary-foreground: #f7f6f2;
-  --accent: #e1dfd5;
-  --glow: 150 142 118;
   --glow-opacity: .3;
   --grain-opacity: .3;
 }
 
 :root.dark {
   color-scheme: dark;
-  --background: #1e1e1c;
-  --foreground: #eeece6;
-  --card: #282825;
-  --muted: #33332f;
-  --muted-foreground: #a4a299;
-  --border: #44443e;
-  --primary: #eeece6;
-  --primary-foreground: #171715;
-  --accent: #3a3b34;
-  --glow: 210 200 170;
   --grain-opacity: .5;
 }
 
-:root[data-accent="olive"] { --primary: #3f4a3c; --primary-foreground: #f7f6f2; --glow: 96 125 88; }
-:root.dark[data-accent="olive"] { --primary: #869880; --primary-foreground: #171715; --glow: 120 160 108; }
-:root[data-accent="blue"] { --primary: #355c7d; --primary-foreground: #f7f6f2; --glow: 60 120 190; }
-:root.dark[data-accent="blue"] { --primary: #76a3c7; --primary-foreground: #171715; --glow: 80 140 220; }
-:root[data-accent="clay"] { --primary: #a05237; --primary-foreground: #f7f6f2; --glow: 200 100 60; }
-:root.dark[data-accent="clay"] { --primary: #d68264; --primary-foreground: #171715; --glow: 230 120 80; }
-:root[data-accent="plum"] { --primary: #704064; --primary-foreground: #f7f6f2; --glow: 150 70 140; }
-:root.dark[data-accent="plum"] { --primary: #b27ca8; --primary-foreground: #171715; --glow: 200 110 190; }
-:root[data-accent="amber"] { --primary: #a8701e; --primary-foreground: #f7f6f2; --glow: 210 140 30; }
-:root.dark[data-accent="amber"] { --primary: #e0aa50; --primary-foreground: #171715; --glow: 240 180 70; }
-:root[data-accent="teal"] { --primary: #1e6e6c; --primary-foreground: #f7f6f2; --glow: 30 140 135; }
-:root.dark[data-accent="teal"] { --primary: #50b4b0; --primary-foreground: #171715; --glow: 60 200 190; }
 :root[data-glow="off"] { --glow-opacity: 0; }
 :root[data-glow="soft"] { --glow-opacity: .3; }
 :root[data-glow="strong"] { --glow-opacity: .5; }

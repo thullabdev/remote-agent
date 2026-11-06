@@ -32,6 +32,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   archiveChat(chatId: string): Promise<{ toast: string }>
   archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
+  renameChat(chatId: string, title: string): Promise<{ toast: string }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
   resumeChat(chatId: string): Promise<{ toast: string }>
@@ -103,6 +104,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       }
     },
     unarchiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/unarchive`),
+    renameChat: (chatId, title) => post(`/api/chats/${encodeURIComponent(chatId)}/rename`, { title }),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),

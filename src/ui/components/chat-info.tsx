@@ -1,9 +1,10 @@
-import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
+import { Input } from './ui/input.tsx'
 import { Separator } from './ui/separator.tsx'
 
 type ChatInfoProps = {
@@ -13,6 +14,7 @@ type ChatInfoProps = {
   onEnd(): Promise<void>
   onArchive(): Promise<void>
   onUnarchive(): Promise<void>
+  onRename(title: string): Promise<void>
   onClear(): Promise<void>
   onFork(): Promise<void>
   onResume(): Promise<void>
@@ -20,9 +22,21 @@ type ChatInfoProps = {
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnarchive, onClear, onFork, onResume }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume }: ChatInfoProps) {
   const [confirm, setConfirm] = useState<Action | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
   const [copied, setCopied] = useState(false)
+
+  const openRename = () => {
+    setDraftName(chat.title)
+    setRenaming(true)
+  }
+
+  const submitRename = async () => {
+    setRenaming(false)
+    await onRename(draftName.trim())
+  }
 
   const copyPath = async () => {
     if (chat.cwd === null || !navigator.clipboard) {
@@ -115,6 +129,12 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnar
             )}
             <Separator />
             <div className="grid gap-2">
+              {chat.id !== 'general' && (
+                <Button variant="outline" className="justify-start" onClick={openRename}>
+                  <Pencil aria-hidden="true" />
+                  Rename Session
+                </Button>
+              )}
               {chat.spawned && chat.status === 'active' && (
                 <Button variant="outline" className="justify-start" onClick={() => setConfirm('end')}>
                   <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
@@ -156,6 +176,34 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnar
           </div>
         </div>
       </aside>
+
+      <Dialog open={renaming} onOpenChange={open => { if (!open) setRenaming(false) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Session</DialogTitle>
+            <DialogDescription>Leave the name empty to go back to the automatic name.</DialogDescription>
+          </DialogHeader>
+          <form
+            className="grid gap-4"
+            onSubmit={event => {
+              event.preventDefault()
+              void submitRename()
+            }}
+          >
+            <Input
+              value={draftName}
+              onChange={event => setDraftName(event.target.value)}
+              maxLength={120}
+              aria-label="Session name"
+              autoFocus
+            />
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setRenaming(false)}>Cancel</Button>
+              <Button type="submit">Save name</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null) }}>
         <DialogContent>

@@ -47,6 +47,7 @@ const PushUnsubscribeSchema = z.object({ endpoint: z.string().min(1) })
 const ArchiveChatsSchema = z.object({
   chatIds: z.array(z.string().min(1)).min(1).refine(ids => new Set(ids).size === ids.length, 'chatIds must be unique'),
 })
+const RenameChatSchema = z.object({ title: z.string().max(120) })
 
 function isHttpsUrl(value: string): boolean {
   try {
@@ -80,6 +81,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
@@ -352,6 +354,17 @@ function unarchiveChat(deps: ApiDeps, chatId: string): unknown {
   }
   deps.chatLog.setArchived(chatId, false)
   return { toast: 'Session restored.' }
+}
+
+async function renameChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const { title } = await readBody(request, RenameChatSchema)
+  const chat = requireChat(deps, chatId)
+  if (chat.id === GENERAL_ID) {
+    throw new ApiError(409, 'General cannot be renamed.')
+  }
+  const name = title.trim()
+  deps.chatLog.setCustomTitle(chatId, name === '' ? null : name)
+  return { toast: name === '' ? 'Session name reset.' : 'Session renamed.' }
 }
 
 function clearHistory(deps: ApiDeps, chatId: string): unknown {

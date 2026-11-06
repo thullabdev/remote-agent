@@ -135,7 +135,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-test('an auth failure is logged with method, path and reason only', async () => {
+test('an auth failure is logged with method, path, reason and the refused origin, never the query, login or token', async () => {
   start()
 
   const response = await fetch(url('/api/state?token=leak-me'), {
@@ -144,8 +144,7 @@ test('an auth failure is logged with method, path and reason only', async () => 
 
   expect(response.status).toBe(403)
   const text = logs.map(entry => entry.message).join('\n')
-  expect(text).toContain('GET /api/state 403 origin not allowed')
-  expect(text).not.toContain('evil.example')
+  expect(text).toContain('GET /api/state 403 origin not allowed origin="https://evil.example"')
   expect(text).not.toContain('intruder')
   expect(text).not.toContain('leak-me')
 })

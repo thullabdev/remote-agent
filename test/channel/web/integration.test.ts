@@ -268,3 +268,12 @@ test('stop with an open WebSocket closes it and does not throw', async () => {
   await closed
   expect(feed.socket.readyState).toBe(WebSocket.CLOSED)
 })
+
+test('a refused origin is logged with the origin that was sent', async () => {
+  await boot()
+  const response = await fetch(`http://127.0.0.1:${webPort()}/`, {
+    headers: { Origin: 'https://phone.example.ts.net:8443', 'Tailscale-User-Login': LOGIN, 'Sec-Fetch-Site': 'cross-site' },
+  })
+  expect(response.status).toBe(403)
+  expect(logs).toContain('web request refused: GET / 403 origin not allowed origin="https://phone.example.ts.net:8443" fetch-site="cross-site" fetch-mode="(absent)" fetch-dest="(absent)"')
+})

@@ -644,3 +644,24 @@ test('routes answer 404 when the projects dep is absent', async () => {
   expect((await call('GET', '/api/projects')).status).toBe(404)
   expect((await call('POST', '/api/projects/start', { cwd: '/x' })).status).toBe(404)
 })
+
+test('renames a session without replacing its automatic title; empty resets and General cannot be renamed', async () => {
+  const chatId = seedSession()
+  const automaticTitle = chatLog.getChat(chatId)!.title
+
+  expect(await call('POST', `/api/chats/${chatId}/rename`, { title: '  Billing fix  ' })).toEqual({
+    status: 200,
+    body: { toast: 'Session renamed.' },
+  })
+  expect(chatLog.getChat(chatId)?.title).toBe('Billing fix')
+  expect((await call('GET', '/api/state')).body.chats.find((chat: { id: string }) => chat.id === chatId).title).toBe('Billing fix')
+
+  expect(await call('POST', `/api/chats/${chatId}/rename`, { title: '   ' })).toEqual({
+    status: 200,
+    body: { toast: 'Session name reset.' },
+  })
+  expect(chatLog.getChat(chatId)?.title).toBe(automaticTitle)
+
+  expect((await call('POST', '/api/chats/general/rename', { title: 'Inbox' })).status).toBe(409)
+  expect((await call('POST', `/api/chats/${chatId}/rename`, { title: 'x'.repeat(121) })).status).toBe(400)
+})
