@@ -37,9 +37,9 @@ function configFor(staticPath: string | null): WebConfig {
   }
 }
 
-function start(staticPath: string | null = staticDir): Running {
+function start(staticPath: string | null = staticDir, token: string | null = null): Running {
   running = startWebServer({
-    config: configFor(staticPath),
+    config: { ...configFor(staticPath), token },
     chatLog,
     api,
     hub,
@@ -157,6 +157,23 @@ test('unauthorized upgrade is refused with 403', async () => {
   })
 
   expect(response.status).toBe(403)
+})
+
+test('a WebSocket upgrade can authenticate with a bearer token in its query', async () => {
+  const token = 'desktop-token'
+  start(staticDir, token)
+  const socket = new WebSocket(
+    url(`/ws?after=${chatLog.currentSeq()}&bridgeToken=${token}`).replace('http://', 'ws://'),
+    { headers: { Origin: ORIGIN } } as unknown as string[],
+  )
+  const inbox = new Inbox(socket)
+
+  await new Promise<void>((resolve, reject) => {
+    socket.onopen = () => resolve()
+    socket.onerror = () => reject(new Error('websocket failed'))
+  })
+  expect(await inbox.next()).toEqual({ type: 'hello', seq: chatLog.currentSeq() })
+  socket.close()
 })
 
 test('connect with after=current gets hello and then live message.created', async () => {

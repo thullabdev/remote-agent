@@ -74,6 +74,12 @@ function identityResult(request: Request, config: AuthConfig): AuthResult | null
       return null
     }
   }
+  if (config.token !== null && request.method.toUpperCase() === 'GET' && isWebSocketUpgrade(request)) {
+    const queryToken = new URL(request.url).searchParams.get('bridgeToken')
+    if (queryToken !== null && constantTimeEqual(queryToken, config.token)) {
+      return null
+    }
+  }
   const login = request.headers.get(LOGIN_HEADER)
   if (login === null || login === '') {
     return { ok: false, status: 401, reason: 'missing identity' }
