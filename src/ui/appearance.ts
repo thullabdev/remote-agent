@@ -10,6 +10,9 @@ export function applyAppearance(preferences: Preferences, systemDark: boolean, r
     root.style.setProperty(name, value)
   }
   root.dataset.glow = preferences.glow
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', vars['--background'] ?? '')
+  // Every theme-color tag gets the chosen background, so the light and dark variants in index.html never disagree with the theme.
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    meta.setAttribute('content', vars['--background'] ?? '')
+  }
   return mode
 }
