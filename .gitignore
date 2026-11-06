@@ -8,3 +8,6 @@ spike/
 mod/remote-agent/.claude-plugin/types/
 .superpowers/
 mod/remote-agent/tsconfig.json
+
+# VAPID push keys (local secret material)
+vapid.json
