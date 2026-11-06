@@ -1,5 +1,5 @@
 import { Archive, Check, ListChecks, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings2, ShieldCheck, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { formatRelativeTime } from '../presentation.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
@@ -21,6 +21,33 @@ type ChatListProps = {
 }
 
 type SessionSourceFilter = 'all' | 'laptop' | 'spawned' | 'archived'
+
+const CHAT_LIST_WIDTH_KEY = 'remote-agent.chat-list-width.v1'
+const CHAT_LIST_DEFAULT_WIDTH = 352 // 22rem, the previous fixed width
+const CHAT_LIST_MIN_WIDTH = 260
+const CHAT_LIST_MAX_WIDTH = 560
+const CHAT_LIST_KEYBOARD_STEP = 16
+
+function clampChatListWidth(width: number): number {
+  return Math.min(CHAT_LIST_MAX_WIDTH, Math.max(CHAT_LIST_MIN_WIDTH, Math.round(width)))
+}
+
+function readChatListWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(CHAT_LIST_WIDTH_KEY))
+    return Number.isFinite(stored) && stored > 0 ? clampChatListWidth(stored) : CHAT_LIST_DEFAULT_WIDTH
+  } catch {
+    return CHAT_LIST_DEFAULT_WIDTH
+  }
+}
+
+function saveChatListWidth(width: number): void {
+  try {
+    localStorage.setItem(CHAT_LIST_WIDTH_KEY, String(width))
+  } catch {
+    // Storage unavailable: the width still applies for this session.
+  }
+}
 
 export function isSelectableChat(chat: Chat): boolean {
   return chat.id !== 'general' && chat.status === 'ended' && !chat.archived
@@ -56,6 +83,8 @@ export function ChatList({
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [archiving, setArchiving] = useState(false)
+  const [width, setWidth] = useState(readChatListWidth)
+  const resizeStart = useRef<{ x: number; width: number } | null>(null)
   const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClick = useRef<string | null>(null)
   const filteredChats = useMemo(
@@ -118,11 +147,40 @@ export function ChatList({
     }
   }
 
+  const onResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    resizeStart.current = { x: event.clientX, width }
+  }
+
+  const onResizePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (resizeStart.current === null) return
+    setWidth(clampChatListWidth(resizeStart.current.width + event.clientX - resizeStart.current.x))
+  }
+
+  const endResize = (event: PointerEvent<HTMLDivElement>) => {
+    if (resizeStart.current === null) return
+    resizeStart.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    saveChatListWidth(width)
+  }
+
+  const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const next = clampChatListWidth(width + (event.key === 'ArrowRight' ? CHAT_LIST_KEYBOARD_STEP : -CHAT_LIST_KEYBOARD_STEP))
+    setWidth(next)
+    saveChatListWidth(next)
+  }
+
   return (
     <aside
-      className={`absolute inset-0 z-10 flex min-w-0 flex-col border-r border-border bg-background transition-transform duration-300 md:static md:z-auto md:w-[22rem] md:shrink-0 md:translate-x-0 ${
+      className={`absolute inset-0 z-10 flex min-w-0 flex-col border-r border-border bg-background transition-transform duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
         activeId === null ? 'translate-x-0' : '-translate-x-full'
       }`}
+      style={{ '--chat-list-width': `${width}px` } as CSSProperties}
       aria-label="Chats"
     >
       <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-border/70 px-4">
@@ -343,6 +401,21 @@ export function ChatList({
           {status === 'connected' ? 'Connected to your Bridge' : status === 'reconnecting' ? 'Reconnecting to Bridge…' : status === 'resyncing' ? 'Syncing recent activity…' : status === 'error' ? 'Bridge connection unavailable' : 'Connecting to your Bridge…'}
         </span>
       </footer>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat list"
+        aria-valuemin={CHAT_LIST_MIN_WIDTH}
+        aria-valuemax={CHAT_LIST_MAX_WIDTH}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={endResize}
+        onPointerCancel={endResize}
+        onKeyDown={onResizeKeyDown}
+        className="absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none outline-none hover:bg-primary/15 focus-visible:bg-primary/25 md:block"
+      />
     </aside>
   )
 }
