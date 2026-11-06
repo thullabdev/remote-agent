@@ -14,7 +14,10 @@ const PREVIEW_MAX = 140
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
 const MESSAGE_ADDED_COLUMNS: [string, string][] = [['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1']]
-const CHAT_ADDED_COLUMNS: [string, string][] = [['archived', 'archived INTEGER NOT NULL DEFAULT 0']]
+const CHAT_ADDED_COLUMNS: [string, string][] = [
+  ['archived', 'archived INTEGER NOT NULL DEFAULT 0'],
+  ['custom_title', 'custom_title TEXT'],
+]
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS chats (
@@ -43,7 +46,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 `
 
-const CHAT_SELECT = `SELECT c.id, c.title, c.status, c.busy, c.pinned, c.hidden_before_seq,
+const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.pinned, c.hidden_before_seq,
   c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
@@ -53,6 +56,7 @@ const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at'
 type ChatRecord = {
   id: string
   title: string
+  custom_title: string | null
   status: 'active' | 'ended'
   busy: number
   pinned: number
@@ -198,6 +202,15 @@ export class ChatLog {
         busy: patch.busy ?? current.busy,
       }
       this.db.query('UPDATE chats SET title = ?, status = ?, busy = ? WHERE id = ?').run(next.title, next.status, next.busy ? 1 : 0, id)
+      return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
+    })
+  }
+
+  /** A user's name for the Session. It wins over the automatic title, which Claude's title updates keep writing. `null` restores the automatic title. */
+  setCustomTitle(id: string, title: string | null): Chat {
+    return this.write(() => {
+      this.chatOrThrow(id)
+      this.db.query('UPDATE chats SET custom_title = ? WHERE id = ?').run(title, id)
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -554,7 +567,7 @@ export class ChatLog {
     const last = this.lastVisible(record.id)
     return {
       id: record.id,
-      title: record.title,
+      title: record.custom_title ?? record.title,
       project: record.project,
       cwd: record.cwd,
       status: record.status,

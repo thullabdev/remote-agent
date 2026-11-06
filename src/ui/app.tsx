@@ -379,6 +379,7 @@ export function App() {
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}
                 onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
+                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}

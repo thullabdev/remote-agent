@@ -371,3 +371,17 @@ test('claim records a key once per chat and reports whether it was new', () => {
   expect(log.isClaimed('general', 'instr:m_1')).toBe(true)
   expect(log.isClaimed('general', 'instr:m_2')).toBe(false)
 })
+
+test('a custom title wins over the automatic title until it is cleared', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+
+  expect(log.setCustomTitle('c1', 'Billing fix').title).toBe('Billing fix')
+  expect(events.at(-1)).toMatchObject({ type: 'chat.updated', chat: { id: 'c1', title: 'Billing fix' } })
+
+  log.updateChat('c1', { title: 'Claude automatic title' })
+  expect(log.getChat('c1')?.title).toBe('Billing fix')
+
+  expect(log.setCustomTitle('c1', null).title).toBe('Claude automatic title')
+  expect(new ChatLog(store, () => clock).getChat('c1')?.title).toBe('Claude automatic title')
+})
