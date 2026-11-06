@@ -287,12 +287,10 @@ export function App() {
       <ChatList
         chats={chats}
         activeId={activeChatId}
-        away={realtime.away}
         status={status}
         onOpen={openChat}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
-        onAway={toggleAway}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
@@ -414,8 +412,10 @@ export function App() {
         preferences={preferences}
         push={push.status}
         pushBusy={push.busy}
+        away={realtime.away}
         onPreferences={setPreferences}
         onPushToggle={togglePush}
+        onAwayToggle={toggleAway}
         onOpenChange={setSettingsOpen}
       />
       <NewSessionDialog

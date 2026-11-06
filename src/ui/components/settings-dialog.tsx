@@ -1,4 +1,4 @@
-import { Bell, BellOff, Check } from 'lucide-react'
+import { Bell, BellOff, Check, ShieldCheck } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { PushStatus } from '../use-push-subscription.ts'
 import type { AccentPreference, Preferences } from '../preferences.ts'
@@ -22,12 +22,14 @@ type SettingsDialogProps = {
   preferences: Preferences
   push: PushStatus
   pushBusy: boolean
+  away: boolean
   onPreferences(preferences: Preferences): void
   onPushToggle(): void
+  onAwayToggle(): void
   onOpenChange(open: boolean): void
 }
 
-export function SettingsDialog({ open, preferences, push, pushBusy, onPreferences, onPushToggle, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, preferences, push, pushBusy, away, onPreferences, onPushToggle, onAwayToggle, onOpenChange }: SettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="top-auto bottom-0 max-h-[90dvh] w-full translate-y-0 flex flex-col gap-5 rounded-b-none rounded-t-3xl bg-background p-5 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,28rem)] sm:-translate-y-1/2 sm:rounded-2xl">
@@ -36,6 +38,28 @@ export function SettingsDialog({ open, preferences, push, pushBusy, onPreference
           <DialogDescription>These appearance preferences are stored on this device.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-5">
+          <section className="flex items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted">
+              <ShieldCheck className="size-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Away mode</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                When on, reports notify you if no device is focused on the chat.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={away}
+              aria-label="Away mode"
+              title={`Away mode ${away ? 'on' : 'off'}`}
+              onClick={onAwayToggle}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${away ? 'bg-primary' : 'bg-muted'}`}
+            >
+              <span className={`absolute top-0.5 size-5 rounded-full bg-background shadow-sm transition-transform ${away ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </section>
           <SettingSegments label="Theme" value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
             ['light', 'Light'], ['dark', 'Dark'], ['system', 'System'],
           ]} />

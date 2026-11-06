@@ -1,26 +1,127 @@
-import { Archive, Check, ListChecks, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings2, ShieldCheck, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { Archive, Check, ChevronDown, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { formatRelativeTime } from '../presentation.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Input } from './ui/input.tsx'
 
 type ChatListProps = {
   chats: Chat[]
   activeId: string | null
-  away: boolean
   status: ConnectionStatus
   onOpen(chatId: string): void
   onNew(): void
   onSettings(): void
-  onAway(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onActionError(error: unknown): void
 }
 
 type SessionSourceFilter = 'all' | 'laptop' | 'spawned' | 'archived'
+
+const SESSION_FILTERS: readonly [SessionSourceFilter, string][] = [
+  ['all', 'All'],
+  ['laptop', 'Active Session'],
+  ['spawned', 'Spawned'],
+  ['archived', 'Archived'],
+]
+const TAB_GAP_PX = 4 // gap-1
+const CHEVRON_RESERVE_PX = 20 // chevron plus the gap before it, on the More button
+
+// How many leading tabs fit in `available` px, leaving room for a More button when some do not fit.
+export function countFittingTabs(widths: number[], available: number, moreWidth: number): number {
+  const widthOf = (count: number) => widths.slice(0, count).reduce((sum, width) => sum + width, 0) + Math.max(0, count - 1) * TAB_GAP_PX
+  if (widthOf(widths.length) <= available) {
+    return widths.length
+  }
+  for (let count = widths.length - 1; count >= 0; count--) {
+    const withMore = widthOf(count) + (count > 0 ? TAB_GAP_PX : 0) + moreWidth
+    if (withMore <= available) {
+      return count
+    }
+  }
+  return 0
+}
+
+function SessionFilterTabs({ value, onSelect }: { value: SessionSourceFilter; onSelect(source: SessionSourceFilter): void }) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const measureRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [visibleCount, setVisibleCount] = useState(SESSION_FILTERS.length)
+
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (row === null) return
+    const fit = () => {
+      const widths = SESSION_FILTERS.map((_, index) => measureRefs.current[index]?.offsetWidth ?? 0)
+      const longest = Math.max(0, ...widths)
+      setVisibleCount(countFittingTabs(widths, row.clientWidth, longest + CHEVRON_RESERVE_PX))
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [])
+
+  const visible = SESSION_FILTERS.slice(0, visibleCount)
+  const hidden = SESSION_FILTERS.slice(visibleCount)
+  const hiddenActive = hidden.find(([source]) => source === value)
+
+  return (
+    <div className="relative px-4 pb-2" role="group" aria-label="Filter sessions">
+      <div ref={rowRef} className="flex min-w-0 items-center gap-1">
+        {visible.map(([source, label]) => (
+          <Button
+            key={source}
+            variant={value === source ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={value === source}
+            onClick={() => onSelect(source)}
+          >
+            {label}
+          </Button>
+        ))}
+        {hidden.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={hiddenActive ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-label={hiddenActive ? `More filters, ${hiddenActive[1]} selected` : 'More filters'}
+              >
+                {hiddenActive ? hiddenActive[1] : 'More'}
+                <ChevronDown aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {hidden.map(([source, label]) => (
+                <DropdownMenuItem key={source} onSelect={() => onSelect(source)}>
+                  <span className="flex-1">{label}</span>
+                  {value === source && <Check className="size-4" aria-hidden="true" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      {/* Off-screen copies of every tab, measured to decide how many fit. */}
+      <div aria-hidden="true" className="pointer-events-none invisible absolute left-4 top-0 flex gap-1 whitespace-nowrap">
+        {SESSION_FILTERS.map(([source, label], index) => (
+          <Button
+            key={source}
+            ref={element => { measureRefs.current[index] = element }}
+            size="sm"
+            variant="ghost"
+            tabIndex={-1}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const CHAT_LIST_WIDTH_KEY = 'remote-agent.chat-list-width.v1'
 const CHAT_LIST_DEFAULT_WIDTH = 352 // 22rem, the previous fixed width
@@ -69,12 +170,10 @@ export function filterChats(chats: Chat[], query: string, source: SessionSourceF
 export function ChatList({
   chats,
   activeId,
-  away,
   status,
   onOpen,
   onNew,
   onSettings,
-  onAway,
   onArchiveSelected,
   onActionError,
 }: ChatListProps) {
@@ -108,6 +207,11 @@ export function ChatList({
       clearTimeout(longPress.current.timer)
       longPress.current = null
     }
+  }
+
+  const selectFilter = (source: SessionSourceFilter) => {
+    setSourceFilter(source)
+    if (source === 'archived') cancelSelection()
   }
 
   const beginSelection = (chatId: string) => {
@@ -183,49 +287,25 @@ export function ChatList({
       style={{ '--chat-list-width': `${width}px` } as CSSProperties}
       aria-label="Chats"
     >
-      <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-border/70 px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <MessageCircle className="size-4" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate font-display text-base font-semibold tracking-tight">Remote Agent</div>
-            <div className="text-[11px] text-muted-foreground">Your sessions, in one place</div>
-          </div>
+      <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/70 px-4">
+        <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+          <MessageCircle className="size-4" aria-hidden="true" />
         </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant={away ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            className={away ? 'text-amber-700 dark:text-amber-300' : ''}
-            aria-label={`Away mode ${away ? 'on' : 'off'}`}
-            title={`Away mode ${away ? 'on' : 'off'}`}
-            onClick={onAway}
-          >
-            <ShieldCheck aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Settings" onClick={onSettings}>
-            <Settings2 aria-hidden="true" />
-          </Button>
-        </div>
-      </header>
-
-      {selectionMode ? (
-        <div className="flex h-[4.5rem] shrink-0 items-center gap-2 px-4 py-3" aria-live="polite">
-          <div className="min-w-0 flex-1 truncate text-sm font-medium">
-            {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select ended sessions'}
+        {selectionMode ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
+            <div className="min-w-0 flex-1 truncate text-sm font-medium">
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select ended sessions'}
+            </div>
+            <Button variant="ghost" size="icon" aria-label="Cancel selection" onClick={cancelSelection}>
+              <X aria-hidden="true" />
+            </Button>
+            <Button aria-label="Archive selected" onClick={() => void archiveSelected()} disabled={selectedIds.size === 0 || archiving}>
+              {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+              <span className="sm:hidden">Archive</span>
+              <span className="hidden sm:inline">Archive selected</span>
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Cancel selection" onClick={cancelSelection}>
-            <X aria-hidden="true" />
-          </Button>
-          <Button aria-label="Archive selected" onClick={() => void archiveSelected()} disabled={selectedIds.size === 0 || archiving}>
-            {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
-            <span className="sm:hidden">Archive</span>
-            <span className="hidden sm:inline">Archive selected</span>
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 px-4 py-3">
+        ) : (
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
@@ -236,50 +316,16 @@ export function ChatList({
               className="h-10 rounded-full border-transparent bg-muted pl-9 shadow-none focus-visible:border-border"
             />
           </div>
-          {filteredChats.some(isSelectableChat) && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="md:hidden"
-                aria-label="Select ended sessions"
-                title="Select ended sessions"
-                onClick={() => setSelectionMode(true)}
-              >
-                <ListChecks aria-hidden="true" />
-              </Button>
-              <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={() => setSelectionMode(true)}>
-                Select
-              </Button>
-            </>
-          )}
-          <Button size="icon" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
-            <Plus aria-hidden="true" />
-          </Button>
-        </div>
-      )}
+        )}
+        <Button variant="ghost" size="icon-sm" aria-label="Settings" title="Settings" onClick={onSettings}>
+          <Settings aria-hidden="true" />
+        </Button>
+        <Button size="icon" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
+          <Plus aria-hidden="true" />
+        </Button>
+      </header>
 
-      <div className="flex items-center gap-1 px-4 pb-2" role="group" aria-label="Filter sessions">
-        {([
-          ['all', 'All'],
-          ['laptop', 'Active Session'],
-          ['spawned', 'Spawned'],
-          ['archived', 'Archived'],
-        ] as const).map(([source, label]) => (
-          <Button
-            key={source}
-            variant={sourceFilter === source ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={sourceFilter === source}
-            onClick={() => {
-              setSourceFilter(source)
-              if (source === 'archived') cancelSelection()
-            }}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <SessionFilterTabs value={sourceFilter} onSelect={selectFilter} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { filterChats, isSelectableChat } from '../../src/ui/components/chat-list.tsx'
+import { countFittingTabs, filterChats, isSelectableChat } from '../../src/ui/components/chat-list.tsx'
 
 const general: Chat = {
   id: 'general',
@@ -51,4 +51,17 @@ test('only ended unarchived sessions can be selected for archive', () => {
   expect(isSelectableChat(laptop)).toBe(false)
   expect(isSelectableChat(archivedLaptop)).toBe(false)
   expect(isSelectableChat(general)).toBe(false)
+})
+
+test('countFittingTabs keeps every tab when they all fit', () => {
+  expect(countFittingTabs([40, 80, 60], 200, 50)).toBe(3)
+})
+
+test('countFittingTabs leaves room for the More button when tabs overflow', () => {
+  // 40 + 4 + 80 = 124 fits, but 124 + 4 + 50 = 178 does not fit in 170, so only the first tab stays visible.
+  expect(countFittingTabs([40, 80, 60], 170, 50)).toBe(1)
+})
+
+test('countFittingTabs shows only More when not even one tab fits', () => {
+  expect(countFittingTabs([40, 80], 60, 50)).toBe(0)
 })
