@@ -138,6 +138,35 @@ button { -webkit-tap-highlight-color: transparent; }
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-3px); }
 }
+/* Scrollbars stay hidden until the pointer is over a scroll area or it has just scrolled (see scrollbars.ts). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color .3s ease;
+}
+*:hover,
+[data-scrolling] {
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color .3s ease;
+}
+*:hover::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  background-clip: padding-box;
+}
+*:hover::-webkit-scrollbar-thumb:hover,
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  background-clip: padding-box;
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
   .chat-glow::before, .chat-glow::after { animation: none; }
