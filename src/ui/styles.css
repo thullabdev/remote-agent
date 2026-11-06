@@ -138,6 +138,27 @@ button { -webkit-tap-highlight-color: transparent; }
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-3px); }
 }
+/* Clickable elements show the pointer cursor. Layered so utility classes such as cursor-not-allowed still win. */
+@layer base {
+  :where(
+    button,
+    a[href],
+    summary,
+    select,
+    label:has(> input[type='checkbox']),
+    [role='button'],
+    [role='tab'],
+    [role='menuitem'],
+    [role='option'],
+    input[type='checkbox'],
+    input[type='radio'],
+    input[type='range'],
+    input[type='file']
+  ):not(:disabled, [aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
 /* Scrollbars stay hidden until the pointer is over a scroll area or it has just scrolled (see scrollbars.ts). */
 * {
   scrollbar-width: thin;
