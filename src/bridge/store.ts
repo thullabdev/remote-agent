@@ -221,6 +221,10 @@ export class Store {
 
   recordUsage(sessionId: string, report: UsageReport): SessionUsageView {
     const measuredAt = this.now()
+    // usage_snapshots references sessions(id); an unknown session is not persisted rather than throwing.
+    if (this.getSession(sessionId) === undefined) {
+      return sessionUsage(report, measuredAt)
+    }
     this.db
       .query(
         `INSERT INTO usage_snapshots (session_id, measured_at, context_tokens, context_window, context_percent, cost_usd, rate_limits)
@@ -251,6 +255,7 @@ export class Store {
     const chats: Record<string, SessionUsageView> = {}
     let account: AccountUsageView = null
     for (const row of rows) {
+      // Rows are newest first, so when two sessions share a chat the first (newest) reading wins.
       if (row.chat_id !== null && chats[row.chat_id] === undefined) {
         chats[row.chat_id] = {
           measuredAt: row.measured_at,
@@ -260,6 +265,7 @@ export class Store {
           costUsd: row.cost_usd,
         }
       }
+      // The '[]' comparison is only a cheap skip; accountLimits decides whether any window is live.
       if (account === null && row.rate_limits !== '[]') {
         const limits = accountLimits(JSON.parse(row.rate_limits) as RateLimitInput[], now)
         if (limits !== null) {

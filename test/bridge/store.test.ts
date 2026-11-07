@@ -187,3 +187,29 @@ test('account is null when no reading has live limits', () => {
   store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: '2000-01-01T00:00:00.000Z' }] })
   expect(store.usageForChats(Date.parse('2020-01-01T00:00:00.000Z')).account).toBeNull()
 })
+
+test('recordUsage for an unknown session returns the view without persisting or throwing', () => {
+  const view = store.recordUsage('ghost', { context: { window: 1000, percent: 5 }, rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt: FAR }] })
+  expect(view.contextPercent).toBe(5)
+  const usage = store.usageForChats(clock)
+  expect(usage.chats).toEqual({})
+  expect(usage.account).toBeNull()
+})
+
+test('when two sessions share a chat the newer reading wins', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.setSessionChat('s1', 'chat-1')
+  store.setSessionChat('s2', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000, percent: 30 }, rateLimits: [] })
+  expect(store.usageForChats(clock).chats['chat-1']?.contextPercent).toBe(30)
+})
+
+test('account falls through a fresher row with only expired windows to an older live row', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 7, resetsAt: FAR }] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 9, resetsAt: '1970-01-01T00:00:01.000Z' }] })
+  expect(store.usageForChats(clock).account).toEqual({ fiveHour: null, sevenDay: { usedPercent: 7, resetsAtMs: FAR_MS }, measuredAt: 1_000 })
+})
