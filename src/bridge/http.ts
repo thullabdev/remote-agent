@@ -1,15 +1,23 @@
 import { ZodError } from 'zod'
-import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest, type TitleRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest, type TitleRequest, type UsageRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
-import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema } from './schemas.ts'
+import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema, UsageRequestSchema } from './schemas.ts'
 import type { Store } from './store.ts'
 
 /** Told about every mod request that names a Session; a Spawned Session counts as started on the first one. */
 export type SessionActivity = { onSessionStarted(sessionId: string): Promise<void> }
 
-export type HttpDeps = { prompts: PromptService; notifier: Notifier; store: Store; log: Log; activity?: SessionActivity }
+export type HttpDeps = {
+  prompts: PromptService
+  notifier: Notifier
+  store: Store
+  log: Log
+  activity?: SessionActivity
+  /** Called after each recorded usage report with the fresh account and per-chat view. */
+  onUsage?: (view: ReturnType<Store['usageForChats']>) => void
+}
 
 function sessionSeen(deps: HttpDeps, sessionId: string): void {
   deps.notifier.sessionSeen(sessionId)
@@ -111,6 +119,17 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
     void deps.notifier.report(body).catch(error => {
       deps.log('report delivery failed', error)
     })
+    return empty(202)
+  }
+
+  if (method === 'POST' && path === '/usage') {
+    const body = UsageRequestSchema.parse(await request.json()) as UsageRequest
+    deps.store.recordUsage(body.session.sessionId, body.usage)
+    try {
+      deps.onUsage?.(deps.store.usageForChats(Date.now()))
+    } catch (error) {
+      deps.log('usage broadcast failed', error)
+    }
     return empty(202)
   }
 

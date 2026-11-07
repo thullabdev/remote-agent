@@ -247,3 +247,31 @@ test('delivering twice is idempotent', async () => {
 
   expect(events.filter(event => event.type === 'message.updated')).toHaveLength(1)
 })
+
+const usageBody = { session, usage: { context: { window: 1000 }, rateLimits: [] } }
+
+test('POST /usage records the reading, answers 202 and calls onUsage', async () => {
+  const delivered: ReturnType<Store['usageForChats']>[] = []
+  const notifier = new Notifier(store, channel, new AwayMode(true))
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message), onUsage: view => delivered.push(view) })
+  const response = await call('POST', '/usage', usageBody)
+  expect(response.status).toBe(202)
+  expect(delivered).toHaveLength(1)
+})
+
+test('POST /usage with a bad body answers 400', async () => {
+  expect((await call('POST', '/usage', {})).status).toBe(400)
+})
+
+test('POST /usage still answers 202 when onUsage throws', async () => {
+  const notifier = new Notifier(store, channel, new AwayMode(true))
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message), onUsage: () => { throw new Error('boom') } })
+  expect((await call('POST', '/usage', usageBody)).status).toBe(202)
+  expect(logged).toHaveLength(1)
+})
+
+test('POST /usage works without an onUsage hook', async () => {
+  expect((await call('POST', '/usage', usageBody)).status).toBe(202)
+})

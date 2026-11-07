@@ -33,6 +33,15 @@ export const ReportRequestSchema = z.object({
   ]),
 })
 
+export const UsageRequestSchema = z.object({
+  session: SessionInfoSchema,
+  usage: z.object({
+    context: z.object({ window: z.number().nonnegative(), tokens: z.number().optional(), percent: z.number().optional() }),
+    rateLimits: z.array(z.object({ kind: z.string(), percentUsed: z.number(), resetsAt: z.string().optional() })),
+    cost: z.object({ usd: z.number() }).optional(),
+  }),
+})
+
 export const TitleRequestSchema = z.object({ session: SessionInfoSchema, title: z.string() })
 
 export const SettleRequestSchema = z.object({
