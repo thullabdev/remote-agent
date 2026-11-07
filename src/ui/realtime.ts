@@ -1,9 +1,10 @@
-import type { Chat, Message, ServerEvent } from '../channel/web/protocol.ts'
+import type { Chat, Message, ServerEvent, UsageView } from '../channel/web/protocol.ts'
 import type { WebState } from './api.ts'
 
 export type RealtimeState = {
   eventSeq: number
   away: boolean
+  usage: UsageView
   chats: Chat[]
   messages: Record<string, Message[]>
   hasMore: Record<string, boolean>
@@ -15,6 +16,7 @@ export function createRealtimeState(state: WebState): RealtimeState {
   return {
     eventSeq: state.seq,
     away: state.away,
+    usage: state.usage,
     chats: state.chats,
     messages: {},
     hasMore: {},
@@ -60,6 +62,9 @@ export function mergeHistory(state: RealtimeState, chatId: string, page: { messa
 }
 
 export function applyServerEvent(state: RealtimeState, event: ServerEvent): RealtimeState {
+  if (event.type === 'usage.updated') {
+    return { ...state, usage: event.usage }
+  }
   if (event.type === 'hello' || event.type === 'resync' || event.seq <= state.eventSeq) {
     return state
   }

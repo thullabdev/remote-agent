@@ -23,7 +23,11 @@ function isChat(value: unknown): value is Chat {
   return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string'
 }
 
-function parseServerEvent(raw: string): ServerEvent | null {
+function isUsageView(value: unknown): boolean {
+  return isRecord(value) && 'accounts' in value && Array.isArray(value.accounts) && isRecord(value.chats)
+}
+
+export function parseServerEvent(raw: string): ServerEvent | null {
   try {
     const value: unknown = JSON.parse(raw)
     if (!isRecord(value) || typeof value.type !== 'string') {
@@ -31,6 +35,9 @@ function parseServerEvent(raw: string): ServerEvent | null {
     }
     if (value.type === 'hello' || value.type === 'resync') {
       return value as unknown as ServerEvent
+    }
+    if (value.type === 'usage.updated') {
+      return isUsageView(value.usage) ? (value as unknown as ServerEvent) : null
     }
     if (typeof value.seq !== 'number' || !Number.isSafeInteger(value.seq)) {
       return null

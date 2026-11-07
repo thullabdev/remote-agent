@@ -69,6 +69,8 @@ function stubSpawner(): ApiDeps['spawner'] {
   }
 }
 
+let usageDep: { accounts: never[]; chats: Record<string, never> } = { accounts: [], chats: {} }
+
 function build(): void {
   api = createApi({
     chatLog,
@@ -78,6 +80,7 @@ function build(): void {
     spawner: spawnerDep,
     projects: projectsDep,
     sink: channel,
+    usage: () => usageDep,
     log: message => {
       logged.push(message)
     },
@@ -165,6 +168,12 @@ beforeEach(() => {
 
 test('returns null for a path outside /api', async () => {
   expect(await api(req('GET', '/index.html'))).toBeNull()
+})
+
+test('GET /api/state includes usage, empty when nothing was reported', async () => {
+  const { body } = await call('GET', '/api/state')
+
+  expect(body.usage).toEqual({ accounts: [], chats: {} })
 })
 
 test('GET /api/state returns seq, away and General first', async () => {

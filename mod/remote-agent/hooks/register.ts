@@ -84,6 +84,17 @@ export const register: Register = on => {
     return result
   })
 
+  // Reports each usage reading after the stock handler ran, detached so it never blocks or throws. The event already carries the figures, so $.session.usage() is not called.
+  on('session.measure', async ($, e, next) => {
+    const result = await next(e)
+    void (async () => {
+      const bridge = await bridgeFor($)
+      const session = await sessionInfo($)
+      await bridge.usage({ session, usage: { context: e.context, rateLimits: e.rateLimits, cost: e.cost } })
+    })().catch(() => undefined)
+    return result
+  })
+
   // Tells the Bridge a tool call finished, so a Telegram Permission Request answered in the terminal is settled.
   // The PermissionRequest command hook is not cancelled by a local answer (ADR-0002).
   on('tool.call', async ($, e, next) => {

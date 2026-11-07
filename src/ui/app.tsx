@@ -288,6 +288,7 @@ export function App() {
         chats={chats}
         activeId={activeChatId}
         status={status}
+        usage={realtime.usage}
         onOpen={openChat}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
@@ -324,6 +325,7 @@ export function App() {
                 onBack={() => openChat(null)}
                 onInfo={() => setInfoOpen(value => !value)}
                 infoOpen={infoOpen}
+                usage={realtime.usage.chats[activeChat.id]}
               />
               {status !== 'connected' && (
                 <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-center text-xs text-amber-900 dark:text-amber-200" role="status">
@@ -363,6 +365,7 @@ export function App() {
                 />
                 <ChatComposer
                   chat={activeChat}
+                  usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
                   onSend={text => sendMessage(activeChat, text)}
@@ -374,6 +377,7 @@ export function App() {
               <ChatInfo
                 chat={activeChat}
                 messageCount={messages.length}
+                usage={realtime.usage}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}

@@ -115,6 +115,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         sessionId => transcripts.detach(sessionId),
       )
       webChannel.setPushNotifier(event => push.notify(event))
+      webChannel.setUsageBroadcaster(event => hub.broadcast(event))
       unbindAway = bindAway(away, chatLog)
       const api = createApi({
         chatLog,
@@ -124,10 +125,11 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         spawner,
         projects: () => trusted.configuredProjects(),
         sink: webChannel,
+        usage: () => store.usageForChats(Date.now()),
         push,
         log,
       })
-      webServer = startWebServer({ config: web, chatLog, api, hub, log })
+      webServer = startWebServer({ config: web, chatLog, api, hub, usage: () => store.usageForChats(Date.now()), log })
     }
 
     // Bun.serve's unix option is typed without idleTimeout, but the runtime honours it.
@@ -135,7 +137,16 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
     unixServer = Bun.serve({
       unix: config.socketPath,
       idleTimeout: 60,
-      fetch: createHandler({ prompts, notifier, store, log, activity: spawner }),
+      fetch: createHandler({
+        prompts,
+        notifier,
+        store,
+        log,
+        activity: spawner,
+        onUsage: view => {
+          webChannel?.usageChanged(view)
+        },
+      }),
     } as unknown as Bun.Serve.Options<undefined>)
     await chmod(config.socketPath, 0o600)
 

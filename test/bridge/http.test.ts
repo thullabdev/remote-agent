@@ -247,3 +247,54 @@ test('delivering twice is idempotent', async () => {
 
   expect(events.filter(event => event.type === 'message.updated')).toHaveLength(1)
 })
+
+const usageBody = { session, usage: { context: { window: 1000 }, rateLimits: [] } }
+
+test('POST /usage records the reading, answers 202 and calls onUsage', async () => {
+  const delivered: ReturnType<Store['usageForChats']>[] = []
+  const notifier = new Notifier(store, channel, new AwayMode(true))
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message), onUsage: view => delivered.push(view) })
+  const response = await call('POST', '/usage', usageBody)
+  expect(response.status).toBe(202)
+  expect(delivered).toHaveLength(1)
+})
+
+const limitBody = (source?: string, percentUsed = 5, sessionId = session.sessionId) => ({
+  session: { ...session, sessionId },
+  ...(source === undefined ? {} : { source }),
+  usage: { context: { window: 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed, resetsAt: '2099-01-01T00:00:00.000Z' }] },
+})
+
+test('POST /usage without a source stores under claude-code', async () => {
+  expect((await call('POST', '/usage', limitBody())).status).toBe(202)
+  expect(store.usageForChats(Date.now()).accounts.map(account => account.source)).toEqual(['claude-code'])
+})
+
+test('POST /usage with a source shows up as a separate account', async () => {
+  await call('POST', '/usage', limitBody())
+  expect((await call('POST', '/usage', limitBody('codex', 9, 'codex-session'))).status).toBe(202)
+  const accounts = store.usageForChats(Date.now()).accounts
+  expect(accounts.map(account => account.source).sort()).toEqual(['claude-code', 'codex'])
+  expect(accounts.find(account => account.source === 'codex')?.windows[0]?.usedPercent).toBe(9)
+})
+
+test('POST /usage with an empty source answers 400', async () => {
+  expect((await call('POST', '/usage', limitBody(''))).status).toBe(400)
+})
+
+test('POST /usage with a bad body answers 400', async () => {
+  expect((await call('POST', '/usage', {})).status).toBe(400)
+})
+
+test('POST /usage still answers 202 when onUsage throws', async () => {
+  const notifier = new Notifier(store, channel, new AwayMode(true))
+  const prompts = new PromptService(store, notifier, { reminderAfterMs: 60_000 })
+  handle = createHandler({ prompts, notifier, store, log: message => logged.push(message), onUsage: () => { throw new Error('boom') } })
+  expect((await call('POST', '/usage', usageBody)).status).toBe(202)
+  expect(logged).toHaveLength(1)
+})
+
+test('POST /usage works without an onUsage hook', async () => {
+  expect((await call('POST', '/usage', usageBody)).status).toBe(202)
+})

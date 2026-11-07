@@ -177,3 +177,15 @@ test('closeAll closes every client with the given code and empties the hub', () 
   expect(second.closed).toEqual({ code: 1001, reason: 'server stopping' })
   expect(hub.clientCount()).toBe(0)
 })
+
+test('usage.updated is delivered to clients without a seq', () => {
+  const socket = new FakeSocket()
+  hub.add(socket)
+
+  hub.broadcast({ type: 'usage.updated', usage: { accounts: [], chats: {} } })
+
+  const sent = JSON.parse(socket.sent[0] ?? '{}')
+  expect(sent.type).toBe('usage.updated')
+  expect(sent.usage).toEqual({ accounts: [], chats: {} })
+  expect('seq' in sent).toBe(false)
+})

@@ -6,7 +6,7 @@ import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRe
 import type { ChatSink } from '../chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushEvent } from './push.ts'
-import { clientSourceId, type Message, type PromptBodyView } from './protocol.ts'
+import { clientSourceId, type Message, type PromptBodyView, type ServerEvent, type UsageView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 
@@ -17,6 +17,7 @@ export class WebChannel implements Channel, ChatSink {
   private transcriptAttach: (sessionId: string) => void = () => {}
   private transcriptDetach: (sessionId: string) => void = () => {}
   private pushNotifier: ((event: PushEvent) => Promise<void>) | null = null
+  private usageBroadcaster: ((event: ServerEvent) => void) | null = null
 
   constructor(
     private readonly chatLog: ChatLog,
@@ -32,6 +33,16 @@ export class WebChannel implements Channel, ChatSink {
   /** Sets who is told about prompts, reminders and reports by push; null turns pushing off. */
   setPushNotifier(notify: ((event: PushEvent) => Promise<void>) | null): void {
     this.pushNotifier = notify
+  }
+
+  /** Sets where ephemeral events go (the Hub's broadcast); null drops them. */
+  setUsageBroadcaster(broadcast: ((event: ServerEvent) => void) | null): void {
+    this.usageBroadcaster = broadcast
+  }
+
+  /** Tells the web clients the usage changed. Ephemeral: it skips the ChatLog and carries no seq. */
+  usageChanged(usage: UsageView): void {
+    this.usageBroadcaster?.({ type: 'usage.updated', usage })
   }
 
   /** Starts the transcript reader when a Session's chat is linked, and stops it when the chat ends. */

@@ -37,8 +37,9 @@ function configFor(staticPath: string | null): WebConfig {
   }
 }
 
-function start(staticPath: string | null = staticDir): Running {
+function start(staticPath: string | null = staticDir, usage?: () => any): Running {
   running = startWebServer({
+    usage,
     config: configFor(staticPath),
     chatLog,
     api,
@@ -414,4 +415,14 @@ test('a failed Bun.serve leaves no subscription or timer', () => {
     subscribe.mockRestore()
     timer.mockRestore()
   }
+})
+
+test('a new client gets the current usage once, with no seq, after hello', async () => {
+  const usage = { accounts: [], chats: {} }
+  start(staticDir, () => usage)
+  const inbox = await connect(`/ws?after=${chatLog.currentSeq()}`)
+
+  expect((await inbox.next()).type).toBe('hello')
+  expect(await inbox.next()).toEqual({ type: 'usage.updated', usage })
+  inbox.socket.close()
 })

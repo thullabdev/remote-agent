@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { UsageView } from '../../core/usage-types.ts'
 
 // Wire shapes for the web channel: the ChatLog, the HTTP API and the browser UI share them (handoff §4-§5).
 
@@ -60,6 +61,9 @@ export type Message = { id: string; chatId: string; seq: number; at: number } & 
 
 export type PushSubscriptionRecord = { endpoint: string; keys: { p256dh: string; auth: string } }
 
+/** Re-exported so web code keeps importing the usage shape from the protocol. */
+export type { UsageView }
+
 export type ServerEvent =
   | { type: 'hello'; seq: number }
   | { type: 'message.created'; seq: number; message: Message }
@@ -68,6 +72,8 @@ export type ServerEvent =
   | { type: 'chat.cleared'; seq: number; chatId: string; beforeSeq: number }
   | { type: 'away.updated'; seq: number; away: boolean }
   | { type: 'resync' }
+  /** Ephemeral: usage is a current value, not history, so it carries no seq and never enters the ChatLog. */
+  | { type: 'usage.updated'; usage: UsageView }
 
 export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({

@@ -181,7 +181,7 @@ test('a Prompt posted by the mod appears over the WebSocket, an answer reaches t
 
   const replayed = second.frames.filter(frame => frame.type === 'message.created').map(frame => (frame.type === 'message.created' && frame.message.kind === 'prompt' ? frame.message.promptId : ''))
   expect(replayed).toEqual(['p:int2'])
-  expect(second.frames.every(frame => frame.type === 'hello' || ('seq' in frame && frame.seq > lastSeq))).toBe(true)
+  expect(second.frames.every(frame => frame.type === 'hello' || frame.type === 'usage.updated' || ('seq' in frame && frame.seq > lastSeq))).toBe(true)
   second.socket.close()
 })
 

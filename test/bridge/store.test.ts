@@ -148,3 +148,100 @@ test('resumeSpawnedSession reopens the existing session record and resets its ru
   })
   expect(store.resumeSpawnedSession('sp1', 'ra-sp1')).toBe(false)
 })
+
+const FAR = '2099-01-01T00:00:00.000Z'
+const FAR_MS = Date.parse(FAR)
+
+test('records usage and maps it to the session chat', () => {
+  store.setSessionChat('s1', 'chat-1')
+  const view = store.recordUsage('s1', { context: { tokens: 100, window: 1000, percent: 10 }, rateLimits: [] })
+  expect(view).toEqual({ measuredAt: 1_000, contextPercent: 10, contextTokens: 100, contextWindow: 1000, costUsd: null })
+  expect(store.usageForChats(clock).chats['chat-1']?.contextPercent).toBe(10)
+})
+
+test('usageForChats skips sessions without a chat', () => {
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [] })
+  expect(store.usageForChats(clock).chats).toEqual({})
+})
+
+test('a second report for the same session replaces the first', () => {
+  store.setSessionChat('s1', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [] })
+  clock = 2_000
+  store.recordUsage('s1', { context: { window: 1000, percent: 20 }, cost: { usd: 1.5 }, rateLimits: [] })
+  const chats = store.usageForChats(clock).chats
+  expect(Object.keys(chats)).toEqual(['chat-1'])
+  expect(chats['chat-1']).toEqual({ measuredAt: 2_000, contextPercent: 20, contextTokens: null, contextWindow: 1000, costUsd: 1.5 })
+})
+
+const five = (percentUsed: number, resetsAt = FAR) => ({ kind: 'five_hour', percentUsed, resetsAt })
+const FIVE = (usedPercent: number, resetsAtMs = FAR_MS) => ({ kind: 'five_hour', label: '5h', windowMinutes: 300, usedPercent, resetsAtMs })
+
+test('accounts come from the freshest reading that has live windows', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [five(42)] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [] })
+  expect(store.usageForChats(clock).accounts).toEqual([{ source: 'claude-code', windows: [FIVE(42)], measuredAt: 1_000 }])
+})
+
+test('accounts is empty when no reading has live windows', () => {
+  expect(store.usageForChats(clock).accounts).toEqual([])
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [five(42, '2000-01-01T00:00:00.000Z')] })
+  expect(store.usageForChats(Date.parse('2020-01-01T00:00:00.000Z')).accounts).toEqual([])
+})
+
+test('a reading for an unknown session is stored, counts for accounts, and is not in chats', () => {
+  const view = store.recordUsage('ghost', { context: { window: 1000, percent: 5 }, rateLimits: [five(1)] })
+  expect(view.contextPercent).toBe(5)
+  const usage = store.usageForChats(clock)
+  expect(usage.chats).toEqual({})
+  expect(usage.accounts).toEqual([{ source: 'claude-code', windows: [FIVE(1)], measuredAt: 1_000 }])
+})
+
+test('a new Store starts with no usage (usage is in memory only)', () => {
+  store.setSessionChat('s1', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [five(1)] })
+  const fresh = new Store(':memory:', () => clock)
+  expect(fresh.usageForChats(clock)).toEqual({ accounts: [], chats: {} })
+})
+
+test('when two sessions share a chat the newer reading wins', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.setSessionChat('s1', 'chat-1')
+  store.setSessionChat('s2', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000, percent: 30 }, rateLimits: [] })
+  expect(store.usageForChats(clock).chats['chat-1']?.contextPercent).toBe(30)
+})
+
+test('a source falls through a fresher reading with only expired windows to an older live one', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 7, resetsAt: FAR }] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [five(9, '1970-01-01T00:00:01.000Z')] })
+  expect(store.usageForChats(clock).accounts).toEqual([
+    { source: 'claude-code', windows: [{ kind: 'seven_day', label: '7d', windowMinutes: 10080, usedPercent: 7, resetsAtMs: FAR_MS }], measuredAt: 1_000 },
+  ])
+})
+
+test('each source has its own newest live reading, newest source first', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [five(10)] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [five(20)] }, 'codex')
+  clock = 3_000
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [five(30)] })
+  expect(store.usageForChats(clock).accounts).toEqual([
+    { source: 'claude-code', windows: [FIVE(30)], measuredAt: 3_000 },
+    { source: 'codex', windows: [FIVE(20)], measuredAt: 2_000 },
+  ])
+})
+
+test('fall-through is per source: a fresh codex reading does not hide older claude-code windows', () => {
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [five(10)] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [] }, 'codex')
+  expect(store.usageForChats(clock).accounts).toEqual([{ source: 'claude-code', windows: [FIVE(10)], measuredAt: 1_000 }])
+})

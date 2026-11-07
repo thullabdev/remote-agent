@@ -8,7 +8,8 @@
     "bridge": "bun run src/bridge/main.ts",
     "telegram:ids": "bun run scripts/telegram-ids.ts",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "icons": "bun run scripts/make-icons.ts"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
@@ -27,6 +28,7 @@
     "zod": "3"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.4",
     "@types/bun": "^1.4.2",

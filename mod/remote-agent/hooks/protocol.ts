@@ -32,6 +32,15 @@ export type ReportRequest = { session: SessionInfo; report: Report }
 /** The session's own name, as set with /rename or at start. */
 export type TitleRequest = { session: SessionInfo; title: string }
 
+/** One `session.measure` reading: the context window, the account's rate-limit windows and the session cost. */
+export type UsageReport = {
+  context: { tokens?: number; window: number; percent?: number }
+  rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]
+  cost?: { usd: number }
+}
+/** `source` names the agent the reading is from; the Bridge treats a missing one as 'claude-code'. */
+export type UsageRequest = { session: SessionInfo; source?: string; usage: UsageReport }
+
 export type Instruction = { id: string; sessionId: string; text: string }
 
 /** Marks a Permission Request that was answered in the terminal; the Answer's decision is then not meaningful. */
