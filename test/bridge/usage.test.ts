@@ -49,6 +49,18 @@ describe('accountLimits', () => {
     expect(limits[0]?.usedPercent).toBe(20)
   })
 
+  test('a later expired entry does not erase an earlier live one of the same kind', () => {
+    const limits = accountLimits(
+      [
+        { kind: 'five_hour', percentUsed: 20, resetsAt: '2026-11-07T14:00:00.000Z' },
+        { kind: 'five_hour', percentUsed: 90, resetsAt: '2026-11-07T09:00:00.000Z' },
+      ],
+      now,
+    )
+    expect(limits).toHaveLength(1)
+    expect(limits[0]?.usedPercent).toBe(20)
+  })
+
   test('a window resetting exactly now is dropped', () => {
     expect(accountLimits([{ kind: 'five_hour', percentUsed: 10, resetsAt: '2026-11-07T10:00:00.000Z' }], now)).toEqual([])
   })
