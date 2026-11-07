@@ -23,7 +23,7 @@ describe('device appearance preferences', () => {
 
     const invalid = createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'neon', palette: 'hotdog', accent: 'olive' }) })
     expect(readPreferences(invalid)).toEqual({ ...DEFAULT_PREFERENCES, accent: 'olive' })
-    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ enter: 'maybe' }) })).enter).toBe('send')
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ enter: 'maybe' }) })).enter).toBe('newline')
   })
 
   test('resolves system appearance without changing the saved preference', () => {

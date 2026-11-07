@@ -25,7 +25,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   glow: 'soft',
   density: 'comfortable',
   font: 'medium',
-  enter: 'send',
+  enter: 'newline',
 }
 
 const STORAGE_KEY = 'remote-agent.preferences.v1'
