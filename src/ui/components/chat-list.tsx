@@ -69,7 +69,7 @@ function SessionFilterTabs({ value, onSelect }: { value: SessionSourceFilter; on
   const hiddenActive = hidden.find(([source]) => source === value)
 
   return (
-    <div className="relative px-4 pb-2" role="group" aria-label="Filter sessions">
+    <div className="relative px-2 pt-3 pb-2" role="group" aria-label="Filter sessions">
       <div ref={rowRef} className="flex min-w-0 items-center gap-1">
         {visible.map(([source, label]) => (
           <Button
@@ -106,7 +106,7 @@ function SessionFilterTabs({ value, onSelect }: { value: SessionSourceFilter; on
         )}
       </div>
       {/* Off-screen copies of every tab, measured to decide how many fit. */}
-      <div aria-hidden="true" className="pointer-events-none invisible absolute left-4 top-0 flex gap-1 whitespace-nowrap">
+      <div aria-hidden="true" className="pointer-events-none invisible absolute left-2 top-0 flex gap-1 whitespace-nowrap">
         {SESSION_FILTERS.map(([source, label], index) => (
           <Button
             key={source}
@@ -325,9 +325,8 @@ export function ChatList({
         </Button>
       </header>
 
-      <SessionFilterTabs value={sourceFilter} onSelect={selectFilter} />
-
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <SessionFilterTabs value={sourceFilter} onSelect={selectFilter} />
         <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
           Chats <span className="ml-1 font-mono normal-case tracking-normal">{filteredChats.length}</span>
         </div>
