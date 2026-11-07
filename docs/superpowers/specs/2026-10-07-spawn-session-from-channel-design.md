@@ -1,5 +1,7 @@
 # Spawn a Session from the Channel — Design Spec
 
+> **Superseded (trusted folders):** Trusted folders are no longer only Claude Code's `hasTrustDialogAccepted` entries. They are the `REMOTE_AGENT_PROJECTS` entries plus every project key in `~/.claude.json`, matched exactly and without the trust check. See `README.md` and `CONTEXT.md`. Other decisions in this document still stand.
+
 Date: 2026-10-07 · Glossary: [`CONTEXT.md`](../../../CONTEXT.md) · Decision: [ADR-0003](../../adr/0003-spawned-sessions-in-tmux.md) · Builds on: [Remote Agent design](2026-10-06-remote-agent-design.md)
 
 ## Goal

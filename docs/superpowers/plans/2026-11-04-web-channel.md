@@ -1,5 +1,7 @@
 # Web Channel Implementation Plan
 
+> **Superseded (trusted folders):** Trusted folders are no longer only Claude Code's `hasTrustDialogAccepted` entries. They are the `REMOTE_AGENT_PROJECTS` entries plus every project key in `~/.claude.json`, matched exactly and without the trust check. See `README.md` and `CONTEXT.md`. Other decisions in this document still stand.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Telegram with a Web Channel: a Tailscale-only HTTP + WebSocket server inside the Bridge that stores and serves the complete chat of General and every Session, with answerable Prompts, Web Push and a documented UI contract.

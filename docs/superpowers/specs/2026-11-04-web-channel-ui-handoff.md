@@ -1,5 +1,7 @@
 # Web Channel — UI Handoff
 
+> **Superseded (trusted folders):** Trusted folders are no longer only Claude Code's `hasTrustDialogAccepted` entries. They are the `REMOTE_AGENT_PROJECTS` entries plus every project key in `~/.claude.json`, matched exactly and without the trust check. See `README.md` and `CONTEXT.md`. Other decisions in this document still stand.
+
 Date: 2026-11-04 · Status: matches implementation as of aa09f12, pairs with [Web Channel design](2026-11-04-web-channel-design.md) · Prototype: [`references/UI-prototype.html`](../../../references/UI-prototype.html)
 
 For the full API reference and a build-a-client walkthrough see [`docs/web-channel-developer-guide.md`](../../web-channel-developer-guide.md). This document is the contract between the Web Channel server and the chat UI. The UI is **not** built as part of the server work. Everything here is what a UI developer needs to build against, with no further questions. Shapes are TypeScript-style; the server validates with zod, and a shared `types.ts` should be published from `src/channel/web/protocol.ts`.
