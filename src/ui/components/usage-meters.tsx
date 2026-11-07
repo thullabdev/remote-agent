@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AccountUsageView, SessionUsageView } from '../../bridge/usage.ts'
-import { barWidth, formatContextText, formatLimitText, limitTone, type LimitWindow, type Tone } from '../usage-format.ts'
+import { barWidth, formatContextText, liveAccount, formatLimitText, limitTone, type LimitWindow, type Tone } from '../usage-format.ts'
 
 const BAR: Record<Tone, string> = { green: 'bg-emerald-500', yellow: 'bg-amber-500', red: 'bg-red-500' }
 const TEXT: Record<Tone, string> = {
@@ -28,13 +28,14 @@ function LimitRow({ label, window, limit, now, timeZone }: LimitRowProps) {
 }
 
 export function AccountUsageStrip({ account, now, timeZone, className = '' }: { account: AccountUsageView; now: number; timeZone?: string; className?: string }) {
-  if (account === null || (account.fiveHour === null && account.sevenDay === null)) {
+  const live = liveAccount(account, now)
+  if (live === null) {
     return null
   }
   return (
     <div className={`space-y-1 ${className}`} aria-label="Account usage limits">
-      <LimitRow label="5h" window="5h" limit={account.fiveHour} now={now} timeZone={timeZone} />
-      <LimitRow label="7d" window="7d" limit={account.sevenDay} now={now} timeZone={timeZone} />
+      <LimitRow label="5h" window="5h" limit={live.fiveHour} now={now} timeZone={timeZone} />
+      <LimitRow label="7d" window="7d" limit={live.sevenDay} now={now} timeZone={timeZone} />
     </div>
   )
 }

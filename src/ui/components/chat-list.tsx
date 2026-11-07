@@ -7,6 +7,7 @@ import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Input } from './ui/input.tsx'
+import { liveAccount } from '../usage-format.ts'
 import { AccountUsageStrip, useNow } from './usage-meters.tsx'
 
 type ChatListProps = {
@@ -329,7 +330,7 @@ export function ChatList({
         </Button>
       </header>
 
-      {usage.account !== null && (
+      {liveAccount(usage.account, now) !== null && (
         <AccountUsageStrip account={usage.account} now={now} className="shrink-0 border-b border-border/70 px-4 py-2" />
       )}
 

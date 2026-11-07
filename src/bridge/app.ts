@@ -129,7 +129,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         push,
         log,
       })
-      webServer = startWebServer({ config: web, chatLog, api, hub, log })
+      webServer = startWebServer({ config: web, chatLog, api, hub, usage: () => store.usageForChats(Date.now()), log })
     }
 
     // Bun.serve's unix option is typed without idleTimeout, but the runtime honours it.

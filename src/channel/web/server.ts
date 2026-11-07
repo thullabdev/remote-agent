@@ -6,7 +6,7 @@ import type { Log } from '../../bridge/prompts.ts'
 import { authorize } from './auth.ts'
 import type { ChatLog } from './chat-log.ts'
 import { closeQuietly, Hub } from './hub.ts'
-import { ClientEventSchema } from './protocol.ts'
+import { ClientEventSchema, type UsageView } from './protocol.ts'
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 const MAX_FRAME_BYTES = 16 * 1024 * 1024
@@ -21,6 +21,8 @@ export type WebServerDeps = {
   chatLog: ChatLog
   api: (request: Request) => Promise<Response | null>
   hub: Hub
+  /** Current usage, sent to each newly connected client only. */
+  usage?: () => UsageView
   log: Log
   port?: number
   idleMs?: number
@@ -166,6 +168,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
           ws.send(JSON.stringify({ type: 'hello', seq: chatLog.currentSeq() }))
           ws.data.id = hub.add(ws)
           hub.replay(ws.data.id, ws.data.after)
+          if (deps.usage !== undefined) {
+            // Ephemeral and seq-less: a reconnecting client gets the current value, not history.
+            ws.send(JSON.stringify({ type: 'usage.updated', usage: deps.usage() }))
+          }
         } catch (error) {
           log('web socket handshake failed', error)
           if (ws.data.id !== null) {

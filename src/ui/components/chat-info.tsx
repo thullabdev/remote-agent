@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from './ui/input.tsx'
 import { Separator } from './ui/separator.tsx'
 import { AccountUsageStrip, useNow } from './usage-meters.tsx'
-import { formatContextText } from '../usage-format.ts'
+import { formatContextText, liveAccount } from '../usage-format.ts'
 
 type ChatInfoProps = {
   chat: Chat
@@ -27,6 +27,7 @@ type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
 export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume }: ChatInfoProps) {
   const now = useNow()
+  const liveLimits = liveAccount(usage.account, now)
   const sessionUsage = usage.chats[chat.id]
   const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
   const [confirm, setConfirm] = useState<Action | null>(null)
@@ -140,10 +141,10 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                 </div>
               </div>
             )}
-            {usage.account !== null && (
+            {liveLimits !== null && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Account limits</p>
-                <AccountUsageStrip account={usage.account} now={now} className="mt-1" />
+                <AccountUsageStrip account={liveLimits} now={now} className="mt-1" />
               </div>
             )}
             {chat.tmuxName && (

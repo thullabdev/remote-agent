@@ -1,4 +1,4 @@
-import type { LimitView, SessionUsageView } from '../bridge/usage.ts'
+import type { AccountUsageView, LimitView, SessionUsageView } from '../bridge/usage.ts'
 
 export type LimitWindow = '5h' | '7d'
 export type Tone = 'green' | 'yellow' | 'red'
@@ -60,4 +60,17 @@ export function limitTone(percent: number): Tone {
 
 export function barWidth(percent: number): number {
   return Math.min(100, Math.max(0, Math.round(percent)))
+}
+
+// A window whose reset time has passed is stale: treat it as absent. Null when neither window is live.
+export function liveAccount(account: AccountUsageView, now: number): NonNullable<AccountUsageView> | null {
+  if (account === null) {
+    return null
+  }
+  const fiveHour = account.fiveHour !== null && account.fiveHour.resetsAtMs > now ? account.fiveHour : null
+  const sevenDay = account.sevenDay !== null && account.sevenDay.resetsAtMs > now ? account.sevenDay : null
+  if (fiveHour === null && sevenDay === null) {
+    return null
+  }
+  return { ...account, fiveHour, sevenDay }
 }

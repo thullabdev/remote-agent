@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { liveAccount } from '../../src/ui/usage-format.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountUsageStrip, ContextPill } from '../../src/ui/components/usage-meters.tsx'
@@ -24,4 +26,19 @@ test('context pill hidden when percent is null', () => {
   expect(renderToStaticMarkup(createElement(ContextPill, { view }))).toContain('ctx 42%')
   expect(renderToStaticMarkup(createElement(ContextPill, { view: { ...view, contextPercent: null } }))).toBe('')
   expect(renderToStaticMarkup(createElement(ContextPill, { view: undefined }))).toBe('')
+})
+
+test('expired windows are hidden; strip empty when both are gone', () => {
+  const later = now + 30 * 3_600_000
+  expect(renderToStaticMarkup(createElement(AccountUsageStrip, { account, now: later, timeZone: 'UTC' }))).toBe('')
+  const half = renderToStaticMarkup(createElement(AccountUsageStrip, { account, now: now + 5 * 3_600_000, timeZone: 'UTC' }))
+  expect(half).not.toContain('5h')
+  expect(half).toContain('7d')
+  expect(liveAccount(account, later)).toBeNull()
+})
+
+test('info section uses the same liveness test', () => {
+  const info = readFileSync('src/ui/components/chat-info.tsx', 'utf8')
+  expect(info).toContain('liveAccount(usage.account, now)')
+  expect(info).toContain('liveLimits !== null')
 })
