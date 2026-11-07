@@ -30,21 +30,31 @@ function fakeEngine(fetch: (url: string, init: any) => Promise<unknown>) {
   } as never
 }
 
+// The handler is not checked against the real SessionMeasureInput type: register.ts is outside typecheck,
+// so e.context, e.rateLimits and e.cost are only as right as these fixtures.
 describe('session.measure', () => {
-  test('posts the event figures to the bridge /usage and passes the event on', async () => {
+  test('posts the event figures to the bridge /usage after next, and passes the result on', async () => {
     const posts: { url: string; body: any }[] = []
+    let resolvePost: () => void = () => undefined
+    const posted = new Promise<void>(resolve => {
+      resolvePost = resolve
+    })
     const $ = fakeEngine(async (url, init) => {
       posts.push({ url, body: JSON.parse(init.body) })
+      resolvePost()
       return { status: 202, text: '' }
     })
     let nextCalls = 0
+    let postsDuringNext = -1
     const next = async (e: unknown) => {
       nextCalls += 1
+      postsDuringNext = posts.length
       return e
     }
-    await measureHandler()($, event, next)
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(measureHandler()($, event, next)).resolves.toBe(event)
+    await posted
     expect(nextCalls).toBe(1)
+    expect(postsDuringNext).toBe(0)
     expect(posts).toHaveLength(1)
     expect(posts[0]!.url).toBe('http://bridge/usage')
     expect(posts[0]!.body).toEqual({
@@ -54,7 +64,12 @@ describe('session.measure', () => {
   })
 
   test('a failing bridge post is swallowed and next is still called once', async () => {
+    let signalCalled: () => void = () => undefined
+    const called = new Promise<void>(resolve => {
+      signalCalled = resolve
+    })
     const $ = fakeEngine(async () => {
+      signalCalled()
       throw new Error('ECONNREFUSED')
     })
     let nextCalls = 0
@@ -63,7 +78,7 @@ describe('session.measure', () => {
       return e
     }
     await expect(measureHandler()($, event, next)).resolves.toBe(event)
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await called
     expect(nextCalls).toBe(1)
   })
 
