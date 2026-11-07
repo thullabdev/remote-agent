@@ -1,15 +1,18 @@
 import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
-import type { Chat } from '../../channel/web/protocol.ts'
+import type { Chat, UsageView } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
 import { Input } from './ui/input.tsx'
 import { Separator } from './ui/separator.tsx'
+import { AccountUsageStrip, useNow } from './usage-meters.tsx'
+import { formatContextText } from '../usage-format.ts'
 
 type ChatInfoProps = {
   chat: Chat
   messageCount: number
+  usage: UsageView
   onClose(): void
   onEnd(): Promise<void>
   onArchive(): Promise<void>
@@ -22,7 +25,10 @@ type ChatInfoProps = {
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume }: ChatInfoProps) {
+  const now = useNow()
+  const sessionUsage = usage.chats[chat.id]
+  const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
   const [confirm, setConfirm] = useState<Action | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState('')
@@ -120,6 +126,26 @@ export function ChatInfo({ chat, messageCount, onClose, onEnd, onArchive, onUnar
               </div>
             </div>
             <InfoRow label="Messages" value={String(messageCount)} />
+            {sessionUsage !== undefined && (contextText !== null || sessionUsage.costUsd !== null) && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Usage</p>
+                <div className="mt-1 space-y-1 text-sm">
+                  {contextText !== null && (
+                    <p>
+                      Context {contextText.replace('ctx ', '')}
+                      {sessionUsage.contextTokens !== null && ` · ${sessionUsage.contextTokens.toLocaleString('en-US')} / ${sessionUsage.contextWindow.toLocaleString('en-US')} tokens`}
+                    </p>
+                  )}
+                  {sessionUsage.costUsd !== null && <p>Cost ${sessionUsage.costUsd.toFixed(2)}</p>}
+                </div>
+              </div>
+            )}
+            {usage.account !== null && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Account limits</p>
+                <AccountUsageStrip account={usage.account} now={now} className="mt-1" />
+              </div>
+            )}
             {chat.tmuxName && (
               <div className="rounded-2xl border border-border bg-card p-3">
                 <p className="text-xs font-medium">Attach from a terminal</p>

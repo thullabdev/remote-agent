@@ -1,9 +1,11 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react'
 import type { Chat } from '../../channel/web/protocol.ts'
+import type { SessionUsageView } from '../../bridge/usage.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
+import { ContextPill } from './usage-meters.tsx'
 
 type ChatHeaderProps = {
   chat: Chat
@@ -11,6 +13,7 @@ type ChatHeaderProps = {
   onBack(): void
   onInfo(): void
   infoOpen: boolean
+  usage?: SessionUsageView
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -28,7 +31,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: ChatHeaderProps) {
   return (
     <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/80 bg-background/85 px-2 backdrop-blur md:px-4">
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
@@ -48,6 +51,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen }: ChatHeade
           </span>
         </div>
       </div>
+      <ContextPill view={usage} />
       {chat.busy && (
         <Badge className="hidden border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 sm:inline-flex">
           <Radio className="size-3" aria-hidden="true" /> Active

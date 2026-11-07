@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, Message, ServerEvent } from '../../src/channel/web/protocol.ts'
 import { applyServerEvent, createRealtimeState, mergeHistory } from '../../src/ui/realtime.ts'
+import { parseServerEvent } from '../../src/ui/use-web-channel.ts'
+import type { UsageView } from '../../src/channel/web/protocol.ts'
+
+const noUsage: UsageView = { account: null, chats: {} }
 
 const general: Chat = {
   id: 'general',
@@ -21,7 +25,7 @@ const first: Message = { id: 'm_1', chatId: 'general', seq: 1, at: 10, kind: 'ag
 
 describe('Web Channel event state', () => {
   test('applies each event once and replaces updated messages by id', () => {
-    const initial = createRealtimeState({ seq: 2, away: true, chats: [general] })
+    const initial = createRealtimeState({ seq: 2, away: true, chats: [general], usage: noUsage })
     const created: ServerEvent = { type: 'message.created', seq: 3, message: first }
     const answered: Message = { ...first, kind: 'agent_text', markdown: 'complete' }
     const updated: ServerEvent = { type: 'message.updated', seq: 4, message: answered }
@@ -37,7 +41,7 @@ describe('Web Channel event state', () => {
 
   test('a clear event removes only messages at or before the server cutoff', () => {
     const withMessages = {
-      ...createRealtimeState({ seq: 5, away: false, chats: [general] }),
+      ...createRealtimeState({ seq: 5, away: false, chats: [general], usage: noUsage }),
       loadedChats: new Set(['general']),
       messages: {
         general: [
@@ -54,7 +58,7 @@ describe('Web Channel event state', () => {
   })
 
   test('a history request racing with clear cannot restore hidden messages', () => {
-    const initial = createRealtimeState({ seq: 5, away: false, chats: [general] })
+    const initial = createRealtimeState({ seq: 5, away: false, chats: [general], usage: noUsage })
     const cleared = applyServerEvent(initial, { type: 'chat.cleared', seq: 6, chatId: 'general', beforeSeq: 2 })
     const lateHistory = mergeHistory(cleared, 'general', { messages: [first, { ...first, seq: 3 }], hasMore: false })
 
@@ -63,7 +67,7 @@ describe('Web Channel event state', () => {
 
   test('keeps the Bridge ordering when a chat receives an update', () => {
     const second: Chat = { ...general, id: 'c_2', title: 'Second', pinned: false, lastMessage: { seq: 1, at: 100, preview: 'new' } }
-    const initial = createRealtimeState({ seq: 1, away: false, chats: [general, second] })
+    const initial = createRealtimeState({ seq: 1, away: false, chats: [general, second], usage: noUsage })
 
     const moved = applyServerEvent(initial, {
       type: 'chat.updated',
@@ -72,5 +76,27 @@ describe('Web Channel event state', () => {
     })
 
     expect(moved.chats.map(chat => chat.id)).toEqual(['general', 'c_2'])
+  })
+})
+
+describe('usage.updated', () => {
+  const usage: UsageView = {
+    account: { fiveHour: { usedPercent: 2, resetsAtMs: 1000 }, sevenDay: null, measuredAt: 5 },
+    chats: {},
+  }
+
+  test('parses a seq-less usage.updated line and stores it without moving eventSeq', () => {
+    const event = parseServerEvent(JSON.stringify({ type: 'usage.updated', usage }))
+    expect(event).toEqual({ type: 'usage.updated', usage })
+    const initial = createRealtimeState({ seq: 7, away: false, chats: [general], usage: noUsage })
+    const next = applyServerEvent(initial, event!)
+    expect(next.usage).toEqual(usage)
+    expect(next.eventSeq).toBe(7)
+  })
+
+  test('rejects malformed usage and still rejects a seq-less message.created', () => {
+    expect(parseServerEvent(JSON.stringify({ type: 'usage.updated', usage: { account: null } }))).toBeNull()
+    expect(parseServerEvent(JSON.stringify({ type: 'usage.updated' }))).toBeNull()
+    expect(parseServerEvent(JSON.stringify({ type: 'message.created', message: first }))).toBeNull()
   })
 })

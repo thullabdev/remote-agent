@@ -1,6 +1,6 @@
-import type { Chat, Message, PushSubscriptionRecord } from '../channel/web/protocol.ts'
+import type { Chat, Message, PushSubscriptionRecord, UsageView } from '../channel/web/protocol.ts'
 
-export type WebState = { seq: number; away: boolean; chats: Chat[] }
+export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
 export type Project = { label: string; cwd: string }
 
