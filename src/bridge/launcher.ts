@@ -33,14 +33,23 @@ function failure(result: RunResult): LaunchError {
 /** Ids come from Claude Code and the Bridge, but a leading dash would let one be read as a flag. */
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
+/** Whether systemd-run is installed. Without it (macOS, or Linux without systemd) there is no scope to put tmux in. */
+export function systemdRunAvailable(): boolean {
+  return Bun.which('systemd-run') !== null
+}
+
 /** Every tmux and systemd-run call a Spawned Session needs. The agent program comes from the adapter. */
 export class Launcher {
   constructor(
     private readonly run: Run = runCommand,
     private readonly agent: AgentAdapter = claudeCodeAdapter,
+    private readonly hasSystemdRun: () => boolean = systemdRunAvailable,
   ) {}
 
-  /** The scope keeps tmux (and the agent) outside the Bridge service's cgroup, so restarting the Bridge does not kill them. */
+  /**
+   * With systemd-run, the scope keeps tmux (and the agent) outside the Bridge service's cgroup, so restarting the Bridge
+   * does not kill them. Without it, tmux is started directly: its server daemonizes, so it outlives the Bridge too.
+   */
   async launch(spec: LaunchSpec): Promise<{ tmuxName: string }> {
     if (!SAFE_ID.test(spec.sessionId)) {
       throw new LaunchError(`refusing to launch: session id "${spec.sessionId}" is not a safe id`)
@@ -49,9 +58,10 @@ export class Launcher {
       throw new LaunchError(`refusing to launch: resume id "${spec.resumeFrom}" is not a safe id`)
     }
     const tmuxName = tmuxNameFor(spec.sessionId)
+    const scope = this.hasSystemdRun() ? ['systemd-run', '--user', '--scope', '--quiet', '--collect'] : []
     const result = await this.run([
       'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
-      'systemd-run', '--user', '--scope', '--quiet', '--collect',
+      ...scope,
       'tmux', 'new-session', '-d', '-s', tmuxName, '-c', spec.cwd,
       ...this.agent.launchArgv(spec),
     ])

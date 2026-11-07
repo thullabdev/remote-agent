@@ -8,7 +8,7 @@ let launcher: Launcher
 
 beforeEach(() => {
   tmux = new FakeTmux()
-  launcher = new Launcher(tmux.run)
+  launcher = new Launcher(tmux.run, undefined, () => true)
 })
 
 test('tmux names use the first 8 characters of the session id', () => {
@@ -23,6 +23,17 @@ test('launch runs claude in a detached tmux session in its own systemd scope', a
     'tmux', 'new-session', '-d', '-s', 'ra-3f2a9c1b', '-c', '/home/u/Sites/My Projects/app',
     'claude', '--session-id', id,
   ])
+})
+
+test('without systemd-run, launch starts tmux directly and still clears the Telegram variables', async () => {
+  const withoutSystemd = new Launcher(tmux.run, undefined, () => false)
+  expect(await withoutSystemd.launch({ sessionId: id, cwd: '/home/u/app' })).toEqual({ tmuxName: 'ra-3f2a9c1b' })
+  expect(tmux.calls[0]).toEqual([
+    'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
+    'tmux', 'new-session', '-d', '-s', 'ra-3f2a9c1b', '-c', '/home/u/app',
+    'claude', '--session-id', id,
+  ])
+  expect(tmux.calls[0]).not.toContain('systemd-run')
 })
 
 test('launch passes --model to claude when a model is given', async () => {
