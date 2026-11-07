@@ -4,6 +4,7 @@ import type { ButtonData, PromptView } from '../../../src/channel/types.ts'
 import { AwayMode, Notifier } from '../../../src/bridge/notifier.ts'
 import { Store } from '../../../src/bridge/store.ts'
 import { ChatLog } from '../../../src/channel/web/chat-log.ts'
+import type { ServerEvent } from '../../../src/channel/web/protocol.ts'
 import { PushService, type PushEvent } from '../../../src/channel/web/push.ts'
 import { WebChannel } from '../../../src/channel/web/web-channel.ts'
 
@@ -649,4 +650,19 @@ test('a report that creates the chat also attaches the transcript reader', () =>
 
   expect(attached).toContain(webSession.sessionId)
   expect(store.getSession(webSession.sessionId)?.chatId).not.toBeNull()
+})
+
+test('usageChanged broadcasts an ephemeral usage.updated event without touching the chat log', () => {
+  const sent: ServerEvent[] = []
+  channel.setUsageBroadcaster(event => sent.push(event))
+  const seqBefore = chatLog.currentSeq()
+
+  channel.usageChanged({ account: null, chats: {} })
+
+  expect(sent).toEqual([{ type: 'usage.updated', usage: { account: null, chats: {} } }])
+  expect(chatLog.currentSeq()).toBe(seqBefore)
+})
+
+test('usageChanged without a broadcaster does nothing', () => {
+  expect(() => channel.usageChanged({ account: null, chats: {} })).not.toThrow()
 })

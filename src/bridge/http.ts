@@ -4,6 +4,7 @@ import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
 import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema, UsageRequestSchema } from './schemas.ts'
+import type { UsageView } from '../channel/web/protocol.ts'
 import type { Store } from './store.ts'
 
 /** Told about every mod request that names a Session; a Spawned Session counts as started on the first one. */
@@ -16,7 +17,7 @@ export type HttpDeps = {
   log: Log
   activity?: SessionActivity
   /** Called after each recorded usage report with the fresh account and per-chat view. */
-  onUsage?: (view: ReturnType<Store['usageForChats']>) => void
+  onUsage?: (view: UsageView) => void
 }
 
 function sessionSeen(deps: HttpDeps, sessionId: string): void {

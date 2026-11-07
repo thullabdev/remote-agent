@@ -9,7 +9,7 @@ import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushService } from './push.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord } from './protocol.ts'
+import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UsageView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -24,6 +24,8 @@ export type ApiDeps = {
   away: AwayMode
   spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
   sink: Pick<ChatSink, 'instructionQueued'>
+  /** The current account and per-chat usage, read fresh for each state request. */
+  usage: () => UsageView
   /** The folders Claude Code marks as trusted. Absent when project listing is not configured; the routes then answer 404. */
   projects?: () => Promise<Project[]>
   /** Absent when push is not configured; the push routes then answer 404. */
@@ -208,6 +210,7 @@ function state(deps: ApiDeps): unknown {
     seq: deps.chatLog.currentSeq(),
     away: deps.away.isAway(),
     chats: deps.chatLog.listChats().sort(byRecency),
+    usage: deps.usage(),
   }
 }
 

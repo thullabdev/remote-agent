@@ -60,7 +60,7 @@ export function mergeHistory(state: RealtimeState, chatId: string, page: { messa
 }
 
 export function applyServerEvent(state: RealtimeState, event: ServerEvent): RealtimeState {
-  if (event.type === 'hello' || event.type === 'resync' || event.seq <= state.eventSeq) {
+  if (event.type === 'hello' || event.type === 'resync' || event.type === 'usage.updated' || event.seq <= state.eventSeq) {
     return state
   }
 

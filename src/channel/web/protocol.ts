@@ -71,6 +71,8 @@ export type ServerEvent =
   | { type: 'chat.cleared'; seq: number; chatId: string; beforeSeq: number }
   | { type: 'away.updated'; seq: number; away: boolean }
   | { type: 'resync' }
+  /** Ephemeral: usage is a current value, not history, so it carries no seq and never enters the ChatLog. */
+  | { type: 'usage.updated'; usage: UsageView }
 
 export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({
