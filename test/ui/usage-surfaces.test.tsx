@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
 import { liveAccount } from '../../src/ui/usage-format.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { AccountUsageStrip, ContextPill } from '../../src/ui/components/usage-meters.tsx'
+import { UsageButton, UsagePanel } from '../../src/ui/components/usage-panel.tsx'
+import { AccountLimitsSection, AccountUsageStrip, ContextPill } from '../../src/ui/components/usage-meters.tsx'
 
 const now = Date.UTC(2026, 10, 9, 10, 0, 0)
 const account = {
@@ -37,8 +37,62 @@ test('expired windows are hidden; strip empty when both are gone', () => {
   expect(liveAccount(account, later)).toBeNull()
 })
 
-test('info section uses the same liveness test', () => {
-  const info = readFileSync('src/ui/components/chat-info.tsx', 'utf8')
-  expect(info).toContain('liveAccount(usage.account, now)')
-  expect(info).toContain('liveLimits !== null')
+test('account limits section shows an empty state without live data, and the strip with it', () => {
+  const empty = renderToStaticMarkup(createElement(AccountLimitsSection, { account: null, now, timeZone: 'UTC' }))
+  expect(empty).toContain('Account limits')
+  expect(empty).toContain('No limit data yet. It appears after a session&#x27;s next turn.')
+  const expired = renderToStaticMarkup(createElement(AccountLimitsSection, { account, now: now + 30 * 3_600_000, timeZone: 'UTC' }))
+  expect(expired).toContain('No limit data yet')
+  const live = renderToStaticMarkup(createElement(AccountLimitsSection, { account, now, timeZone: 'UTC' }))
+  expect(live).toContain('Account limits')
+  expect(live).toContain('2% · resets 14:00 (in 4h 0m)')
+  expect(live).not.toContain('No limit data yet')
+})
+
+const session = { measuredAt: now - 120_000, contextPercent: 2.5, contextTokens: 25230, contextWindow: 1_000_000, costUsd: 0 }
+
+test('usage button is collapsed by default and wired to the panel', () => {
+  const html = renderToStaticMarkup(createElement(UsageButton, { open: false, onToggle: () => {} }))
+  expect(html).toContain('Usage')
+  expect(html).toContain('aria-expanded="false"')
+  expect(html).toContain('aria-controls="chat-usage-panel"')
+  expect(renderToStaticMarkup(createElement(UsageButton, { open: true, onToggle: () => {} }))).toContain('aria-expanded="true"')
+})
+
+test('usage panel renders nothing when closed', () => {
+  const html = renderToStaticMarkup(createElement(UsagePanel, { open: false, account, session, now, timeZone: 'UTC' }))
+  expect(html).toBe('')
+})
+
+test('open usage panel shows windows, percentages, local reset times, context and cost', () => {
+  const html = renderToStaticMarkup(createElement(UsagePanel, { open: true, account: { ...account, measuredAt: now - 120_000 }, session, now, timeZone: 'UTC' }))
+  expect(html).toContain('id="chat-usage-panel"')
+  expect(html).toContain('>5h<')
+  expect(html).toContain('>7d<')
+  expect(html).toContain('2%')
+  expect(html).toContain('85%')
+  expect(html).toContain('Resets today 14:00')
+  expect(html).toContain('Resets Tue 14:00')
+  expect(html).toContain('in 4h 0m')
+  expect(html).toContain('Updated 2m ago')
+  expect(html).toContain('bg-emerald-500')
+  expect(html).toContain('bg-red-500')
+  expect(html).toContain('>Context<')
+  expect(html).toContain('3%')
+  expect(html).toContain('25,230 / 1,000,000 tokens')
+  expect(html).toContain('Session cost $0.00')
+})
+
+test('usage panel omits context and cost rows when unknown', () => {
+  const bare = { ...session, contextPercent: null, contextTokens: null, costUsd: null }
+  const html = renderToStaticMarkup(createElement(UsagePanel, { open: true, account, session: bare, now, timeZone: 'UTC' }))
+  expect(html).not.toContain('Context')
+  expect(html).not.toContain('Session cost')
+  expect(html).toContain('>5h<')
+})
+
+test('usage panel shows an empty state when there is nothing to show', () => {
+  const html = renderToStaticMarkup(createElement(UsagePanel, { open: true, account: null, session: undefined, now, timeZone: 'UTC' }))
+  expect(html).toContain('No usage reported yet.')
+  expect(html).not.toContain('Updated')
 })

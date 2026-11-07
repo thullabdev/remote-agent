@@ -23,6 +23,7 @@ describe('chat composer surface', () => {
   test('preserves the rounded input wrapper without a focus border or ring', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
       chat,
+      usage: { account: null, chats: {} },
       sending: false,
       onSend: async () => {},
       onResume: async () => {},
@@ -31,6 +32,8 @@ describe('chat composer surface', () => {
     expect(markup).toContain('chat-composer-dock')
     expect(markup).toContain('rounded-3xl border border-border bg-card')
     expect(markup).toContain('chat-composer-input')
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).not.toContain('id="chat-usage-panel"')
     expect(markup).not.toContain('focus-within:ring')
     expect(markup).not.toContain('focus-within:border')
   })

@@ -74,3 +74,15 @@ export function liveAccount(account: AccountUsageView, now: number): NonNullable
   }
   return { ...account, fiveHour, sevenDay }
 }
+
+// "today 14:00" when the reset falls on the same calendar day as `now`, otherwise "Tue 08:00".
+// Days are compared in `timeZone` (default: the browser's local zone).
+export function formatResetLocal(resetsAtMs: number, now: number, timeZone?: string): string {
+  const dayKey = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone })
+  const clock = new Date(resetsAtMs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone })
+  if (dayKey(resetsAtMs) === dayKey(now)) {
+    return `today ${clock}`
+  }
+  const weekday = new Date(resetsAtMs).toLocaleDateString('en-US', { weekday: 'short', timeZone })
+  return `${weekday} ${clock}`
+}

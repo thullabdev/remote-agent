@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import type { AccountUsageView, SessionUsageView } from '../../bridge/usage.ts'
 import { barWidth, formatContextText, liveAccount, formatLimitText, limitTone, type LimitWindow, type Tone } from '../usage-format.ts'
 
-const BAR: Record<Tone, string> = { green: 'bg-emerald-500', yellow: 'bg-amber-500', red: 'bg-red-500' }
-const TEXT: Record<Tone, string> = {
+export const BAR: Record<Tone, string> = { green: 'bg-emerald-500', yellow: 'bg-amber-500', red: 'bg-red-500' }
+export const TEXT: Record<Tone, string> = {
   green: 'text-emerald-700 dark:text-emerald-300',
   yellow: 'text-amber-700 dark:text-amber-300',
   red: 'text-red-700 dark:text-red-300',
@@ -36,6 +36,21 @@ export function AccountUsageStrip({ account, now, timeZone, className = '' }: { 
     <div className={`space-y-1 ${className}`} aria-label="Account usage limits">
       <LimitRow label="5h" window="5h" limit={live.fiveHour} now={now} timeZone={timeZone} />
       <LimitRow label="7d" window="7d" limit={live.sevenDay} now={now} timeZone={timeZone} />
+    </div>
+  )
+}
+
+// The details-panel section: always rendered, with a muted empty state when no window is live.
+export function AccountLimitsSection({ account, now, timeZone }: { account: AccountUsageView; now: number; timeZone?: string }) {
+  const live = liveAccount(account, now)
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Account limits</p>
+      {live === null ? (
+        <p className="mt-1 text-xs text-muted-foreground">No limit data yet. It appears after a session&apos;s next turn.</p>
+      ) : (
+        <AccountUsageStrip account={live} now={now} timeZone={timeZone} className="mt-1" />
+      )}
     </div>
   )
 }

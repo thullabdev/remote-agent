@@ -365,6 +365,7 @@ export function App() {
                 />
                 <ChatComposer
                   chat={activeChat}
+                  usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   onSend={text => sendMessage(activeChat, text)}
                   onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}

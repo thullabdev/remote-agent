@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { barWidth, formatContextText, formatDuration, formatLimitText, limitTone } from '../../src/ui/usage-format.ts'
+import { barWidth, formatContextText, formatDuration, formatLimitText, formatResetLocal, limitTone } from '../../src/ui/usage-format.ts'
 
 const now = Date.UTC(2026, 10, 9, 10, 0, 0) // Mon 10:00 UTC
 const hour = 3_600_000
@@ -39,4 +39,18 @@ test('barWidth clamps to 0..100', () => {
   expect(barWidth(-5)).toBe(0)
   expect(barWidth(42.6)).toBe(43)
   expect(barWidth(140)).toBe(100)
+})
+
+test('formatResetLocal: same local day reads "today", pinned zone', () => {
+  expect(formatResetLocal(now + 4 * hour, now, 'UTC')).toBe('today 14:00')
+})
+
+test('formatResetLocal: later day reads weekday and clock', () => {
+  expect(formatResetLocal(now + 22 * hour, now, 'UTC')).toBe('Tue 08:00')
+})
+
+test('formatResetLocal: calendar day is compared in the pinned zone', () => {
+  // 10:00 UTC is 17:00 Jakarta; +8h is 01:00 next day in Jakarta but still same day in UTC.
+  expect(formatResetLocal(now + 8 * hour, now, 'UTC')).toBe('today 18:00')
+  expect(formatResetLocal(now + 8 * hour, now, 'Asia/Jakarta')).toBe('Tue 01:00')
 })

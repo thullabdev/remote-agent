@@ -1,20 +1,25 @@
 import { RotateCcw, Send } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { Chat } from '../../channel/web/protocol.ts'
+import type { Chat, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { Button } from './ui/button.tsx'
+import { UsageButton, UsagePanel } from './usage-panel.tsx'
+import { useNow } from './usage-meters.tsx'
 
 type ChatComposerProps = {
   chat: Chat
+  usage: UsageView
   sending: boolean
   onSend(text: string): Promise<void>
   onResume(): Promise<void>
 }
 
-export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerProps) {
+export function ChatComposer({ chat, usage, sending, onSend, onResume }: ChatComposerProps) {
   const [text, setText] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
+  const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
@@ -132,6 +137,10 @@ export function ChatComposer({ chat, sending, onSend, onResume }: ChatComposerPr
           ))}
         </div>
       )}
+      <div className="mx-auto mb-1.5 flex max-w-4xl justify-end">
+        <UsageButton open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
+      </div>
+      <UsagePanel open={usageOpen} account={usage.account} session={usage.chats[chat.id]} now={now} />
       <form onSubmit={submit} className="mx-auto max-w-4xl">
         <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
