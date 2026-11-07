@@ -57,7 +57,7 @@ export function SettingsDialog({ open, preferences, push, pushBusy, away, onPref
               onClick={onAwayToggle}
               className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${away ? 'bg-primary' : 'bg-muted'}`}
             >
-              <span className={`absolute top-0.5 size-5 rounded-full bg-background shadow-sm transition-transform ${away ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-background shadow-sm transition-transform ${away ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </section>
           <SettingSegments label="Theme" value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
