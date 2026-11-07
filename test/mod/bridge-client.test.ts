@@ -49,3 +49,11 @@ test('settled posts the scope to the session', async () => {
   expect(calls[0]).toMatchObject({ path: '/sessions/s%201/settled', method: 'POST' })
   expect(JSON.parse(calls[0]!.body!)).toEqual({ scope: { kind: 'all' } })
 })
+
+test('usage posts the request to /usage', async () => {
+  const { calls, client } = recording([{ status: 202, text: '' }])
+  await client.usage({ session: { sessionId: 's1', cwd: '/p' }, usage: { context: { window: 1000 }, rateLimits: [] } })
+  expect(calls[0]?.path).toBe('/usage')
+  expect(calls[0]?.method).toBe('POST')
+  expect(JSON.parse(calls[0]!.body!)).toEqual({ session: { sessionId: 's1', cwd: '/p' }, usage: { context: { window: 1000 }, rateLimits: [] } })
+})
