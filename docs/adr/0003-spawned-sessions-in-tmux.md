@@ -12,4 +12,4 @@ Extends [ADR-0001](0001-mod-as-session-client.md). When the user starts a Sessio
 
 - tmux is a new runtime dependency (only for `/new`; everything else works without it).
 - The service's `PATH` must include `claude`, `bun` and `tmux`.
-- Only directories that are trusted in Claude Code are allowed, which also guarantees the spawned `claude` never stops at the trust dialog where nobody can answer it.
+- Only directories listed in `REMOTE_AGENT_PROJECTS` or as project keys in Claude Code's config are allowed. The check does not require Claude Code's trust acceptance, so a spawned `claude` can stop at the trust dialog for a folder that was never accepted; the Session's last screen is posted and it is stopped after the startup timeout.

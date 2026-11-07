@@ -165,7 +165,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/end` | End a Session the Bridge started. |
 | `POST /chats/:id/clear` | Hide a chat's history on all devices. |
 | `POST /chats/:id/fork` | Resume a Session into a new one. |
-| `GET /projects` | Trusted project folders. |
+| `GET /projects` | Folders a Session may start in. |
 | `POST /projects/start` | Start a Session in a project. |
 | `PUT /away` | Set Away mode. |
 | `GET /push/key` | VAPID public key. |
@@ -219,12 +219,12 @@ No body. `200 { ok: true }`. Emits `chat.cleared` and `chat.updated`. It hides h
 
 ### POST /chats/:id/fork
 
-No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer marked trusted in Claude Code's config. Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
+No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer allowed (not in `REMOTE_AGENT_PROJECTS` or Claude Code's project keys). Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
 
 ### GET /projects and POST /projects/start
 
-`GET` → `200 { projects: { label: string, cwd: string }[] }`: existing folders whose `projects` entry in `~/.claude.json` has `hasTrustDialogAccepted: true`. `CLAUDE_CONFIG_PATH` can override the config location.
-`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409` with the `Not a trusted folder…` text. A folder is trusted exactly when Claude Code marks it trusted in `.claude.json`; there is no way to add or create one from the API.
+`GET` → `200 { projects: { label: string, cwd: string }[] }`: existing folders from `REMOTE_AGENT_PROJECTS` and from the `projects` keys in `~/.claude.json`, each listed once. `hasTrustDialogAccepted` is not checked. `CLAUDE_CONFIG_PATH` can override the config location.
+`POST` body `{ cwd: string, model?: string }`: `cwd` must start with `/` or `~`; `model` is one word (`opus`, `sonnet`, `haiku`, `opusplan` or a full model id). `200 { toast }`. `400` for a bad model (`Unknown model…`) or a bad body; `409` with the `Not a trusted folder…` text. A folder is allowed exactly when it is listed in `REMOTE_AGENT_PROJECTS` or is a project key in `.claude.json` (`~` and symlinks are resolved first; subfolders are not allowed). There is no way to add or create one from the API.
 
 ### PUT /away
 

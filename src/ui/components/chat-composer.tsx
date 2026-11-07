@@ -10,11 +10,27 @@ type ChatComposerProps = {
   chat: Chat
   usage: UsageView
   sending: boolean
+  /** true: Enter sends and Shift+Enter adds a line. false: Enter adds a line and Ctrl/Cmd+Enter sends. */
+  enterSends: boolean
   onSend(text: string): Promise<void>
   onResume(): Promise<void>
 }
 
-export function ChatComposer({ chat, usage, sending, onSend, onResume }: ChatComposerProps) {
+/** Whether a keydown in the composer should send the message, given the Enter preference. */
+export function shouldSendOnEnter(
+  event: { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; isComposing: boolean },
+  enterSends: boolean,
+): boolean {
+  if (event.key !== 'Enter' || event.isComposing) {
+    return false
+  }
+  if (enterSends) {
+    return !event.shiftKey
+  }
+  return event.ctrlKey || event.metaKey
+}
+
+export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResume }: ChatComposerProps) {
   const [text, setText] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
@@ -91,7 +107,7 @@ export function ChatComposer({ chat, usage, sending, onSend, onResume }: ChatCom
         return
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (shouldSendOnEnter({ key: event.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, enterSends)) {
       event.preventDefault()
       void submit()
     }

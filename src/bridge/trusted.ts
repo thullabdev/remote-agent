@@ -3,9 +3,9 @@ import { basename, isAbsolute, resolve } from 'node:path'
 
 export type Project = { label: string; cwd: string }
 
-type Options = { home: string; configPath: string }
-type ClaudeProject = { hasTrustDialogAccepted?: unknown }
-type ClaudeConfig = { projects?: Record<string, ClaudeProject> }
+/** `projects` are the REMOTE_AGENT_PROJECTS entries; they are checked like Claude Code's project keys. */
+type Options = { home: string; configPath: string; projects: string[] }
+type ClaudeConfig = { projects?: unknown }
 
 const ENOENT = 'ENOENT'
 
@@ -38,7 +38,11 @@ async function normalise(path: string, home: string): Promise<string | null> {
   }
 }
 
-/** Folders Claude Code has explicitly marked as trusted in its user config. */
+/**
+ * Folders the Bridge may start a Session in: the REMOTE_AGENT_PROJECTS entries plus every project key in
+ * Claude Code's user config. Loose on purpose: a key counts even without a trust acceptance. Each entry must
+ * still be an existing directory, and it matches exactly (no subfolders).
+ */
 export class TrustedFolders {
   constructor(private readonly options: Options) {}
 
@@ -47,22 +51,33 @@ export class TrustedFolders {
     if (cwd === null) {
       return null
     }
-    return (await this.listed()).includes(cwd) ? cwd : null
+    for (const entry of await this.listed()) {
+      if ((await normalise(entry, this.options.home)) === cwd) {
+        return cwd
+      }
+    }
+    return null
   }
 
   async configuredProjects(): Promise<Project[]> {
-    const entries = await this.listed()
     const projects: Project[] = []
-    for (const cwd of entries) {
-      const path = await normalise(cwd, this.options.home)
-      if (path !== null) {
+    const seen = new Set<string>()
+    for (const entry of await this.listed()) {
+      const path = await normalise(entry, this.options.home)
+      if (path !== null && !seen.has(path)) {
+        seen.add(path)
         projects.push({ label: basename(path), cwd: path })
       }
     }
     return projects
   }
 
+  /** Env entries first, in configured order, then Claude Code's project keys. */
   private async listed(): Promise<string[]> {
+    return [...this.options.projects, ...(await this.claudeProjectKeys())]
+  }
+
+  private async claudeProjectKeys(): Promise<string[]> {
     let raw: string
     try {
       raw = await readFile(this.options.configPath, 'utf8')
@@ -89,10 +104,6 @@ export class TrustedFolders {
     if (projects === null || typeof projects !== 'object' || Array.isArray(projects)) {
       throw new TrustedFoldersUnavailable(`Claude Code config at ${this.options.configPath} has an invalid projects value`)
     }
-    return Object.entries(projects)
-      .filter((entry): entry is [string, ClaudeProject] =>
-        entry[1] !== null && typeof entry[1] === 'object' && entry[1].hasTrustDialogAccepted === true,
-      )
-      .map(([cwd]) => cwd)
+    return Object.keys(projects)
   }
 }

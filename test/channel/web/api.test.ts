@@ -96,7 +96,7 @@ async function useRealSpawner(): Promise<void> {
   configPath = `${home}/.claude.json`
   await writeFile(configPath, JSON.stringify({ projects: { [`${home}/Sites/api`]: { hasTrustDialogAccepted: true } } }))
   tmux = new FakeTmux()
-  const trusted = new TrustedFolders({ home, configPath })
+  const trusted = new TrustedFolders({ home, configPath, projects: [] })
   const notifier = new Notifier(store, channel, away, message => logged.push(message), channel)
   spawnerDep = new Spawner({
     store,

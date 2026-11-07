@@ -1,5 +1,7 @@
 # Web Channel — Design Spec
 
+> **Superseded (trusted folders):** Trusted folders are no longer only Claude Code's `hasTrustDialogAccepted` entries. They are the `REMOTE_AGENT_PROJECTS` entries plus every project key in `~/.claude.json`, matched exactly and without the trust check. See `README.md` and `CONTEXT.md`. Other decisions in this document still stand.
+
 Date: 2026-11-04 · Status: IMPLEMENTED (see plan ledger) · Glossary: [`CONTEXT.md`](../../../CONTEXT.md) · Builds on: [Remote Agent design](2026-10-06-remote-agent-design.md), [Spawn from Channel](2026-10-07-spawn-session-from-channel-design.md) · UI contract: [Web Channel UI handoff](2026-11-04-web-channel-ui-handoff.md)
 
 ## Intent
