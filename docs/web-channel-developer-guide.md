@@ -5,7 +5,7 @@ The web channel is the part of the Bridge that serves a chat backend to a browse
 - **Client developers** building a UI (or any other client) against the API: [Part 1](#part-1-building-a-client), [Part 2](#part-2-api-reference), [Part 3](#part-3-websocket) and [Part 4](#part-4-push-notifications).
 - **Backend contributors** changing the web channel itself: [Part 5](#part-5-working-on-the-backend).
 
-Related documents: the design (`docs/superpowers/specs/2026-11-04-web-channel-design.md`) says why it is built this way, the UI handoff (`docs/superpowers/specs/2026-11-04-web-channel-ui-handoff.md`) lists what the prototype UI still needs, and [ADR-0004](adr/0004-web-channel.md) records the decisions. For setup (Tailscale, environment variables) see the README's Configuration section.
+Related documents: the design (`docs/superpowers/specs/2026-11-04-web-channel-design.md`) says why it is built this way, the UI handoff (`docs/superpowers/specs/2026-11-04-web-channel-ui-handoff.md`) lists what the prototype UI still needs, and [ADR-0004](adr/0004-web-channel.md) records the decisions. For setup (Tailscale, environment variables) see the README, section "Web channel".
 
 ## Part 0: Concepts you need first
 
