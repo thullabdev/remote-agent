@@ -188,12 +188,19 @@ test('account is null when no reading has live limits', () => {
   expect(store.usageForChats(Date.parse('2020-01-01T00:00:00.000Z')).account).toBeNull()
 })
 
-test('recordUsage for an unknown session returns the view without persisting or throwing', () => {
+test('a reading for an unknown session is stored, counts for account, and is not in chats', () => {
   const view = store.recordUsage('ghost', { context: { window: 1000, percent: 5 }, rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt: FAR }] })
   expect(view.contextPercent).toBe(5)
   const usage = store.usageForChats(clock)
   expect(usage.chats).toEqual({})
-  expect(usage.account).toBeNull()
+  expect(usage.account).toEqual({ fiveHour: { usedPercent: 1, resetsAtMs: FAR_MS }, sevenDay: null, measuredAt: 1_000 })
+})
+
+test('a new Store starts with no usage (usage is in memory only)', () => {
+  store.setSessionChat('s1', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt: FAR }] })
+  const fresh = new Store(':memory:', () => clock)
+  expect(fresh.usageForChats(clock)).toEqual({ account: null, chats: {} })
 })
 
 test('when two sessions share a chat the newer reading wins', () => {

@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { accountLimits, sessionUsage, type AccountUsageView, type RateLimitInput, type SessionUsageView, type UsageReport } from './usage.ts'
+import { accountLimits, sessionUsage, type AccountUsageView, type SessionUsageView, type UsageReport } from './usage.ts'
 import { projectName, type Answer, type AnswerSource, type Instruction, type PromptBody, type SessionInfo } from '../../mod/remote-agent/hooks/protocol.ts'
 
 export type SessionRow = {
@@ -52,16 +52,6 @@ type PromptRecord = {
   created_at: number
   reminded: number
 }
-type UsageRecord = {
-  session_id: string
-  measured_at: number
-  context_tokens: number | null
-  context_window: number
-  context_percent: number | null
-  cost_usd: number | null
-  rate_limits: string
-  chat_id: string | null
-}
 type InstructionRecord = { id: string; session_id: string; text: string }
 
 const SCHEMA = `
@@ -80,11 +70,6 @@ CREATE TABLE IF NOT EXISTS prompt_messages (
 CREATE TABLE IF NOT EXISTS instructions (
   id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), text TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, delivered_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS usage_snapshots (
-  session_id TEXT PRIMARY KEY REFERENCES sessions(id), measured_at INTEGER NOT NULL,
-  context_tokens INTEGER, context_window INTEGER NOT NULL, context_percent REAL, cost_usd REAL,
-  rate_limits TEXT NOT NULL
 );
 `
 
@@ -126,6 +111,7 @@ function toInstruction(record: InstructionRecord): Instruction {
 
 export class Store {
   private readonly db: Database
+  private readonly usage = new Map<string, { report: UsageReport; measuredAt: number }>()
 
   constructor(path: string, private readonly now: () => number = Date.now) {
     this.db = new Database(path, { create: true, strict: true })
@@ -219,57 +205,32 @@ export class Store {
     this.db.query('UPDATE sessions SET thread_id = ? WHERE id = ?').run(threadId, id)
   }
 
+  // Usage is deliberately in memory only: it is lost on restart and refills on the next report.
   recordUsage(sessionId: string, report: UsageReport): SessionUsageView {
     const measuredAt = this.now()
-    // usage_snapshots references sessions(id); an unknown session is not persisted rather than throwing.
-    if (this.getSession(sessionId) === undefined) {
-      return sessionUsage(report, measuredAt)
-    }
-    this.db
-      .query(
-        `INSERT INTO usage_snapshots (session_id, measured_at, context_tokens, context_window, context_percent, cost_usd, rate_limits)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET measured_at = excluded.measured_at, context_tokens = excluded.context_tokens,
-         context_window = excluded.context_window, context_percent = excluded.context_percent,
-         cost_usd = excluded.cost_usd, rate_limits = excluded.rate_limits`,
-      )
-      .run(
-        sessionId,
-        measuredAt,
-        report.context.tokens ?? null,
-        report.context.window,
-        report.context.percent ?? null,
-        report.cost?.usd ?? null,
-        JSON.stringify(report.rateLimits),
-      )
+    // Delete first so Map order follows recording order, which breaks measuredAt ties.
+    this.usage.delete(sessionId)
+    this.usage.set(sessionId, { report, measuredAt })
     return sessionUsage(report, measuredAt)
   }
 
   usageForChats(now: number): { account: AccountUsageView; chats: Record<string, SessionUsageView> } {
-    const rows = this.db
-      .query<UsageRecord, []>(
-        `SELECT u.session_id, u.measured_at, u.context_tokens, u.context_window, u.context_percent, u.cost_usd, u.rate_limits, s.chat_id
-         FROM usage_snapshots u JOIN sessions s ON s.id = u.session_id ORDER BY u.measured_at DESC`,
-      )
-      .all()
+    // Newest first; the sort is stable over reversed insertion order so a later report wins a tie.
+    const readings = [...this.usage].reverse().sort((a, b) => b[1].measuredAt - a[1].measuredAt)
     const chats: Record<string, SessionUsageView> = {}
     let account: AccountUsageView = null
-    for (const row of rows) {
-      // Rows are newest first, so when two sessions share a chat the first (newest) reading wins.
-      if (row.chat_id !== null && chats[row.chat_id] === undefined) {
-        chats[row.chat_id] = {
-          measuredAt: row.measured_at,
-          contextPercent: row.context_percent,
-          contextTokens: row.context_tokens,
-          contextWindow: row.context_window,
-          costUsd: row.cost_usd,
-        }
+    for (const [sessionId, reading] of readings) {
+      // Readings are newest first, so when two sessions share a chat the first (newest) reading wins.
+      const chatId = this.getSession(sessionId)?.chatId ?? null
+      if (chatId !== null && chats[chatId] === undefined) {
+        chats[chatId] = sessionUsage(reading.report, reading.measuredAt)
       }
-      // The '[]' comparison is only a cheap skip; accountLimits decides whether any window is live.
-      if (account === null && row.rate_limits !== '[]') {
-        const limits = accountLimits(JSON.parse(row.rate_limits) as RateLimitInput[], now)
+      // The emptiness check is only a cheap skip; accountLimits decides whether any window is live.
+      // Account limits count whichever session reported them, known to the Bridge or not.
+      if (account === null && reading.report.rateLimits.length > 0) {
+        const limits = accountLimits(reading.report.rateLimits, now)
         if (limits !== null) {
-          account = { ...limits, measuredAt: row.measured_at }
+          account = { ...limits, measuredAt: reading.measuredAt }
         }
       }
     }
