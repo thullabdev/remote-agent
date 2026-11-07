@@ -364,6 +364,7 @@ export function App() {
                 <ChatComposer
                   chat={activeChat}
                   sending={busyChatIds.has(activeChat.id)}
+                  enterSends={preferences.enter === 'send'}
                   onSend={text => sendMessage(activeChat, text)}
                   onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
                 />

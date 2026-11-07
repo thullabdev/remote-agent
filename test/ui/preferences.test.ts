@@ -17,12 +17,13 @@ describe('device appearance preferences', () => {
 
   test('persists and restores valid choices while ignoring unknown values', () => {
     const storage = createStorage()
-    const saved: Preferences = { theme: 'dark', palette: 'nord', accent: 'teal', glow: 'strong', density: 'compact', font: 'large' }
+    const saved: Preferences = { theme: 'dark', palette: 'nord', accent: 'teal', glow: 'strong', density: 'compact', font: 'large', enter: 'newline' }
     savePreferences(saved, storage)
     expect(readPreferences(storage)).toEqual(saved)
 
     const invalid = createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'neon', palette: 'hotdog', accent: 'olive' }) })
     expect(readPreferences(invalid)).toEqual({ ...DEFAULT_PREFERENCES, accent: 'olive' })
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ enter: 'maybe' }) })).enter).toBe('send')
   })
 
   test('resolves system appearance without changing the saved preference', () => {

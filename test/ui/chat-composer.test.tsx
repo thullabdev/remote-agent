@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { ChatComposer } from '../../src/ui/components/chat-composer.tsx'
+import { ChatComposer, shouldSendOnEnter } from '../../src/ui/components/chat-composer.tsx'
 
 const chat: Chat = {
   id: 'test',
@@ -24,6 +24,7 @@ describe('chat composer surface', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
       chat,
       sending: false,
+      enterSends: true,
       onSend: async () => {},
       onResume: async () => {},
     }))
@@ -33,5 +34,28 @@ describe('chat composer surface', () => {
     expect(markup).toContain('chat-composer-input')
     expect(markup).not.toContain('focus-within:ring')
     expect(markup).not.toContain('focus-within:border')
+  })
+})
+
+describe('Enter key preference', () => {
+  const key = (overrides: Partial<{ key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; isComposing: boolean }> = {}) => ({
+    key: 'Enter', shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false, ...overrides,
+  })
+
+  test('Enter sends and Shift+Enter adds a line when Enter sends', () => {
+    expect(shouldSendOnEnter(key(), true)).toBe(true)
+    expect(shouldSendOnEnter(key({ shiftKey: true }), true)).toBe(false)
+  })
+
+  test('Enter adds a line and Ctrl/Cmd+Enter sends when Enter does not send', () => {
+    expect(shouldSendOnEnter(key(), false)).toBe(false)
+    expect(shouldSendOnEnter(key({ ctrlKey: true }), false)).toBe(true)
+    expect(shouldSendOnEnter(key({ metaKey: true }), false)).toBe(true)
+  })
+
+  test('other keys and IME composition never send', () => {
+    expect(shouldSendOnEnter(key({ key: 'a' }), true)).toBe(false)
+    expect(shouldSendOnEnter(key({ isComposing: true }), true)).toBe(false)
+    expect(shouldSendOnEnter(key({ isComposing: true, ctrlKey: true }), false)).toBe(false)
   })
 })

@@ -5,6 +5,7 @@ export type AccentPreference = AccentId
 export type GlowPreference = 'off' | 'soft' | 'strong'
 export type DensityPreference = 'compact' | 'comfortable'
 export type FontPreference = 'small' | 'medium' | 'large'
+export type EnterPreference = 'send' | 'newline'
 
 export type Preferences = {
   theme: ThemePreference
@@ -13,6 +14,8 @@ export type Preferences = {
   glow: GlowPreference
   density: DensityPreference
   font: FontPreference
+  /** What Enter does in the chat composer: send the message, or add a new line (Ctrl/Cmd+Enter then sends). */
+  enter: EnterPreference
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -22,6 +25,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   glow: 'soft',
   density: 'comfortable',
   font: 'medium',
+  enter: 'send',
 }
 
 const STORAGE_KEY = 'remote-agent.preferences.v1'
@@ -40,6 +44,7 @@ export function readPreferences(storage: Pick<Storage, 'getItem'> = localStorage
       glow: isOneOf(value.glow, ['off', 'soft', 'strong']) ? value.glow : DEFAULT_PREFERENCES.glow,
       density: isOneOf(value.density, ['compact', 'comfortable']) ? value.density : DEFAULT_PREFERENCES.density,
       font: isOneOf(value.font, ['small', 'medium', 'large']) ? value.font : DEFAULT_PREFERENCES.font,
+      enter: isOneOf(value.enter, ['send', 'newline']) ? value.enter : DEFAULT_PREFERENCES.enter,
     }
   } catch {
     return DEFAULT_PREFERENCES
