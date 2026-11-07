@@ -1,7 +1,7 @@
-import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
-import { commandToolInput, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
+import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
@@ -38,9 +38,11 @@ export function MessageFeed({
 
   const feedRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
+  const [awayFromLatest, setAwayFromLatest] = useState(false)
 
   useEffect(() => {
     wasNearBottom.current = true
+    setAwayFromLatest(false)
     if (feedRef.current !== null) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight
     }
@@ -52,70 +54,137 @@ export function MessageFeed({
     }
   }, [messages.length, pendingMessages.length, chat.busy])
 
+  // Rows grouped by local calendar day. Each day is its own section, so its date label
+  // sticks only while that day is on screen and scrolls away with it.
+  const dayGroups: { day: string | null; at: number | null; nodes: ReactNode[] }[] = []
+  const addRow = (key: string, at: number | undefined, node: ReactNode) => {
+    const element = <Fragment key={key}>{node}</Fragment>
+    const last = dayGroups.at(-1)
+    if (at === undefined) {
+      if (last === undefined) {
+        dayGroups.push({ day: null, at: null, nodes: [element] })
+      } else {
+        last.nodes.push(element)
+      }
+      return
+    }
+    const day = dayKey(at)
+    if (last !== undefined && last.day === day) {
+      last.nodes.push(element)
+      return
+    }
+    dayGroups.push({ day, at, nodes: [element] })
+  }
+  grouped.forEach((entry, index) => {
+    if (entry.kind === 'tool-group') {
+      addRow(
+        `tools-${entry.messages[0]?.id ?? index}`,
+        entry.messages[0]?.at,
+        <ToolRunGroup
+          messages={entry.messages}
+          interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
+        />,
+      )
+      return
+    }
+    addRow(
+      entry.message.id,
+      entry.message.at,
+      <MessageCard
+        message={entry.message}
+        messages={messages}
+        onPromptAction={onPromptAction}
+        onPromptReply={onPromptReply}
+        onPickerAction={onPickerAction}
+      />,
+    )
+  })
+  pendingMessages.forEach(({ message, error, retry }) => {
+    addRow(message.id, message.at, <MessageCard message={message} messages={messages} pendingError={error} onRetry={retry} />)
+  })
+
+  const jumpToLatest = () => {
+    wasNearBottom.current = true
+    setAwayFromLatest(false)
+    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' })
+  }
+
   return (
-    <div
-      ref={feedRef}
-      onScroll={event => {
-        const element = event.currentTarget
-        wasNearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120
-      }}
-      className="chat-message-feed min-h-0 flex-1 overflow-y-auto px-3 pt-5 sm:px-6"
-    >
-      {hasMore && (
-        <div className="mb-5 text-center">
-          <Button variant="outline" size="sm" onClick={() => { wasNearBottom.current = false; onLoadEarlier() }} disabled={loadingEarlier}>
-            {loadingEarlier ? <LoaderCircle className="animate-spin" /> : <ChevronUp />}
-            {loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
-          </Button>
-        </div>
-      )}
-      {messages.length === 0 && pendingMessages.length === 0 && (
-        <div className="mx-auto my-auto max-w-sm rounded-3xl border border-dashed border-border bg-card/60 px-6 py-10 text-center">
-          <div className="mx-auto mb-3 grid size-10 place-items-center rounded-2xl bg-muted text-muted-foreground">
-            <Wrench className="size-4" aria-hidden="true" />
-          </div>
-          <p className="font-display font-medium">{chat.id === 'general' ? 'Start with a command' : 'A fresh conversation'}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {chat.id === 'general' ? 'Try /status, /new, /away, or /back.' : 'Send an instruction to this Session below.'}
-          </p>
-        </div>
-      )}
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-[var(--message-gap,_.75rem)]">
-        {grouped.map((entry, index) =>
-          entry.kind === 'tool-group' ? (
-            <ToolRunGroup
-              key={entry.messages[0]?.id ?? index}
-              messages={entry.messages}
-              interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
-            />
-          ) : (
-            <MessageCard
-              key={entry.message.id}
-              message={entry.message}
-              messages={messages}
-              onPromptAction={onPromptAction}
-              onPromptReply={onPromptReply}
-              onPickerAction={onPickerAction}
-            />
-          ),
-        )}
-        {pendingMessages.map(({ message, error, retry }) => (
-          <MessageCard key={message.id} message={message} messages={messages} pendingError={error} onRetry={retry} />
-        ))}
-        {chat.busy && (
-          <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
-            <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
-              <span className="font-display text-sm">✳</span>
-            </div>
-            <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-            </div>
-            <span className="text-xs text-muted-foreground">Working…</span>
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={feedRef}
+        onScroll={event => {
+          const element = event.currentTarget
+          const near = element.scrollHeight - element.scrollTop - element.clientHeight < 120
+          wasNearBottom.current = near
+          setAwayFromLatest(!near)
+        }}
+        className="chat-message-feed min-h-0 flex-1 overflow-y-auto px-3 pt-2 sm:px-6"
+      >
+        {hasMore && (
+          <div className="mb-5 text-center">
+            <Button variant="outline" size="sm" onClick={() => { wasNearBottom.current = false; onLoadEarlier() }} disabled={loadingEarlier}>
+              {loadingEarlier ? <LoaderCircle className="animate-spin" /> : <ChevronUp />}
+              {loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
+            </Button>
           </div>
         )}
+        {messages.length === 0 && pendingMessages.length === 0 && (
+          <div className="mx-auto my-auto max-w-sm rounded-3xl border border-dashed border-border bg-card/60 px-6 py-10 text-center">
+            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-2xl bg-muted text-muted-foreground">
+              <Wrench className="size-4" aria-hidden="true" />
+            </div>
+            <p className="font-display font-medium">{chat.id === 'general' ? 'Start with a command' : 'A fresh conversation'}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {chat.id === 'general' ? 'Try /status, /new, /away, or /back.' : 'Send an instruction to this Session below.'}
+            </p>
+          </div>
+        )}
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-[var(--message-gap,_.75rem)]">
+          {dayGroups.map((group, index) => (
+            <section key={group.day ?? `untimed-${index}`} className="flex flex-col gap-[var(--message-gap,_.75rem)]">
+              {group.at !== null && <DateSeparator at={group.at} />}
+              {group.nodes}
+            </section>
+          ))}
+          {chat.busy && (
+            <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
+              <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
+                <span className="font-display text-sm">✳</span>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+              </div>
+              <span className="text-xs text-muted-foreground">Working…</span>
+            </div>
+          )}
+        </div>
       </div>
+      {awayFromLatest && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="absolute right-4 z-20 rounded-full bg-card shadow-md bottom-[calc(var(--chat-composer-height,5rem)+0.75rem)] sm:right-6"
+          aria-label="Jump to latest message"
+          title="Jump to latest message"
+          onClick={jumpToLatest}
+        >
+          <ArrowDown aria-hidden="true" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** A day label that stays at the top of the feed while its messages scroll under it. */
+function DateSeparator({ at }: { at: number }) {
+  return (
+    <div className="sticky top-2 z-10 flex justify-center py-1">
+      <span className="rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+        {formatDayLabel(at)}
+      </span>
     </div>
   )
 }

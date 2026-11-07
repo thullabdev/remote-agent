@@ -44,6 +44,26 @@ export function formatTime(at: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(at)
 }
 
+/** Local calendar day as a comparable key, so messages can be grouped by day. */
+export function dayKey(at: number): string {
+  const date = new Date(at)
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+/** "Today", "Yesterday", or a short date such as "Fri, 6 Nov 2026". */
+export function formatDayLabel(at: number, now = Date.now()): string {
+  const day = dayKey(at)
+  if (day === dayKey(now)) {
+    return 'Today'
+  }
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (day === dayKey(yesterday.getTime())) {
+    return 'Yesterday'
+  }
+  return new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(at)
+}
+
 export function formatRelativeTime(at: number, now = Date.now()): string {
   const delta = Math.max(0, now - at)
   if (delta < 60_000) {

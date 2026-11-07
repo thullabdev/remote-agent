@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '../../src/channel/web/protocol.ts'
-import { commandToolInput, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import { commandToolInput, dayKey, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -92,5 +92,19 @@ describe('chat message presentation', () => {
 
     expect(promptQuestionIndex(messages, 'p_1')).toBe(0)
     expect(promptQuestionIndex(messages, 'p_2')).toBe(1)
+  })
+})
+
+describe('day labels', () => {
+  const now = new Date(2026, 10, 7, 12).getTime()
+
+  test('labels the current day as Today and the previous day as Yesterday', () => {
+    expect(formatDayLabel(new Date(2026, 10, 7, 9).getTime(), now)).toBe('Today')
+    expect(formatDayLabel(new Date(2026, 10, 6, 23).getTime(), now)).toBe('Yesterday')
+  })
+
+  test('uses a short date for older days and groups by local calendar day', () => {
+    expect(formatDayLabel(new Date(2026, 10, 2, 9).getTime(), now)).not.toMatch(/Today|Yesterday/)
+    expect(dayKey(new Date(2026, 10, 6, 0, 5).getTime())).toBe(dayKey(new Date(2026, 10, 6, 23, 55).getTime()))
   })
 })
