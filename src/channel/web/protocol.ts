@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { AccountUsageView, SessionUsageView } from '../../bridge/usage.ts'
 
 // Wire shapes for the web channel: the ChatLog, the HTTP API and the browser UI share them (handoff §4-§5).
 
@@ -59,6 +60,8 @@ export type MessageKind = MessageBody['kind']
 export type Message = { id: string; chatId: string; seq: number; at: number } & MessageBody
 
 export type PushSubscriptionRecord = { endpoint: string; keys: { p256dh: string; auth: string } }
+
+export type UsageView = { account: AccountUsageView; chats: Record<string, SessionUsageView> }
 
 export type ServerEvent =
   | { type: 'hello'; seq: number }
