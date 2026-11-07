@@ -1,35 +1,24 @@
+import type { LimitView, SessionUsageView } from '../core/usage-types.ts'
+
 export type RateLimitInput = { kind: string; percentUsed: number; resetsAt?: string }
 export type ContextInput = { tokens?: number; window: number; percent?: number }
 export type UsageReport = { context: ContextInput; rateLimits: RateLimitInput[]; cost?: { usd: number } }
 
-export type LimitView = { usedPercent: number; resetsAtMs: number }
-export type SessionUsageView = {
-  measuredAt: number
-  contextPercent: number | null
-  contextTokens: number | null
-  contextWindow: number
-  costUsd: number | null
+const KNOWN_WINDOWS: Record<string, { label: string; windowMinutes: number }> = {
+  five_hour: { label: '5h', windowMinutes: 300 },
+  seven_day: { label: '7d', windowMinutes: 10080 },
 }
-export type AccountUsageView = { fiveHour: LimitView | null; sevenDay: LimitView | null; measuredAt: number } | null
 
-export function accountLimits(
-  rateLimits: RateLimitInput[],
-  now: number,
-): Pick<NonNullable<AccountUsageView>, 'fiveHour' | 'sevenDay'> | null {
-  let fiveHour: LimitView | null = null
-  let sevenDay: LimitView | null = null
+// Live windows only, in report order. Unknown kinds (such as spend_limit) are dropped.
+export function accountLimits(rateLimits: RateLimitInput[], now: number): LimitView[] {
+  const views: LimitView[] = []
   for (const limit of rateLimits) {
-    if (limit.kind === 'five_hour') {
-      fiveHour = toLimitView(limit, now)
-    }
-    if (limit.kind === 'seven_day') {
-      sevenDay = toLimitView(limit, now)
+    const view = toLimitView(limit, now)
+    if (view !== null) {
+      views.push(view)
     }
   }
-  if (fiveHour === null && sevenDay === null) {
-    return null
-  }
-  return { fiveHour, sevenDay }
+  return views
 }
 
 export function sessionUsage(report: UsageReport, now: number): SessionUsageView {
@@ -43,6 +32,10 @@ export function sessionUsage(report: UsageReport, now: number): SessionUsageView
 }
 
 function toLimitView(limit: RateLimitInput, now: number): LimitView | null {
+  const known = KNOWN_WINDOWS[limit.kind]
+  if (known === undefined) {
+    return null
+  }
   if (!Number.isFinite(limit.percentUsed)) {
     return null
   }
@@ -53,5 +46,5 @@ function toLimitView(limit: RateLimitInput, now: number): LimitView | null {
   if (!Number.isFinite(resetsAtMs) || resetsAtMs <= now) {
     return null
   }
-  return { usedPercent: limit.percentUsed, resetsAtMs }
+  return { kind: limit.kind, label: known.label, windowMinutes: known.windowMinutes, usedPercent: limit.percentUsed, resetsAtMs }
 }

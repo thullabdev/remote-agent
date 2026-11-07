@@ -1,6 +1,6 @@
 import { Gauge } from 'lucide-react'
-import type { AccountUsageView, LimitView, SessionUsageView } from '../../bridge/usage.ts'
-import { barWidth, formatDuration, formatResetLocal, liveAccount, limitTone } from '../usage-format.ts'
+import type { AccountUsageView, LimitView, SessionUsageView } from '../../core/usage-types.ts'
+import { barWidth, formatDuration, formatResetLocal, limitTone, liveAccounts } from '../usage-format.ts'
 import { BAR, TEXT } from './usage-meters.tsx'
 
 export const USAGE_PANEL_ID = 'chat-usage-panel'
@@ -51,31 +51,28 @@ function MeterRow({ label, mono, percent, detail }: { label: string; mono?: bool
   )
 }
 
-function WindowRow({ label, limit, now, timeZone }: { label: string; limit: LimitView | null; now: number; timeZone?: string }) {
-  if (limit === null) {
-    return null
-  }
+function WindowRow({ limit, now, timeZone }: { limit: LimitView; now: number; timeZone?: string }) {
   const detail = `Resets ${formatResetLocal(limit.resetsAtMs, now, timeZone)} · in ${formatDuration(limit.resetsAtMs - now)}`
-  return <MeterRow label={label} mono percent={limit.usedPercent} detail={detail} />
+  return <MeterRow label={limit.label} mono percent={limit.usedPercent} detail={detail} />
 }
 
 type UsagePanelProps = {
   open: boolean
-  account: AccountUsageView
+  accounts: AccountUsageView[]
   session: SessionUsageView | undefined
   now: number
   timeZone?: string
 }
 
-export function UsagePanel({ open, account, session, now, timeZone }: UsagePanelProps) {
+export function UsagePanel({ open, accounts, session, now, timeZone }: UsagePanelProps) {
   if (!open) {
     return null
   }
-  const live = liveAccount(account, now)
+  const live = liveAccounts(accounts, now)
   const context = session !== undefined && session.contextPercent !== null ? session : null
   const cost = session !== undefined && session.costUsd !== null ? session.costUsd : null
-  const empty = live === null && context === null && cost === null
-  const readings = [live?.measuredAt, session?.measuredAt].filter((value): value is number => value !== undefined)
+  const empty = live.length === 0 && context === null && cost === null
+  const readings = [...live.map(account => account.measuredAt), session?.measuredAt].filter((value): value is number => value !== undefined)
   const measuredAt = readings.length > 0 ? Math.max(...readings) : null
   return (
     <section id={USAGE_PANEL_ID} aria-label="Usage" className="mx-auto mb-2 max-w-4xl min-w-0 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-sm">
@@ -87,12 +84,14 @@ export function UsagePanel({ open, account, session, now, timeZone }: UsagePanel
         <p className="mt-2 text-xs text-muted-foreground">No usage reported yet.</p>
       ) : (
         <div className="mt-2 space-y-2.5">
-          {live !== null && (
-            <>
-              <WindowRow label="5h" limit={live.fiveHour} now={now} timeZone={timeZone} />
-              <WindowRow label="7d" limit={live.sevenDay} now={now} timeZone={timeZone} />
-            </>
-          )}
+          {live.map(account => (
+            <div key={account.source} className="space-y-2.5">
+              {live.length > 1 && <p className="text-[11px] font-medium text-muted-foreground">{account.source}</p>}
+              {account.windows.map(limit => (
+                <WindowRow key={limit.kind} limit={limit} now={now} timeZone={timeZone} />
+              ))}
+            </div>
+          ))}
           {context !== null && context.contextPercent !== null && (
             <MeterRow
               label="Context"

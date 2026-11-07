@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite'
-import { accountLimits, sessionUsage, type AccountUsageView, type SessionUsageView, type UsageReport } from './usage.ts'
+import type { AccountUsageView, SessionUsageView, UsageView } from '../core/usage-types.ts'
+import { accountLimits, sessionUsage, type UsageReport } from './usage.ts'
 import { projectName, type Answer, type AnswerSource, type Instruction, type PromptBody, type SessionInfo } from '../../mod/remote-agent/hooks/protocol.ts'
 
 export type SessionRow = {
@@ -111,7 +112,7 @@ function toInstruction(record: InstructionRecord): Instruction {
 
 export class Store {
   private readonly db: Database
-  private readonly usage = new Map<string, { report: UsageReport; measuredAt: number }>()
+  private readonly usage = new Map<string, { report: UsageReport; measuredAt: number; source: string }>()
 
   constructor(path: string, private readonly now: () => number = Date.now) {
     this.db = new Database(path, { create: true, strict: true })
@@ -206,35 +207,36 @@ export class Store {
   }
 
   // Usage is deliberately in memory only: it is lost on restart and refills on the next report.
-  recordUsage(sessionId: string, report: UsageReport): SessionUsageView {
+  recordUsage(sessionId: string, report: UsageReport, source = 'claude-code'): SessionUsageView {
     const measuredAt = this.now()
     // Delete first so Map order follows recording order, which breaks measuredAt ties.
     this.usage.delete(sessionId)
-    this.usage.set(sessionId, { report, measuredAt })
+    this.usage.set(sessionId, { report, measuredAt, source })
     return sessionUsage(report, measuredAt)
   }
 
-  usageForChats(now: number): { account: AccountUsageView; chats: Record<string, SessionUsageView> } {
+  usageForChats(now: number): UsageView {
     // Newest first; the sort is stable over reversed insertion order so a later report wins a tie.
     const readings = [...this.usage].reverse().sort((a, b) => b[1].measuredAt - a[1].measuredAt)
     const chats: Record<string, SessionUsageView> = {}
-    let account: AccountUsageView = null
+    const bySource = new Map<string, AccountUsageView>()
     for (const [sessionId, reading] of readings) {
       // Readings are newest first, so when two sessions share a chat the first (newest) reading wins.
       const chatId = this.getSession(sessionId)?.chatId ?? null
       if (chatId !== null && chats[chatId] === undefined) {
         chats[chatId] = sessionUsage(reading.report, reading.measuredAt)
       }
-      // The emptiness check is only a cheap skip; accountLimits decides whether any window is live.
+      // Each source keeps its newest reading that still has a live window; older ones are the fall-through.
       // Account limits count whichever session reported them, known to the Bridge or not.
-      if (account === null && reading.report.rateLimits.length > 0) {
-        const limits = accountLimits(reading.report.rateLimits, now)
-        if (limits !== null) {
-          account = { ...limits, measuredAt: reading.measuredAt }
+      if (!bySource.has(reading.source) && reading.report.rateLimits.length > 0) {
+        const windows = accountLimits(reading.report.rateLimits, now)
+        if (windows.length > 0) {
+          bySource.set(reading.source, { source: reading.source, windows, measuredAt: reading.measuredAt })
         }
       }
     }
-    return { account, chats }
+    // Map order follows the newest-first scan, so accounts are already newest measuredAt first.
+    return { accounts: [...bySource.values()], chats }
   }
 
   setSessionChat(id: string, chatId: string): void {

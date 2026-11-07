@@ -24,7 +24,7 @@ function isChat(value: unknown): value is Chat {
 }
 
 function isUsageView(value: unknown): boolean {
-  return isRecord(value) && 'account' in value && isRecord(value.chats)
+  return isRecord(value) && 'accounts' in value && Array.isArray(value.accounts) && isRecord(value.chats)
 }
 
 export function parseServerEvent(raw: string): ServerEvent | null {

@@ -1,6 +1,6 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react'
 import type { Chat } from '../../channel/web/protocol.ts'
-import type { SessionUsageView } from '../../bridge/usage.ts'
+import type { SessionUsageView } from '../../core/usage-types.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'

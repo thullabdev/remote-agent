@@ -38,7 +38,8 @@ export type UsageReport = {
   rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]
   cost?: { usd: number }
 }
-export type UsageRequest = { session: SessionInfo; usage: UsageReport }
+/** `source` names the agent the reading is from; the Bridge treats a missing one as 'claude-code'. */
+export type UsageRequest = { session: SessionInfo; source?: string; usage: UsageReport }
 
 export type Instruction = { id: string; sessionId: string; text: string }
 

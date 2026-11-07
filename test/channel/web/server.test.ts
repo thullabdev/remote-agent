@@ -418,7 +418,7 @@ test('a failed Bun.serve leaves no subscription or timer', () => {
 })
 
 test('a new client gets the current usage once, with no seq, after hello', async () => {
-  const usage = { account: null, chats: {} }
+  const usage = { accounts: [], chats: {} }
   start(staticDir, () => usage)
   const inbox = await connect(`/ws?after=${chatLog.currentSeq()}`)
 

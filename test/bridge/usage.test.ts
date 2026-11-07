@@ -4,7 +4,7 @@ import { accountLimits, sessionUsage } from '../../src/bridge/usage.ts'
 const now = Date.parse('2026-11-07T10:00:00Z')
 
 describe('accountLimits', () => {
-  test('keeps five_hour and seven_day, converting ISO resets to epoch ms', () => {
+  test('returns labelled windows with their length, converting ISO resets to epoch ms', () => {
     const limits = accountLimits(
       [
         { kind: 'five_hour', percentUsed: 2, resetsAt: '2026-11-07T14:00:00.000Z' },
@@ -12,17 +12,17 @@ describe('accountLimits', () => {
       ],
       now,
     )
-    expect(limits).toEqual({
-      fiveHour: { usedPercent: 2, resetsAtMs: Date.parse('2026-11-07T14:00:00.000Z') },
-      sevenDay: { usedPercent: 64, resetsAtMs: Date.parse('2026-11-08T12:00:00.000Z') },
-    })
+    expect(limits).toEqual([
+      { kind: 'five_hour', label: '5h', windowMinutes: 300, usedPercent: 2, resetsAtMs: Date.parse('2026-11-07T14:00:00.000Z') },
+      { kind: 'seven_day', label: '7d', windowMinutes: 10080, usedPercent: 64, resetsAtMs: Date.parse('2026-11-08T12:00:00.000Z') },
+    ])
   })
 
-  test('empty rateLimits means no account view (no subscription)', () => {
-    expect(accountLimits([], now)).toBeNull()
+  test('empty rateLimits gives no windows', () => {
+    expect(accountLimits([], now)).toEqual([])
   })
 
-  test('drops a window whose reset has passed, and ignores other kinds', () => {
+  test('drops a window whose reset has passed, and unknown kinds', () => {
     const limits = accountLimits(
       [
         { kind: 'five_hour', percentUsed: 80, resetsAt: '2026-11-07T09:00:00.000Z' },
@@ -30,11 +30,15 @@ describe('accountLimits', () => {
       ],
       now,
     )
-    expect(limits).toBeNull()
+    expect(limits).toEqual([])
   })
 
   test('a window with no resetsAt is dropped', () => {
-    expect(accountLimits([{ kind: 'seven_day', percentUsed: 10 }], now)).toBeNull()
+    expect(accountLimits([{ kind: 'seven_day', percentUsed: 10 }], now)).toEqual([])
+  })
+
+  test('a non-finite percent is dropped', () => {
+    expect(accountLimits([{ kind: 'five_hour', percentUsed: Number.NaN, resetsAt: '2026-11-07T14:00:00.000Z' }], now)).toEqual([])
   })
 })
 

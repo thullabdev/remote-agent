@@ -140,7 +140,7 @@ export function ChatComposer({ chat, usage, sending, onSend, onResume }: ChatCom
       <div className="mx-auto mb-1.5 flex max-w-4xl justify-end">
         <UsageButton open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
       </div>
-      <UsagePanel open={usageOpen} account={usage.account} session={usage.chats[chat.id]} now={now} />
+      <UsagePanel open={usageOpen} accounts={usage.accounts} session={usage.chats[chat.id]} now={now} />
       <form onSubmit={submit} className="mx-auto max-w-4xl">
         <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>

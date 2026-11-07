@@ -56,7 +56,7 @@ test('/away then /back then PUT /api/away broadcast three away.updated events in
     away,
     spawner: { end: async () => 'Session ended.', newCommand: async () => null, fork: async () => '', resume: async () => '' },
     sink: channel,
-    usage: () => ({ account: null, chats: {} }),
+    usage: () => ({ accounts: [], chats: {} }),
     log: () => {},
   })
   bindAway(away, chatLog)

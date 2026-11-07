@@ -23,7 +23,7 @@ describe('chat composer surface', () => {
   test('preserves the rounded input wrapper without a focus border or ring', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
       chat,
-      usage: { account: null, chats: {} },
+      usage: { accounts: [], chats: {} },
       sending: false,
       onSend: async () => {},
       onResume: async () => {},

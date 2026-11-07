@@ -657,12 +657,12 @@ test('usageChanged broadcasts an ephemeral usage.updated event without touching 
   channel.setUsageBroadcaster(event => sent.push(event))
   const seqBefore = chatLog.currentSeq()
 
-  channel.usageChanged({ account: null, chats: {} })
+  channel.usageChanged({ accounts: [], chats: {} })
 
-  expect(sent).toEqual([{ type: 'usage.updated', usage: { account: null, chats: {} } }])
+  expect(sent).toEqual([{ type: 'usage.updated', usage: { accounts: [], chats: {} } }])
   expect(chatLog.currentSeq()).toBe(seqBefore)
 })
 
 test('usageChanged without a broadcaster does nothing', () => {
-  expect(() => channel.usageChanged({ account: null, chats: {} })).not.toThrow()
+  expect(() => channel.usageChanged({ accounts: [], chats: {} })).not.toThrow()
 })

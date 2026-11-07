@@ -1,6 +1,5 @@
-import type { AccountUsageView, LimitView, SessionUsageView } from '../bridge/usage.ts'
+import type { AccountUsageView, LimitView, SessionUsageView } from '../core/usage-types.ts'
 
-export type LimitWindow = '5h' | '7d'
 export type Tone = 'green' | 'yellow' | 'red'
 
 // "45m", "2h 10m", "3d 4h". Anything at or below zero reads as "now".
@@ -21,11 +20,11 @@ export function formatDuration(ms: number): string {
   return `${Math.max(minutes, 1)}m`
 }
 
-// "14:30" for the 5h window, "Mon 09:00" for the 7d window. timeZone defaults to the local zone.
-export function formatResetClock(resetsAtMs: number, window: LimitWindow, timeZone?: string): string {
+// "14:30" for a window of a day or less, "Mon 09:00" for a longer one. timeZone defaults to the local zone.
+export function formatResetClock(resetsAtMs: number, windowMinutes: number, timeZone?: string): string {
   const date = new Date(resetsAtMs)
   const clock = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone })
-  if (window === '5h') {
+  if (windowMinutes <= 1440) {
     return clock
   }
   const weekday = date.toLocaleDateString('en-US', { weekday: 'short', timeZone })
@@ -33,9 +32,9 @@ export function formatResetClock(resetsAtMs: number, window: LimitWindow, timeZo
 }
 
 // "2% · resets 14:00 (in 4h 0m)"
-export function formatLimitText(limit: LimitView, now: number, window: LimitWindow = '5h', timeZone?: string): string {
+export function formatLimitText(limit: LimitView, now: number, timeZone?: string): string {
   const remaining = formatDuration(limit.resetsAtMs - now)
-  const clock = formatResetClock(limit.resetsAtMs, window, timeZone)
+  const clock = formatResetClock(limit.resetsAtMs, limit.windowMinutes, timeZone)
   return `${Math.round(limit.usedPercent)}% · resets ${clock} (in ${remaining})`
 }
 
@@ -62,17 +61,25 @@ export function barWidth(percent: number): number {
   return Math.min(100, Math.max(0, Math.round(percent)))
 }
 
-// A window whose reset time has passed is stale: treat it as absent. Null when neither window is live.
-export function liveAccount(account: AccountUsageView, now: number): NonNullable<AccountUsageView> | null {
-  if (account === null) {
+// A window whose reset time has passed is stale: treat it as absent. Null when no window is live.
+export function liveWindows(account: AccountUsageView, now: number): AccountUsageView | null {
+  const windows = account.windows.filter(window => window.resetsAtMs > now)
+  if (windows.length === 0) {
     return null
   }
-  const fiveHour = account.fiveHour !== null && account.fiveHour.resetsAtMs > now ? account.fiveHour : null
-  const sevenDay = account.sevenDay !== null && account.sevenDay.resetsAtMs > now ? account.sevenDay : null
-  if (fiveHour === null && sevenDay === null) {
-    return null
+  return { ...account, windows }
+}
+
+// The accounts that still have a live window, each trimmed to its live windows.
+export function liveAccounts(accounts: AccountUsageView[], now: number): AccountUsageView[] {
+  const live: AccountUsageView[] = []
+  for (const account of accounts) {
+    const trimmed = liveWindows(account, now)
+    if (trimmed !== null) {
+      live.push(trimmed)
+    }
   }
-  return { ...account, fiveHour, sevenDay }
+  return live
 }
 
 // "today 14:00" when the reset falls on the same calendar day as `now`, otherwise "Tue 08:00".

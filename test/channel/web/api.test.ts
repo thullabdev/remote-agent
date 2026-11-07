@@ -69,7 +69,7 @@ function stubSpawner(): ApiDeps['spawner'] {
   }
 }
 
-let usageDep: { account: null; chats: Record<string, never> } = { account: null, chats: {} }
+let usageDep: { accounts: never[]; chats: Record<string, never> } = { accounts: [], chats: {} }
 
 function build(): void {
   api = createApi({
@@ -173,7 +173,7 @@ test('returns null for a path outside /api', async () => {
 test('GET /api/state includes usage, empty when nothing was reported', async () => {
   const { body } = await call('GET', '/api/state')
 
-  expect(body.usage).toEqual({ account: null, chats: {} })
+  expect(body.usage).toEqual({ accounts: [], chats: {} })
 })
 
 test('GET /api/state returns seq, away and General first', async () => {

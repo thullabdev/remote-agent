@@ -4,7 +4,7 @@ import { applyServerEvent, createRealtimeState, mergeHistory } from '../../src/u
 import { parseServerEvent } from '../../src/ui/use-web-channel.ts'
 import type { UsageView } from '../../src/channel/web/protocol.ts'
 
-const noUsage: UsageView = { account: null, chats: {} }
+const noUsage: UsageView = { accounts: [], chats: {} }
 
 const general: Chat = {
   id: 'general',
@@ -81,7 +81,7 @@ describe('Web Channel event state', () => {
 
 describe('usage.updated', () => {
   const usage: UsageView = {
-    account: { fiveHour: { usedPercent: 2, resetsAtMs: 1000 }, sevenDay: null, measuredAt: 5 },
+    accounts: [{ source: 'claude-code', windows: [{ kind: 'five_hour', label: '5h', windowMinutes: 300, usedPercent: 2, resetsAtMs: 1000 }], measuredAt: 5 }],
     chats: {},
   }
 
@@ -95,7 +95,7 @@ describe('usage.updated', () => {
   })
 
   test('rejects malformed usage and still rejects a seq-less message.created', () => {
-    expect(parseServerEvent(JSON.stringify({ type: 'usage.updated', usage: { account: null } }))).toBeNull()
+    expect(parseServerEvent(JSON.stringify({ type: 'usage.updated', usage: { accounts: [] } }))).toBeNull()
     expect(parseServerEvent(JSON.stringify({ type: 'usage.updated' }))).toBeNull()
     expect(parseServerEvent(JSON.stringify({ type: 'message.created', message: first }))).toBeNull()
   })

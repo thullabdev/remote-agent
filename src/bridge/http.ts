@@ -4,7 +4,7 @@ import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
 import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema, UsageRequestSchema } from './schemas.ts'
-import type { UsageView } from '../channel/web/protocol.ts'
+import type { UsageView } from '../core/usage-types.ts'
 import type { Store } from './store.ts'
 
 /** Told about every mod request that names a Session; a Spawned Session counts as started on the first one. */
@@ -125,7 +125,7 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
 
   if (method === 'POST' && path === '/usage') {
     const body = UsageRequestSchema.parse(await request.json()) as UsageRequest
-    deps.store.recordUsage(body.session.sessionId, body.usage)
+    deps.store.recordUsage(body.session.sessionId, body.usage, body.source)
     try {
       deps.onUsage?.(deps.store.usageForChats(Date.now()))
     } catch (error) {

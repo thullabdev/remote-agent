@@ -182,10 +182,10 @@ test('usage.updated is delivered to clients without a seq', () => {
   const socket = new FakeSocket()
   hub.add(socket)
 
-  hub.broadcast({ type: 'usage.updated', usage: { account: null, chats: {} } })
+  hub.broadcast({ type: 'usage.updated', usage: { accounts: [], chats: {} } })
 
   const sent = JSON.parse(socket.sent[0] ?? '{}')
   expect(sent.type).toBe('usage.updated')
-  expect(sent.usage).toEqual({ account: null, chats: {} })
+  expect(sent.usage).toEqual({ accounts: [], chats: {} })
   expect('seq' in sent).toBe(false)
 })

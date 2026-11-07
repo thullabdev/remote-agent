@@ -140,7 +140,7 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                 </div>
               </div>
             )}
-            <AccountLimitsSection account={usage.account} now={now} />
+            <AccountLimitsSection accounts={usage.accounts} now={now} />
             {chat.tmuxName && (
               <div className="rounded-2xl border border-border bg-card p-3">
                 <p className="text-xs font-medium">Attach from a terminal</p>
