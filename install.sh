@@ -112,7 +112,7 @@ install_systemd_unit() {
     return 1
   fi
   if ! have systemd-run; then
-    warn "systemd-run is missing. The Bridge runs, but /new cannot start Sessions."
+    warn "systemd-run is missing, so sessions started from chat will run in plain tmux."
   fi
   mkdir -p "$(dirname "$SYSTEMD_UNIT")"
   sed \
@@ -253,7 +253,7 @@ fi
 echo
 log "Done."
 if [ "$OS" = macos ]; then
-  warn "On macOS, /new cannot start Sessions yet: the Launcher calls systemd-run, which exists only on Linux."
+  warn "On macOS, sessions started from chat run in plain tmux. That path has not been tested on macOS yet."
 fi
 if [ "${#NEXT_STEPS[@]}" -gt 0 ]; then
   echo "Next steps:"

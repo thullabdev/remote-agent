@@ -63,7 +63,7 @@ The vocabulary used throughout (Session, Prompt, Answer, Report, Instruction, Tr
 | Platform | Status | Notes |
 | :- | :- | :- |
 | Linux (systemd) | Supported | The primary target, with systemd user services and tmux. |
-| macOS | Partial | The Bridge and mod work. Starting sessions from chat (`/new`) does not, because it uses `systemd-run`. |
+| macOS | Partial | The Bridge and mod work. Sessions started from chat run in plain tmux, since macOS has no `systemd-run`. That path has not been tested on macOS yet. |
 | Windows | Via WSL2 | Run everything inside WSL2 with an Ubuntu distribution. Native Windows is not supported. |
 
 ## Prerequisites
@@ -73,7 +73,7 @@ The vocabulary used throughout (Session, Prompt, Answer, Report, Instruction, Tr
 | [Bun](https://bun.sh) 1.2 or newer | Yes | Runs the Bridge and the mod's hooks | `curl -fsSL https://bun.sh/install \| bash` |
 | [Claude Code](https://claude.com/claude-code) | Yes | The sessions you steer (tested with v2.1.290) | See Claude Code's install guide |
 | tmux | Only to start sessions from chat | Detached sessions for `/new` | `sudo apt install tmux`, `sudo dnf install tmux`, `brew install tmux` |
-| systemd (user services) | Only for the background service on Linux | Runs the Bridge at login and starts sessions with `systemd-run` | Included on most Linux distributions |
+| systemd (user services) | Only for the background service on Linux | Runs the Bridge at login. Sessions started from chat get their own systemd scope when `systemd-run` is available. | Included on most Linux distributions |
 | [Tailscale](https://tailscale.com) | Yes, for the web channel | Private HTTPS access to the Bridge from your devices | See Tailscale's install guide |
 | Telegram bot | Only for the Telegram channel | Alternative to the web chat | See [Telegram setup](#telegram-setup) |
 | Git | Yes | Cloning the repository | Your package manager |
@@ -239,7 +239,7 @@ After changing the unit file, copy it again and run `systemctl --user daemon-rel
 ./remote-agent.sh start         # foreground instead; Ctrl+C stops it
 ```
 
-The script does not restart the Bridge after a crash or reboot. Use it alongside a login-time launcher of your own if you need that. Starting sessions from chat (`/new`) still needs `systemd-run`, so it does not work without systemd.
+The script does not restart the Bridge after a crash or reboot. Use it alongside a login-time launcher of your own if you need that. Starting sessions from chat (`/new`) works without systemd too. Those sessions run in plain tmux, outside a systemd scope, and still outlive the Bridge.
 
 **Foreground (any platform, useful for development).**
 
@@ -278,7 +278,7 @@ When the Bridge is running, open the Tailscale URL from a device on your tailnet
 | Refuses to start after an upgrade, naming `REMOTE_AGENT_WEB_*` | The default channel is now `web`. | Add `REMOTE_AGENT_CHANNELS=telegram` or set the web variables. See [Upgrading](#upgrading-from-the-telegram-only-bridge). |
 | Every write from the browser is refused | The `Origin` does not match `REMOTE_AGENT_WEB_ORIGINS`. | Use the exact URL from `tailscale serve status`, including `https://`, with no trailing slash. |
 | Requests are rejected even though the URL is right | The Tailscale login differs from `REMOTE_AGENT_WEB_ALLOWED_LOGIN`, or the request did not come through `tailscale serve`. | Check the login in Tailscale for the device you are on, and open the URL from `tailscale serve status`. |
-| `/new` fails with `tmux` or `systemd-run` not found | Missing dependency. | Install tmux. On Linux, `systemd-run` ships with systemd. On macOS, `/new` is not supported yet. |
+| `/new` fails because `tmux` is not found | tmux is not installed. | Install tmux (see Prerequisites). |
 | A started session does not come up | Claude Code is waiting at a login prompt or other first-run screen. | The Bridge posts the last screen and stops the session after 30 seconds. Attach with tmux to finish the setup. |
 | Hooks fail with `bun: command not found` | Claude Code does not have `bun` on its `PATH`. | Put Bun's directory on the `PATH` used by Claude Code, then restart Claude Code. Check with `which bun` in a fresh shell. |
 | A running session ignores the mod | The session started before the mod was installed or updated. | Run `/reload-plugins` in that session. |
@@ -391,7 +391,7 @@ Report security problems privately to the maintainer rather than in a public iss
 ## Limitations
 
 - **Single user.** One Bridge serves one person.
-- **Windows** is supported only through WSL2. **macOS** cannot start sessions from chat yet.
+- **Windows** is supported only through WSL2. **macOS** support is not yet tested end to end, including starting sessions from chat.
 - **Headless sessions** (`claude -p`, the Agent SDK) are not bridged.
 - **Telegram is not end-to-end encrypted.** Bot chats are readable by Telegram.
 - **Permission races.** A permission request can be answered in the terminal or remotely. Whichever answer comes first wins. Telegram may keep showing buttons for a request that was answered in the terminal until the tool call finishes.
