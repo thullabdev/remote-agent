@@ -16,6 +16,11 @@ test('limit text uses the limit own label and length', () => {
   expect(formatLimitText({ kind: 'monthly', label: '30d', windowMinutes: 43200, usedPercent: 10, resetsAtMs: now + 28 * hour }, now, 'UTC')).toBe('10% · resets Tue 14:00 (in 1d 4h)')
 })
 
+test('liveWindows drops a window resetting exactly now', () => {
+  const account = { source: 'claude-code', measuredAt: now, windows: [{ ...five, resetsAtMs: now }] }
+  expect(liveWindows(account, now)).toBeNull()
+})
+
 test('liveWindows keeps live windows only and is null when none remain', () => {
   const account = { source: 'claude-code', measuredAt: now, windows: [{ ...five, resetsAtMs: now + hour }, { ...seven, resetsAtMs: now - 1 }] }
   expect(liveWindows(account, now)?.windows.map(window => window.label)).toEqual(['5h'])

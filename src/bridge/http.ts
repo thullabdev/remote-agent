@@ -16,7 +16,7 @@ export type HttpDeps = {
   store: Store
   log: Log
   activity?: SessionActivity
-  /** Called after each recorded usage report with the fresh account and per-chat view. */
+  /** Called after each recorded usage report with the fresh accounts and per-chat view. */
   onUsage?: (view: UsageView) => void
 }
 

@@ -11,14 +11,16 @@ const KNOWN_WINDOWS: Record<string, { label: string; windowMinutes: number }> = 
 
 // Live windows only, in report order. Unknown kinds (such as spend_limit) are dropped.
 export function accountLimits(rateLimits: RateLimitInput[], now: number): LimitView[] {
-  const views: LimitView[] = []
+  // A later entry of the same kind replaces an earlier one, so each kind appears once.
+  const byKind = new Map<string, LimitView>()
   for (const limit of rateLimits) {
+    byKind.delete(limit.kind)
     const view = toLimitView(limit, now)
     if (view !== null) {
-      views.push(view)
+      byKind.set(limit.kind, view)
     }
   }
-  return views
+  return [...byKind.values()]
 }
 
 export function sessionUsage(report: UsageReport, now: number): SessionUsageView {

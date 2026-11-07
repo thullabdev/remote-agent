@@ -24,7 +24,7 @@ export type ApiDeps = {
   away: AwayMode
   spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
   sink: Pick<ChatSink, 'instructionQueued'>
-  /** The current account and per-chat usage, read fresh for each state request. */
+  /** The current accounts and per-chat usage, read fresh for each state request. */
   usage: () => UsageView
   /** The folders Claude Code marks as trusted. Absent when project listing is not configured; the routes then answer 404. */
   projects?: () => Promise<Project[]>

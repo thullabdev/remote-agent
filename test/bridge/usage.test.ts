@@ -37,6 +37,22 @@ describe('accountLimits', () => {
     expect(accountLimits([{ kind: 'seven_day', percentUsed: 10 }], now)).toEqual([])
   })
 
+  test('two entries of the same kind give one window, the later one', () => {
+    const limits = accountLimits(
+      [
+        { kind: 'five_hour', percentUsed: 10, resetsAt: '2026-11-07T14:00:00.000Z' },
+        { kind: 'five_hour', percentUsed: 20, resetsAt: '2026-11-07T15:00:00.000Z' },
+      ],
+      now,
+    )
+    expect(limits).toHaveLength(1)
+    expect(limits[0]?.usedPercent).toBe(20)
+  })
+
+  test('a window resetting exactly now is dropped', () => {
+    expect(accountLimits([{ kind: 'five_hour', percentUsed: 10, resetsAt: '2026-11-07T10:00:00.000Z' }], now)).toEqual([])
+  })
+
   test('a non-finite percent is dropped', () => {
     expect(accountLimits([{ kind: 'five_hour', percentUsed: Number.NaN, resetsAt: '2026-11-07T14:00:00.000Z' }], now)).toEqual([])
   })
