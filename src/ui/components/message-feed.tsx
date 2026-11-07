@@ -2,6 +2,7 @@ import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, S
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { commandToolInput, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
+import { agentInfo } from '../agents.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
@@ -214,6 +215,8 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   }
 
   if (message.kind === 'agent_text') {
+    // agent_text messages do not carry an agent id yet, so they show the default agent.
+    const agent = agentInfo(undefined)
     return (
       <article className="flex w-full gap-3">
         <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-muted">
@@ -221,7 +224,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
         </div>
         <div className="min-w-0 max-w-2xl flex-1">
           <div className="mb-2 flex items-center gap-2 text-sm">
-            <span className="font-display font-semibold">Thullab agent</span>
+            <span className="font-display font-semibold">{agent.name}</span>
             <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
             <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
           </div>
