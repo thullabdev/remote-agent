@@ -148,3 +148,42 @@ test('resumeSpawnedSession reopens the existing session record and resets its ru
   })
   expect(store.resumeSpawnedSession('sp1', 'ra-sp1')).toBe(false)
 })
+
+const FAR = '2099-01-01T00:00:00.000Z'
+const FAR_MS = Date.parse(FAR)
+
+test('records usage and maps it to the session chat', () => {
+  store.setSessionChat('s1', 'chat-1')
+  const view = store.recordUsage('s1', { context: { tokens: 100, window: 1000, percent: 10 }, rateLimits: [] })
+  expect(view).toEqual({ measuredAt: 1_000, contextPercent: 10, contextTokens: 100, contextWindow: 1000, costUsd: null })
+  expect(store.usageForChats(clock).chats['chat-1']?.contextPercent).toBe(10)
+})
+
+test('usageForChats skips sessions without a chat', () => {
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [] })
+  expect(store.usageForChats(clock).chats).toEqual({})
+})
+
+test('a second report for the same session replaces the first', () => {
+  store.setSessionChat('s1', 'chat-1')
+  store.recordUsage('s1', { context: { window: 1000, percent: 10 }, rateLimits: [] })
+  clock = 2_000
+  store.recordUsage('s1', { context: { window: 1000, percent: 20 }, cost: { usd: 1.5 }, rateLimits: [] })
+  const chats = store.usageForChats(clock).chats
+  expect(Object.keys(chats)).toEqual(['chat-1'])
+  expect(chats['chat-1']).toEqual({ measuredAt: 2_000, contextPercent: 20, contextTokens: null, contextWindow: 1000, costUsd: 1.5 })
+})
+
+test('account limits come from the freshest reading that has rateLimits', () => {
+  store.upsertSession({ sessionId: 's2', cwd: '/p2' })
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: FAR }] })
+  clock = 2_000
+  store.recordUsage('s2', { context: { window: 1000 }, rateLimits: [] })
+  expect(store.usageForChats(clock).account).toEqual({ fiveHour: { usedPercent: 42, resetsAtMs: FAR_MS }, sevenDay: null, measuredAt: 1_000 })
+})
+
+test('account is null when no reading has live limits', () => {
+  expect(store.usageForChats(clock).account).toBeNull()
+  store.recordUsage('s1', { context: { window: 1000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: '2000-01-01T00:00:00.000Z' }] })
+  expect(store.usageForChats(Date.parse('2020-01-01T00:00:00.000Z')).account).toBeNull()
+})
