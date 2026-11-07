@@ -51,7 +51,7 @@ function build(): Spawner {
     channel,
     notifier,
     launcher: new Launcher(tmux.run),
-    trusted: new TrustedFolders({ home, configPath }),
+    trusted: new TrustedFolders({ home, configPath, projects: [] }),
     home,
     log: () => {},
     schedule,
@@ -322,7 +322,7 @@ test('a second /end during the grace period is refused', async () => {
     release = resolve
   })
   const notifier = new Notifier(store, channel, new AwayMode(false), () => {})
-  spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ home, configPath }), home, log: () => {}, schedule, sleep: () => gate })
+  spawner = new Spawner({ store, channel, notifier, launcher: new Launcher(tmux.run), trusted: new TrustedFolders({ home, configPath, projects: [] }), home, log: () => {}, schedule, sleep: () => gate })
   expect(await spawner.end(thread)).toBe('⏹ Ending the session…')
   await flush()
   expect(await spawner.end(thread)).toBe('⏹ Already ending.')
@@ -393,7 +393,7 @@ test('a spawned session ends up with one chat linked via chat_id and thread_id',
     channel: webChannel,
     notifier,
     launcher: new Launcher(tmux.run),
-    trusted: new TrustedFolders({ home, configPath }),
+    trusted: new TrustedFolders({ home, configPath, projects: [] }),
     home,
     log: () => {},
     schedule,

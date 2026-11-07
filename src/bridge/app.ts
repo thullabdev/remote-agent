@@ -87,7 +87,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
     }
     const notifier = new Notifier(store, channel, away, log, webChannel ?? undefined)
     const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
-    const trusted = new TrustedFolders({ home: config.home, configPath: config.claudeConfigPath })
+    const trusted = new TrustedFolders({ home: config.home, configPath: config.claudeConfigPath, projects: config.projects })
     const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, home: config.home, log })
     const inbound = new Inbound(store, prompts, notifier, spawner)
 

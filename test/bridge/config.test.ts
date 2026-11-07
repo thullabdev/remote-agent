@@ -29,7 +29,12 @@ test('loads a valid environment with defaults', () => {
     reminderAfterMs: 30 * 60_000,
     home: '/home/u',
     claudeConfigPath: '/home/u/.claude.json',
+    projects: [],
   })
+})
+
+test('splits REMOTE_AGENT_PROJECTS into entries, keeping ~ for the trusted-folder check', () => {
+  expect(loadConfig({ ...base, REMOTE_AGENT_PROJECTS: ' ~/Sites/api , /srv/app,, ' }).projects).toEqual(['~/Sites/api', '/srv/app'])
 })
 
 test('allows overriding Claude Code config path', () => {

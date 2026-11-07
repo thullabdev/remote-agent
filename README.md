@@ -45,7 +45,7 @@ The default channel is now `web`. An existing Telegram deployment that keeps its
 
 ## 4. Run the Bridge
 
-Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. The project picker uses folders Claude Code has marked as trusted in `~/.claude.json`.
+Starting Sessions from the chat or Telegram (`/new`) needs tmux: `sudo apt install tmux`. The project picker uses the folders in `REMOTE_AGENT_PROJECTS` and the project keys in Claude Code's `~/.claude.json`.
 
 ```bash
 mkdir -p ~/.config/remote-agent && cp .env.example ~/.config/remote-agent/env && chmod 600 ~/.config/remote-agent/env
@@ -76,7 +76,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - Permission Request: Allow / Deny buttons. Replying `allow`/`yes` allows, `deny`/`no` denies, and any other reply denies with that text as feedback to the agent.
 - On resolution, the buttons are removed and a note is posted as a reply (for example `✅ Allowed (local)`).
 - Any other text in a Session's Thread is an Instruction. It is queued if the Session is busy and delivered when the Session is idle.
-- `/new` shows one button per folder marked trusted in Claude Code's `~/.claude.json`; `/new <path>` starts only in an exactly matching trusted folder, not a subfolder. The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
+- `/new` shows one button per folder in `REMOTE_AGENT_PROJECTS` or Claude Code's `~/.claude.json` projects; `/new <path>` starts only in an exactly matching trusted folder, not a subfolder. The Bridge creates the Session's Thread, starts `claude` in a detached tmux session, and posts `✅ Ready` when it is up. Send your task in that Thread.
 - `/new --resume [path]` lists the recent Claude histories in a trusted folder (or asks you to pick a project); selecting one starts a new Session forked from that transcript, leaving the original history unchanged.
 - `/new --model <model> [path]` (or `-m`) starts the Session with that model instead of your default: `opus`, `sonnet`, `haiku`, `opusplan` or a full id like `claude-sonnet-5-5`. With no path, the project buttons it posts all use that model.
 - Attach in a terminal with the command shown in the Thread and in `/status` (`tmux attach -t ra-xxxxxxxx`); detach with `Ctrl-b d`. Telegram keeps working while you are attached.
@@ -104,7 +104,7 @@ The rules below are the same in the web chat, where a Session's Thread is its Ch
 - A Session already running when the Bridge starts gets its web chat at its next report, prompt or title, not at once: the mod's instruction poll carries only a session id, so the Bridge cannot create the chat from it.
 - If the Bridge is down for more than about 6 seconds while a Question waits, that Question can only be answered in the terminal.
 - A Bridge that accepts connections but hangs (rather than being down) blocks the waiting hook until it is restarted.
-- Sessions started with `/new` run with your default permission mode and only in folders you trusted in Claude Code. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
+- Sessions started with `/new` run with your default permission mode and only in folders listed in `REMOTE_AGENT_PROJECTS` or Claude Code's `~/.claude.json`. If a Session is not up within 30 seconds (for example a login prompt), its last screen is posted and it is stopped.
 - Sessions started with `/new` survive a Bridge restart, and a logout too if lingering is enabled (`loginctl enable-linger`), but never a reboot.
 - `/end` works only for Sessions the Bridge started (`/new` or a project start, from Telegram or the web chat).
 - Secret redaction is pattern-based and best effort; Telegram bot chats are not end-to-end encrypted.
@@ -135,7 +135,8 @@ Settings (the variables read by `src/bridge/config.ts`):
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_ID` | required with telegram | See section 3. |
 | `REMOTE_AGENT_DB` | `~/.local/state/remote-agent/bridge.db` | SQLite database (chat log, sessions, prompts). |
 | `REMOTE_AGENT_REMINDER_MINUTES` | `30` | Reminder for a Prompt nobody answers. |
-| `CLAUDE_CONFIG_PATH` | `~/.claude.json` | Claude Code config used to find trusted folders. |
+| `REMOTE_AGENT_PROJECTS` | (none) | Comma-separated folders Sessions may start in; `~` is expanded. |
+| `CLAUDE_CONFIG_PATH` | `~/.claude.json` | Claude Code config whose project keys are also allowed folders. |
 
 Handy overrides for `.env` while developing:
 
