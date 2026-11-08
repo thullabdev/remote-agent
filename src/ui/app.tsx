@@ -29,7 +29,7 @@ export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('chat'))
   const [infoOpen, setInfoOpen] = useState(false)
-  const [pins, setPins] = useState<PinView[]>([])
+  const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
@@ -191,13 +191,13 @@ export function App() {
     await submitMessage(chat, clientId, text)
   }, [submitMessage])
 
-  const retryMessage = (chat: Chat, item: PendingMessage) => {
+  const retryMessage = useCallback((chat: Chat, item: PendingMessage) => {
     setPendingMessages(current => ({
       ...current,
       [chat.id]: (current[chat.id] ?? []).map(message => message.clientId === item.clientId ? { ...message, error: null } : message),
     }))
     void submitMessage(chat, item.clientId, item.message.kind === 'user_text' ? item.message.text : '')
-  }
+  }, [submitMessage])
 
   const runChatAction = useCallback(async (action: () => Promise<{ toast?: string }>) => {
     try {
@@ -224,26 +224,64 @@ export function App() {
       .catch(handleError)
   }
 
-  const handlePromptAction = async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
+  const handlePromptAction = useCallback(async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
     await runChatAction(() => api.performAction(chatId, body))
-  }
+  }, [api, runChatAction])
 
-  const handlePromptReply = async (promptId: string, body: { questionIndex: number; text: string }) => {
+  const handlePromptReply = useCallback(async (promptId: string, body: { questionIndex: number; text: string }) => {
     await runChatAction(() => api.replyToPrompt(promptId, body))
-  }
+  }, [api, runChatAction])
 
-  const handlePickerAction = async (chatId: string, body: { pickerId: string; choice: number }) => {
+  const handlePickerAction = useCallback(async (chatId: string, body: { pickerId: string; choice: number }) => {
     await runChatAction(() => api.performAction(chatId, body))
-  }
+  }, [api, runChatAction])
 
-  const runInfoAction = async (action: () => Promise<{ toast: string }>) => {
+  const runInfoAction = useCallback(async (action: () => Promise<{ toast: string }>) => {
     try {
       const result = await action()
       notify(result.toast)
     } catch (reason) {
       handleError(reason)
     }
-  }
+  }, [handleError, notify])
+
+  const loadEarlier = useCallback(() => {
+    if (activeChatId === null) {
+      return
+    }
+    const before = messages[0]?.seq
+    if (before === undefined) {
+      return
+    }
+    setBusyChatIds(current => new Set(current).add(`history:${activeChatId}`))
+    void loadMessages(activeChatId, before).catch(handleError).finally(() => {
+      setBusyChatIds(current => {
+        const next = new Set(current)
+        next.delete(`history:${activeChatId}`)
+        return next
+      })
+    })
+  }, [activeChatId, handleError, loadMessages, messages])
+
+  const togglePin = useCallback((message: Message) => {
+    void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
+  }, [api, runInfoAction])
+
+  const sendFromComposer = useCallback((text: string) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text)), [activeChat, sendMessage])
+
+  const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
+
+  const pendingItems = useMemo(() => {
+    if (activeChat === null) {
+      return []
+    }
+    const chat = activeChat
+    return pendingForChat.map(item => ({
+      message: item.message,
+      error: item.error,
+      retry: () => retryMessage(chat, item),
+    }))
+  }, [activeChat, pendingForChat, retryMessage])
 
   const openLinkedChat = () => {
     const chatId = new URLSearchParams(window.location.search).get('chat')
@@ -289,22 +327,15 @@ export function App() {
     notify('That message could not be found in this chat.')
   }
 
-  // The details list loads when the panel opens or the chat changes; pin toggles bump pinsVersion to reload it.
+  // Each time the details open, the chat's pins are refreshed in place. The last list stays on screen meanwhile, so nothing flickers.
   useEffect(() => {
     if (!infoOpen || activeChatId === null) {
       return
     }
-    let cancelled = false
-    setPins([])
     api.listPins(activeChatId).then(result => {
-      if (!cancelled) {
-        setPins(result.pins)
-      }
+      setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
-    return () => {
-      cancelled = true
-    }
-  }, [infoOpen, activeChatId, pinsVersion])
+  }, [infoOpen, activeChatId, pinsVersion, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -392,39 +423,22 @@ export function App() {
                   key={activeChat.id}
                   chat={activeChat}
                   messages={messages}
-                  pendingMessages={pendingForChat.map(item => ({
-                    message: item.message,
-                    error: item.error,
-                    retry: () => retryMessage(activeChat, item),
-                  }))}
+                  pendingMessages={pendingItems}
                   hasMore={realtime.hasMore[activeChat.id] ?? false}
                   loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
-                  onLoadEarlier={() => {
-                    const before = messages[0]?.seq
-                    if (before === undefined) {
-                      return
-                    }
-                    setBusyChatIds(current => new Set(current).add(`history:${activeChat.id}`))
-                    void loadMessages(activeChat.id, before).catch(handleError).finally(() => {
-                      setBusyChatIds(current => {
-                        const next = new Set(current)
-                        next.delete(`history:${activeChat.id}`)
-                        return next
-                      })
-                    })
-                  }}
+                  onLoadEarlier={loadEarlier}
                   onPromptAction={handlePromptAction}
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
-                  onTogglePin={message => runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))}
+                  onTogglePin={togglePin}
                 />
                 <ChatComposer
                   chat={activeChat}
                   usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
-                  onSend={text => sendMessage(activeChat, text)}
-                  onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                  onSend={sendFromComposer}
+                  onResume={resumeActive}
                 />
               </div>
             </section>
@@ -441,7 +455,7 @@ export function App() {
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
-                pins={pins}
+                pins={pinsByChat[activeChat.id] ?? []}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
                 onJump={pin => {
                   setInfoOpen(false)

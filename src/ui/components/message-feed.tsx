@@ -1,5 +1,5 @@
 import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Bookmark, Sparkles, Wrench } from 'lucide-react'
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
@@ -34,7 +34,7 @@ export function scrollToMessage(messageId: string): boolean {
   return true
 }
 
-export function MessageFeed({
+function MessageFeedView({
   chat,
   messages,
   pendingMessages = [],
@@ -623,3 +623,6 @@ function ShieldIcon() {
 function MessageCircleIcon() {
   return <span aria-hidden="true" className="text-sm">?</span>
 }
+
+/** Memoized so opening the chat details does not re-render the message list or the composer. */
+export const MessageFeed = memo(MessageFeedView)

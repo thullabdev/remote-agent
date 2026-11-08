@@ -1,5 +1,5 @@
 import { RotateCcw, Send } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { Button } from './ui/button.tsx'
@@ -30,7 +30,7 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResume }: ChatComposerProps) {
+function ChatComposerView({ chat, usage, sending, enterSends, onSend, onResume }: ChatComposerProps) {
   const [text, setText] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
@@ -183,3 +183,6 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
     </div>
   )
 }
+
+/** Memoized so opening the chat details does not re-render the message list or the composer. */
+export const ChatComposer = memo(ChatComposerView)
