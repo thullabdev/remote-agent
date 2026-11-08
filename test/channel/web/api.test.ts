@@ -674,3 +674,27 @@ test('renames a session without replacing its automatic title; empty resets and 
   expect((await call('POST', '/api/chats/general/rename', { title: 'Inbox' })).status).toBe(409)
   expect((await call('POST', `/api/chats/${chatId}/rename`, { title: 'x'.repeat(121) })).status).toBe(400)
 })
+
+test('pins and unpins a message; pins list the chat in order with previews; system messages cannot be pinned', async () => {
+  const chatId = seedSession()
+  const first = chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Plan: split the migration' })
+  const second = chatLog.appendMessage(chatId, { kind: 'user_text', text: 'Use the staging database', status: 'delivered', instructionId: null })
+  const notice = chatLog.appendMessage(chatId, { kind: 'system', text: 'Session started' })
+
+  expect(await call('POST', `/api/messages/${second.id}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Pinned.' } })
+  expect(await call('POST', `/api/messages/${first.id}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Pinned.' } })
+  expect(chatLog.findMessage(second.id)?.pinned).toBe(true)
+
+  const pins = (await call('GET', `/api/chats/${chatId}/pins`)).body.pins
+  expect(pins.map((pin: { id: string }) => pin.id)).toEqual([first.id, second.id])
+  expect(pins[0]).toMatchObject({ kind: 'agent_text', preview: 'Plan: split the migration' })
+
+  expect(await call('POST', `/api/messages/${first.id}/pin`, { pinned: false })).toEqual({ status: 200, body: { toast: 'Unpinned.' } })
+  expect((await call('GET', `/api/chats/${chatId}/pins`)).body.pins.map((pin: { id: string }) => pin.id)).toEqual([second.id])
+
+  expect((await call('POST', `/api/messages/${notice.id}/pin`, { pinned: true })).status).toBe(409)
+  expect((await call('POST', '/api/messages/m_missing/pin', { pinned: true })).status).toBe(404)
+  expect((await call('POST', `/api/messages/${second.id}/pin`, { pinned: 'yes' })).status).toBe(400)
+  expect((await call('GET', '/api/chats/nope/pins')).status).toBe(404)
+})
+

@@ -1,4 +1,4 @@
-import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Pin, Sparkles, Wrench } from 'lucide-react'
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
@@ -21,6 +21,17 @@ type MessageFeedProps = {
   onPromptAction(chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }): Promise<void>
   onPromptReply(promptId: string, body: { questionIndex: number; text: string }): Promise<void>
   onPickerAction(chatId: string, body: { pickerId: string; choice: number }): Promise<void>
+  onTogglePin?(message: Message): void
+}
+
+/** Scrolls a loaded message into view. False when it is not in the feed (for example an older page not loaded yet). */
+export function scrollToMessage(messageId: string): boolean {
+  const element = document.getElementById(`message-${messageId}`)
+  if (element === null) {
+    return false
+  }
+  element.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  return true
 }
 
 export function MessageFeed({
@@ -33,6 +44,7 @@ export function MessageFeed({
   onPromptAction,
   onPromptReply,
   onPickerAction,
+  onTogglePin,
 }: MessageFeedProps) {
   const grouped = useMemo(() => groupMessages(messages), [messages])
 
@@ -90,13 +102,16 @@ export function MessageFeed({
     addRow(
       entry.message.id,
       entry.message.at,
-      <MessageCard
-        message={entry.message}
-        messages={messages}
-        onPromptAction={onPromptAction}
-        onPromptReply={onPromptReply}
-        onPickerAction={onPickerAction}
-      />,
+      <div id={`message-${entry.message.id}`}>
+        <MessageCard
+          message={entry.message}
+          messages={messages}
+          onPromptAction={onPromptAction}
+          onPromptReply={onPromptReply}
+          onPickerAction={onPickerAction}
+          onTogglePin={onTogglePin}
+        />
+      </div>,
     )
   })
   pendingMessages.forEach(({ message, error, retry }) => {
@@ -197,9 +212,25 @@ type MessageCardProps = {
   onPromptAction?: MessageFeedProps['onPromptAction']
   onPromptReply?: MessageFeedProps['onPromptReply']
   onPickerAction?: MessageFeedProps['onPickerAction']
+  onTogglePin?: MessageFeedProps['onTogglePin']
 }
 
-function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction }: MessageCardProps) {
+function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={pinned}
+      aria-label={pinned ? 'Unpin message' : 'Pin message'}
+      title={pinned ? 'Unpin message' : 'Pin message'}
+      className={`rounded-md p-1 text-current transition-opacity hover:bg-black/5 ${pinned ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
+    >
+      <Pin className={`size-3.5 ${pinned ? 'fill-current' : ''}`} aria-hidden="true" />
+    </button>
+  )
+}
+
+function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
     return (
       <div className="flex justify-end">
@@ -217,6 +248,8 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
                 <CheckCheck className="size-3" aria-hidden="true" />
               </>
             )}
+            {message.pinned && <Pin className="size-3" aria-label="Pinned" />}
+            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
           </div>
           {pendingError && (
@@ -295,6 +328,8 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
           <div className="mb-2 flex items-center gap-2 text-sm">
             <span className="font-display font-semibold">{agent.name}</span>
             <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
+            {message.pinned && <Pin className="size-3 text-primary" aria-label="Pinned" />}
+            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
             <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
           </div>
           <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">

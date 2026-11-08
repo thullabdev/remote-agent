@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { redactSecrets, truncate } from '../../core/text.ts'
-import type { Chat, Message, MessageBody, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import type { Chat, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
 /** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
@@ -13,7 +13,10 @@ export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number 
 const PREVIEW_MAX = 140
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
-const MESSAGE_ADDED_COLUMNS: [string, string][] = [['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1']]
+const MESSAGE_ADDED_COLUMNS: [string, string][] = [
+  ['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1'],
+  ['pinned', 'pinned INTEGER NOT NULL DEFAULT 0'],
+]
 const CHAT_ADDED_COLUMNS: [string, string][] = [
   ['archived', 'archived INTEGER NOT NULL DEFAULT 0'],
   ['custom_title', 'custom_title TEXT'],
@@ -51,7 +54,7 @@ const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.p
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
-const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at'
+const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned'
 
 type ChatRecord = {
   id: string
@@ -69,7 +72,7 @@ type ChatRecord = {
   cursor: number
 }
 
-type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number }
+type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number }
 
 type EventRecord = { seq: number; type: string; payload: string }
 
@@ -117,6 +120,7 @@ function toMessage(record: MessageRecord): Message {
     chatId: record.chat_id,
     seq: record.seq,
     at: record.created_at,
+    pinned: record.pinned === 1,
   }
 }
 
@@ -262,7 +266,7 @@ export class ChatLog {
       if (sourceId !== null && inserted.changes === 0) {
         return { value: this.messageBySource(chatId, sourceId), events: [] }
       }
-      const message = { ...stored, id, chatId, seq, at } as Message
+      const message = { ...stored, id, chatId, seq, at, pinned: false } as Message
       return { value: message, events: [this.emit('message.created', { message }), this.emitChat(chatId)] }
     })
   }
@@ -278,7 +282,7 @@ export class ChatLog {
         throw new Error(`Message ${id} is ${current.kind}, not ${stored.kind}`)
       }
       this.db.query('UPDATE messages SET body = ? WHERE id = ?').run(JSON.stringify(stored), id)
-      const message = { ...stored, id, chatId: current.chatId, seq: current.seq, at: current.at } as Message
+      const message = { ...stored, id, chatId: current.chatId, seq: current.seq, at: current.at, pinned: current.pinned } as Message
       if (current.seq <= this.hiddenBefore(current.chatId)) {
         return { value: message, events: [] }
       }
@@ -350,6 +354,32 @@ export class ChatLog {
       )
       .get(instructionId)
     return record === null ? undefined : toMessage(record)
+  }
+
+  /** Pins or unpins a message. Pins are kept per message and survive edits. */
+  setPinned(id: string, pinned: boolean): Message {
+    return this.write(() => {
+      const current = this.findMessage(id)
+      if (current === undefined) {
+        throw new Error(`Unknown message ${id}`)
+      }
+      this.db.query('UPDATE messages SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+      const message = { ...current, pinned }
+      if (current.seq <= this.hiddenBefore(current.chatId)) {
+        return { value: message, events: [] }
+      }
+      return { value: message, events: [this.emit('message.updated', { message })] }
+    })
+  }
+
+  /** Pinned messages of a chat in order, with a short preview for the chat details list. */
+  listPins(chatId: string): { id: string; seq: number; at: number; kind: MessageKind; preview: string }[] {
+    const rows = this.db
+      .query<MessageRecord, [string, number]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND pinned = 1 AND seq > ? ORDER BY seq ASC`,
+      )
+      .all(chatId, this.hiddenBefore(chatId))
+    return rows.map(toMessage).map(message => ({ id: message.id, seq: message.seq, at: message.at, kind: message.kind, preview: previewOf(message) }))
   }
 
   findMessage(id: string): Message | undefined {

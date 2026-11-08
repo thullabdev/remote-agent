@@ -9,7 +9,7 @@ import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushService } from './push.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UsageView } from './protocol.ts'
+import { ActionSchema, AwaySchema, clientSourceId, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UsageView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -84,6 +84,8 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
+  { method: 'POST', pattern: ['messages', ':id', 'pin'], run: ({ deps, request }, id) => pinMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
@@ -368,6 +370,24 @@ async function renameChat(deps: ApiDeps, request: Request, chatId: string): Prom
   const name = title.trim()
   deps.chatLog.setCustomTitle(chatId, name === '' ? null : name)
   return { toast: name === '' ? 'Session name reset.' : 'Session renamed.' }
+}
+
+function listPins(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  return { pins: deps.chatLog.listPins(chatId) }
+}
+
+async function pinMessage(deps: ApiDeps, request: Request, messageId: string): Promise<unknown> {
+  const { pinned } = await readBody(request, PinSchema)
+  const message = deps.chatLog.findMessage(messageId)
+  if (message === undefined) {
+    throw new ApiError(404, 'No such message.')
+  }
+  if (message.kind !== 'user_text' && message.kind !== 'agent_text') {
+    throw new ApiError(409, 'Only your messages and agent replies can be pinned.')
+  }
+  deps.chatLog.setPinned(messageId, pinned)
+  return { toast: pinned ? 'Pinned.' : 'Unpinned.' }
 }
 
 function clearHistory(deps: ApiDeps, chatId: string): unknown {

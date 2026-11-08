@@ -57,7 +57,10 @@ export type MessageBody =
 
 export type MessageKind = MessageBody['kind']
 
-export type Message = { id: string; chatId: string; seq: number; at: number } & MessageBody
+/** A pinned message as the chat details list shows it. */
+export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }
+
+export type Message = { id: string; chatId: string; seq: number; at: number; /** Absent means not pinned; the server always sends it. */ pinned?: boolean } & MessageBody
 
 export type PushSubscriptionRecord = { endpoint: string; keys: { p256dh: string; auth: string } }
 
@@ -107,3 +110,5 @@ export const PromptReplySchema = z.object({ questionIndex: z.number().int().min(
 export const ReadSchema = z.object({ seq: z.number().int().min(0) })
 
 export const AwaySchema = z.object({ away: z.boolean() })
+
+export const PinSchema = z.object({ pinned: z.boolean() })

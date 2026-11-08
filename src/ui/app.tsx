@@ -1,13 +1,13 @@
 import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message } from '../channel/web/protocol.ts'
+import type { Chat, Message, PinView } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { ChatList } from './components/chat-list.tsx'
-import { MessageFeed } from './components/message-feed.tsx'
+import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
@@ -29,6 +29,8 @@ export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('chat'))
   const [infoOpen, setInfoOpen] = useState(false)
+  const [pins, setPins] = useState<PinView[]>([])
+  const [pinsVersion, setPinsVersion] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
@@ -252,6 +254,23 @@ export function App() {
 
   useEffect(openLinkedChat, [chats])
 
+  // The details list loads when the panel opens or the chat changes; pin toggles bump pinsVersion to reload it.
+  useEffect(() => {
+    if (!infoOpen || activeChatId === null) {
+      return
+    }
+    let cancelled = false
+    setPins([])
+    api.listPins(activeChatId).then(result => {
+      if (!cancelled) {
+        setPins(result.pins)
+      }
+    }).catch(handleError)
+    return () => {
+      cancelled = true
+    }
+  }, [infoOpen, activeChatId, pinsVersion])
+
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
     return (
@@ -362,6 +381,7 @@ export function App() {
                   onPromptAction={handlePromptAction}
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
+                  onTogglePin={message => runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))}
                 />
                 <ChatComposer
                   chat={activeChat}
@@ -386,6 +406,14 @@ export function App() {
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                pins={pins}
+                onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
+                onJump={messageId => {
+                  if (!scrollToMessage(messageId)) {
+                    notify('That message is not loaded yet. Load earlier messages to find it.')
+                  }
+                  setInfoOpen(false)
+                }}
               />
             )}
           </>
