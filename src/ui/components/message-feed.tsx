@@ -1,4 +1,4 @@
-import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Pin, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Bookmark, Sparkles, Wrench } from 'lucide-react'
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
@@ -225,7 +225,7 @@ function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) 
       title={pinned ? 'Unpin message' : 'Pin message'}
       className={`rounded-md p-1 text-current transition-opacity hover:bg-black/5 ${pinned ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
     >
-      <Pin className={`size-3.5 ${pinned ? 'fill-current' : ''}`} aria-hidden="true" />
+      <Bookmark className={`size-3.5 ${pinned ? 'fill-current' : ''}`} aria-hidden="true" />
     </button>
   )
 }
@@ -248,9 +248,8 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
                 <CheckCheck className="size-3" aria-hidden="true" />
               </>
             )}
-            {message.pinned && <Pin className="size-3" aria-label="Pinned" />}
-            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
           </div>
           {pendingError && (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
@@ -328,9 +327,12 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
           <div className="mb-2 flex items-center gap-2 text-sm">
             <span className="font-display font-semibold">{agent.name}</span>
             <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
-            {message.pinned && <Pin className="size-3 text-primary" aria-label="Pinned" />}
-            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
             <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+            {onTogglePin && (
+              <span className="ml-auto">
+                <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
+              </span>
+            )}
           </div>
           <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
             <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
