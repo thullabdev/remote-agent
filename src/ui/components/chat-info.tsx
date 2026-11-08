@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { Chat, PinView, UsageView } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
@@ -24,13 +24,14 @@ type ChatInfoProps = {
   onResume(): Promise<void>
   pins: PinView[]
   onUnpin(messageId: string): Promise<void>
+  onRefreshPins(): void
   /** Closes the details and shows the pinned message in the chat, loading older history if needed. */
   onJump(pin: PinView): void
 }
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
   const now = useNow()
   const sessionUsage = usage.chats[chat.id]
   const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
@@ -132,7 +133,12 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
             </div>
             <InfoRow label="Messages" value={String(messageCount)} />
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Pinned messages · {pins.length}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Pinned messages · {pins.length}</p>
+                <Button variant="ghost" size="icon-sm" aria-label="Refresh pinned messages" onClick={onRefreshPins}>
+                  <RefreshCw aria-hidden="true" />
+                </Button>
+              </div>
               {pins.length === 0 ? (
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Pin a message in the chat to keep it here.</p>
               ) : (

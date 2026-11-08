@@ -25,6 +25,7 @@ function render(pins: PinView[]): string {
     pins,
     onUnpin: async () => {},
     onJump: () => {},
+    onRefreshPins: () => {},
   }))
 }
 
@@ -45,4 +46,5 @@ test('the details list shows each pin with its author, preview and actions', () 
   expect(markup).toContain('Use staging')
   expect(markup).toContain('Show in chat')
   expect(markup).toContain('Unpin')
+  expect(markup).toContain('aria-label="Refresh pinned messages"')
 })

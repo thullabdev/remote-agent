@@ -327,15 +327,15 @@ export function App() {
     notify('That message could not be found in this chat.')
   }
 
-  // Each time the details open, the chat's pins are refreshed in place. The last list stays on screen meanwhile, so nothing flickers.
+  // The chat's pins load when the chat is opened, and again after a pin change or a manual refresh. Opening the details does not fetch.
   useEffect(() => {
-    if (!infoOpen || activeChatId === null) {
+    if (activeChatId === null) {
       return
     }
     api.listPins(activeChatId).then(result => {
       setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
-  }, [infoOpen, activeChatId, pinsVersion, api, handleError])
+  }, [activeChatId, pinsVersion, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -457,6 +457,7 @@ export function App() {
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
                 pins={pinsByChat[activeChat.id] ?? []}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
+                onRefreshPins={() => setPinsVersion(version => version + 1)}
                 onJump={pin => {
                   setInfoOpen(false)
                   void jumpToPin(pin).catch(handleError)
