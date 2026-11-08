@@ -254,6 +254,41 @@ export function App() {
 
   useEffect(openLinkedChat, [chats])
 
+  /** Shows a pinned message: loads older pages until its seq is covered, then scrolls to it. */
+  const jumpToPin = async (pin: PinView) => {
+    const chatId = activeChatId
+    if (chatId === null) {
+      return
+    }
+    const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    let before = messages[0]?.seq
+    let hasMore = realtime?.hasMore[chatId] ?? false
+    if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
+      setBusyChatIds(current => new Set(current).add(`history:${chatId}`))
+      try {
+        while (before !== undefined && pin.seq < before && hasMore) {
+          const page = await loadMessages(chatId, before)
+          hasMore = page.hasMore
+          before = page.messages[0]?.seq ?? before
+        }
+      } finally {
+        setBusyChatIds(current => {
+          const next = new Set(current)
+          next.delete(`history:${chatId}`)
+          return next
+        })
+      }
+    }
+    // The feed renders the loaded page on a later frame, so retry the scroll for a few frames.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (scrollToMessage(pin.id)) {
+        return
+      }
+      await nextFrame()
+    }
+    notify('That message could not be found in this chat.')
+  }
+
   // The details list loads when the panel opens or the chat changes; pin toggles bump pinsVersion to reload it.
   useEffect(() => {
     if (!infoOpen || activeChatId === null) {
@@ -408,11 +443,9 @@ export function App() {
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
                 pins={pins}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
-                onJump={messageId => {
-                  if (!scrollToMessage(messageId)) {
-                    notify('That message is not loaded yet. Load earlier messages to find it.')
-                  }
+                onJump={pin => {
                   setInfoOpen(false)
+                  void jumpToPin(pin).catch(handleError)
                 }}
               />
             )}

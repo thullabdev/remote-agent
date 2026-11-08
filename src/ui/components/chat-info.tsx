@@ -24,8 +24,8 @@ type ChatInfoProps = {
   onResume(): Promise<void>
   pins: PinView[]
   onUnpin(messageId: string): Promise<void>
-  /** Scrolls the chat to a pinned message and closes the details. */
-  onJump(messageId: string): void
+  /** Closes the details and shows the pinned message in the chat, loading older history if needed. */
+  onJump(pin: PinView): void
 }
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
@@ -145,7 +145,7 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm leading-snug">{pin.preview}</p>
                       <div className="mt-1.5 flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => onJump(pin.id)}>Show in chat</Button>
+                        <Button variant="ghost" size="sm" onClick={() => onJump(pin)}>Show in chat</Button>
                         <Button variant="ghost" size="sm" onClick={() => void onUnpin(pin.id)}>Unpin</Button>
                       </div>
                     </li>
