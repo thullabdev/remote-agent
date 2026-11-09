@@ -707,51 +707,47 @@ const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n')
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])
 
-async function callBytes(method: string, path: string, bytes: Uint8Array | null, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> {
-  const init: RequestInit = { method, headers: { ...headers } }
-  if (bytes !== null) {
-    init.body = bytes.slice().buffer
-  }
-  const response = await api(new Request(`http://localhost${path}`, init))
-  if (response === null) {
-    throw new Error(`${path} was not handled by the API`)
-  }
-  const text = await response.text()
-  return { status: response.status, body: text === '' ? null : JSON.parse(text) }
+function base64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64')
+}
+
+function upload(name: string, bytes: Uint8Array): Promise<{ status: number; body: any }> {
+  return call('POST', '/api/uploads', { name, data: base64(bytes) })
 }
 
 test('uploads an image to the library and lists it', async () => {
-  const { status, body } = await callBytes('POST', '/api/uploads', PNG_BYTES, { 'X-File-Name': encodeURIComponent('../../screen shot.png') })
+  const { status, body } = await upload('../../screen shot.png', PNG_BYTES)
   expect(status).toBe(200)
   expect(body.upload).toMatchObject({ name: 'screen shot.png', mime: 'image/png', size: PNG_BYTES.byteLength, hasThumbnail: false })
-  expect((await call('GET', '/api/uploads')).body.uploads.map((upload: { id: string }) => upload.id)).toEqual([body.upload.id])
+  expect((await call('GET', '/api/uploads')).body.uploads.map((item: { id: string }) => item.id)).toEqual([body.upload.id])
 })
 
-test('refuses uploads without a name, of the wrong type, or too large', async () => {
-  expect((await callBytes('POST', '/api/uploads', PNG_BYTES)).status).toBe(400)
-  expect((await callBytes('POST', '/api/uploads', new TextEncoder().encode('<svg></svg>'), { 'X-File-Name': 'a.svg' })).status).toBe(415)
-  expect((await callBytes('POST', '/api/uploads', new Uint8Array(10 * 1024 * 1024 + 1), { 'X-File-Name': 'big.png' })).status).toBe(413)
+test('refuses uploads of the wrong type, too large, or with bad data', async () => {
+  expect((await upload('a.svg', new TextEncoder().encode('<svg></svg>'))).status).toBe(415)
+  expect((await call('POST', '/api/uploads', { name: 'big.png', data: 'A'.repeat(14_000_000) })).status).toBe(413)
+  expect((await call('POST', '/api/uploads', { name: 'empty.png' })).status).toBe(400)
+  expect((await call('POST', '/api/uploads', { data: base64(PNG_BYTES) })).status).toBe(400)
 })
 
 test('serves a file with its sniffed type, a preview when asked, and refuses a preview for a PDF', async () => {
-  const image = (await callBytes('POST', '/api/uploads', PNG_BYTES, { 'X-File-Name': 'a.png' })).body.upload
-  const pdf = (await callBytes('POST', '/api/uploads', PDF_BYTES, { 'X-File-Name': 'a.pdf' })).body.upload
+  const image = (await upload('a.png', PNG_BYTES)).body.upload
+  const pdf = (await upload('a.pdf', PDF_BYTES)).body.upload
 
   const file = await api(new Request(`http://localhost/api/uploads/${image.id}`))
   expect(file?.headers.get('Content-Type')).toBe('image/png')
   expect(file?.headers.get('X-Content-Type-Options')).toBe('nosniff')
   expect(new Uint8Array(await file!.arrayBuffer())).toEqual(PNG_BYTES)
 
-  expect((await callBytes('POST', `/api/uploads/${image.id}/thumbnail`, JPEG_BYTES)).status).toBe(200)
+  expect((await call('POST', `/api/uploads/${image.id}/thumbnail`, { data: base64(JPEG_BYTES) })).status).toBe(200)
   const preview = await api(new Request(`http://localhost/api/uploads/${image.id}?thumb=1`))
   expect(preview?.headers.get('Content-Type')).toBe('image/jpeg')
   expect((await api(new Request(`http://localhost/api/uploads/${pdf.id}?thumb=1`)))?.status).toBe(404)
-  expect((await callBytes('POST', `/api/uploads/${pdf.id}/thumbnail`, JPEG_BYTES)).status).toBe(415)
+  expect((await call('POST', `/api/uploads/${pdf.id}/thumbnail`, { data: base64(JPEG_BYTES) })).status).toBe(415)
   expect((await api(new Request('http://localhost/api/uploads/u_missing')))?.status).toBe(404)
 })
 
 test('deletes a file from the library', async () => {
-  const { body } = await callBytes('POST', '/api/uploads', PNG_BYTES, { 'X-File-Name': 'gone.png' })
+  const { body } = await upload('gone.png', PNG_BYTES)
   expect(await call('DELETE', `/api/uploads/${body.upload.id}`)).toEqual({ status: 200, body: { toast: 'Removed from the library.' } })
   expect((await call('GET', '/api/uploads')).body.uploads).toEqual([])
   expect((await call('DELETE', `/api/uploads/${body.upload.id}`)).status).toBe(404)
@@ -759,7 +755,7 @@ test('deletes a file from the library', async () => {
 
 test('a message with attachments shows their names and tells the Session where the files are', async () => {
   const chatId = seedSession()
-  const { body } = await callBytes('POST', '/api/uploads', PNG_BYTES, { 'X-File-Name': 'diagram.png' })
+  const { body } = await upload('diagram.png', PNG_BYTES)
   const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-1', text: 'Compare this', attachmentIds: [body.upload.id] })
 
   expect(sent.status).toBe(200)
@@ -769,10 +765,20 @@ test('a message with attachments shows their names and tells the Session where t
   expect(instruction.text).toBe(`Compare this\n\nAttached files (read them with the Read tool):\n- ${path}`)
 })
 
-test('sending refuses unknown attachments and attachments in General', async () => {
+test('a file-only message is allowed; the Session gets the paths alone', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('only.pdf', PDF_BYTES)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-5', text: '  ', attachmentIds: [body.upload.id] })
+
+  expect(sent.status).toBe(200)
+  expect(sent.body.message).toMatchObject({ text: '', attachments: [{ name: 'only.pdf', mime: 'application/pdf' }] })
+  expect(store.listPendingInstructions('s1').at(-1)!.text.startsWith('Attached files (read them with the Read tool):\n- ')).toBe(true)
+})
+
+test('sending refuses unknown attachments, attachments in General, and a blank message with none', async () => {
   const chatId = seedSession()
   expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-2', text: 'hi', attachmentIds: ['u_missing'] })).status).toBe(400)
   expect((await call('POST', '/api/chats/general/messages', { clientId: 'c-3', text: '/status', attachmentIds: ['u_missing'] })).status).toBe(409)
   expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-4', text: 'hi', attachmentIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).status).toBe(400)
+  expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-6', text: '   ' })).status).toBe(400)
 })
-

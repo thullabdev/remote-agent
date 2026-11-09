@@ -10,7 +10,7 @@ import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushService } from './push.ts'
 import { ActionSchema, AwaySchema, clientSourceId, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
-import { UploadError, type UploadLibrary } from './uploads.ts'
+import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -257,7 +257,7 @@ async function sendMessage(deps: ApiDeps, request: Request, chatId: string): Pro
   }
   const attachments = resolveAttachments(deps, attachmentIds)
   const instruction = deps.store.enqueueInstruction(session.id, withAttachmentPaths(body.text, attachments.paths))
-  return { message: deps.sink.instructionQueued(instruction, session, body.clientId, { text: body.text, attachments: attachments.refs }) }
+  return { message: deps.sink.instructionQueued(instruction, session, body.clientId, { text: body.text.trim(), attachments: attachments.refs }) }
 }
 
 /** Library entries for the ids, each once. The Session gets their paths; the message shows their names. */
@@ -311,14 +311,23 @@ function listUploads(deps: ApiDeps): unknown {
   return { uploads: requireUploads(deps).list() }
 }
 
+/** Uploads travel as JSON with base64 data, so the JSON Content-Type guard applies to them too. */
+const UploadBodySchema = z.object({ name: z.string().min(1).max(500), data: z.string().min(1) })
+const ThumbnailBodySchema = z.object({ data: z.string().min(1) })
+
+/** Decodes base64 data, refusing anything that could not hold a file within the limit. */
+function decodeUpload(data: string): Uint8Array {
+  if (data.length > Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 4) {
+    throw new ApiError(413, 'File is larger than 10 MB.')
+  }
+  return new Uint8Array(Buffer.from(data, 'base64'))
+}
+
 async function addUpload(deps: ApiDeps, request: Request): Promise<unknown> {
   const library = requireUploads(deps)
-  const rawName = request.headers.get('X-File-Name')
-  if (rawName === null || rawName.trim() === '') {
-    throw new ApiError(400, 'The X-File-Name header is required.')
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  return { upload: withUploadErrors(() => library.add(rawName, bytes)) }
+  const body = await readBody(request, UploadBodySchema)
+  const bytes = decodeUpload(body.data)
+  return { upload: withUploadErrors(() => library.add(body.name, bytes)) }
 }
 
 /** Serves the file, or its preview with `?thumb=1`, with the type its bytes show. */
@@ -345,8 +354,8 @@ async function uploadFile(deps: ApiDeps, id: string, url: URL): Promise<Response
 
 async function addThumbnail(deps: ApiDeps, request: Request, id: string): Promise<unknown> {
   const library = requireUploads(deps)
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  withUploadErrors(() => library.addThumbnail(id, bytes))
+  const body = await readBody(request, ThumbnailBodySchema)
+  withUploadErrors(() => library.addThumbnail(id, decodeUpload(body.data)))
   return { ok: true }
 }
 
