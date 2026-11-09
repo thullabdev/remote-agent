@@ -26,6 +26,10 @@ describe('chat composer surface', () => {
       usage: { accounts: [], chats: {} },
       sending: false,
       enterSends: true,
+      library: [],
+      onRefreshLibrary: () => {},
+      onUpload: async () => null,
+      onDeleteUpload: () => {},
       onSend: async () => {},
       onResume: async () => {},
     }))

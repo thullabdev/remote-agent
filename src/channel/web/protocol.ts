@@ -60,6 +60,9 @@ export type MessageKind = MessageBody['kind']
 /** An uploaded file as a message shows it: enough to display it, not where it is stored. */
 export type UploadRef = { id: string; name: string; mime: string; size: number }
 
+/** A library entry as the picker lists it. */
+export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean }
+
 /** A pinned message as the chat details list shows it. */
 export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }
 

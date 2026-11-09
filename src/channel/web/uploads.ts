@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { UploadRecord } from './protocol.ts'
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 export const MAX_THUMBNAIL_BYTES = 256 * 1024
@@ -54,8 +55,6 @@ export function safeFileName(raw: string): string {
   const cleaned = base.replace(/[^A-Za-z0-9._ -]+/g, '_').replace(/^\.+/, '').trim().slice(0, 120)
   return cleaned === '' ? 'file' : cleaned
 }
-
-export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean }
 
 type UploadRow = { id: string; name: string; mime: string; size: number; thumb_mime: string | null; created_at: number }
 

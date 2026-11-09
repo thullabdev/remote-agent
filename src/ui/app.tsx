@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message, PinView } from '../channel/web/protocol.ts'
+import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
@@ -12,6 +12,7 @@ import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
+import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
 
@@ -31,6 +32,7 @@ export function App() {
   const [infoOpen, setInfoOpen] = useState(false)
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
+  const [library, setLibrary] = useState<UploadRecord[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
@@ -134,12 +136,12 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string) => {
+  const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string, attachmentIds: string[]) => {
     setBusyChatIds(current => new Set(current).add(chat.id))
     try {
       let result: Awaited<ReturnType<typeof api.sendMessage>>
       try {
-        result = await api.sendMessage(chat.id, { clientId, text })
+        result = await api.sendMessage(chat.id, { clientId, text, attachmentIds })
       } catch (reason) {
         if (reason instanceof RequestError) {
           throw reason
@@ -151,7 +153,7 @@ export function App() {
           ),
         }))
         await new Promise(resolve => setTimeout(resolve, 800))
-        result = await api.sendMessage(chat.id, { clientId, text })
+        result = await api.sendMessage(chat.id, { clientId, text, attachmentIds })
       }
       mergeMessage(result.message)
       setPendingMessages(current => ({
@@ -173,22 +175,23 @@ export function App() {
     }
   }, [api, handleError, mergeMessage])
 
-  const sendMessage = useCallback(async (chat: Chat, text: string, clientId = crypto.randomUUID()) => {
+  const sendMessage = useCallback(async (chat: Chat, text: string, attachments: UploadRef[], clientId = crypto.randomUUID()) => {
     const optimistic: Message = {
       id: `local:${clientId}`,
       chatId: chat.id,
       seq: Number.MAX_SAFE_INTEGER,
       at: Date.now(),
       kind: 'user_text',
-      text,
+      text: text.trim(),
       status: chat.id === 'general' ? 'delivered' : 'queued',
       instructionId: null,
+      ...(attachments.length > 0 ? { attachments } : {}),
     }
     setPendingMessages(current => ({
       ...current,
       [chat.id]: [...(current[chat.id] ?? []), { clientId, message: optimistic, error: null }],
     }))
-    await submitMessage(chat, clientId, text)
+    await submitMessage(chat, clientId, text, attachments.map(item => item.id))
   }, [submitMessage])
 
   const retryMessage = useCallback((chat: Chat, item: PendingMessage) => {
@@ -196,7 +199,12 @@ export function App() {
       ...current,
       [chat.id]: (current[chat.id] ?? []).map(message => message.clientId === item.clientId ? { ...message, error: null } : message),
     }))
-    void submitMessage(chat, item.clientId, item.message.kind === 'user_text' ? item.message.text : '')
+    void submitMessage(
+      chat,
+      item.clientId,
+      item.message.kind === 'user_text' ? item.message.text : '',
+      item.message.kind === 'user_text' ? (item.message.attachments ?? []).map(attachment => attachment.id) : [],
+    )
   }, [submitMessage])
 
   const runChatAction = useCallback(async (action: () => Promise<{ toast?: string }>) => {
@@ -245,6 +253,48 @@ export function App() {
     }
   }, [handleError, notify])
 
+  const refreshLibrary = useCallback(() => {
+    api.listUploads().then(result => setLibrary(result.uploads)).catch(handleError)
+  }, [api, handleError])
+
+  const uploadFromComposer = useCallback(async (file: File): Promise<UploadRef | null> => {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      notify('That file is larger than 10 MB.')
+      return null
+    }
+    try {
+      const { upload } = await api.uploadFile(file.name, await toBase64(file))
+      let record = upload
+      const thumbnail = file.type.startsWith('image/') && !upload.hasThumbnail ? await makeThumbnail(file) : null
+      if (thumbnail !== null) {
+        try {
+          await api.uploadThumbnail(upload.id, await toBase64(thumbnail))
+          record = { ...upload, hasThumbnail: true }
+        } catch {
+          // The original still works without a preview.
+        }
+      }
+      setLibrary(current => [record, ...current.filter(item => item.id !== record.id)])
+      return toRef(record)
+    } catch (reason) {
+      handleError(reason)
+      return null
+    }
+  }, [api, handleError, notify])
+
+  const deleteFromLibrary = useCallback(async (upload: UploadRecord) => {
+    if (!window.confirm(`Delete ${upload.name} from the library? Messages that already use it will show it as removed.`)) {
+      return
+    }
+    try {
+      const result = await api.deleteUpload(upload.id)
+      setLibrary(current => current.filter(item => item.id !== upload.id))
+      notify(result.toast)
+    } catch (reason) {
+      handleError(reason)
+    }
+  }, [api, handleError, notify])
+
   const loadEarlier = useCallback(() => {
     if (activeChatId === null) {
       return
@@ -267,7 +317,7 @@ export function App() {
     void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
   }, [api, runInfoAction])
 
-  const sendFromComposer = useCallback((text: string) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text)), [activeChat, sendMessage])
+  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text, attachments)), [activeChat, sendMessage])
 
   const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
 
@@ -436,6 +486,10 @@ export function App() {
                   usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
+                  library={library}
+                  onRefreshLibrary={refreshLibrary}
+                  onUpload={uploadFromComposer}
+                  onDeleteUpload={deleteFromLibrary}
                   onSend={sendFromComposer}
                   onResume={resumeActive}
                 />

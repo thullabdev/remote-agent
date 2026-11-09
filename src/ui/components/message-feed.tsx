@@ -1,8 +1,9 @@
-import { ArrowDown, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Bookmark, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Chat, Message } from '../../channel/web/protocol.ts'
+import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
+import { isPdf, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
@@ -235,7 +236,14 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
     return (
       <div className="flex justify-end">
         <div className="max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-[var(--message-pad,_.7rem)] text-primary-foreground shadow-sm sm:max-w-[76%]">
-          <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>
+          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
+          {message.attachments !== undefined && message.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {message.attachments.map(attachment => (
+                <AttachmentView key={attachment.id} attachment={attachment} />
+              ))}
+            </div>
+          )}
           <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
             {message.status === 'queued' ? (
               <>
@@ -345,6 +353,27 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   }
 
   return null
+}
+
+/** An attached library file: the image itself, or a PDF link. A file that was deleted from the library shows as removed. */
+function AttachmentView({ attachment }: { attachment: UploadRef }) {
+  const [missing, setMissing] = useState(false)
+  if (missing) {
+    return <span className="rounded-lg bg-black/10 px-2 py-1 text-xs">{attachment.name} (removed)</span>
+  }
+  if (isPdf(attachment.mime)) {
+    return (
+      <a href={uploadUrl(attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-black/10 px-2 py-1 text-xs">
+        <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{attachment.name}</span>
+      </a>
+    )
+  }
+  return (
+    <a href={uploadUrl(attachment.id)} target="_blank" rel="noreferrer" className="block max-w-full">
+      <img src={uploadUrl(attachment.id)} alt={attachment.name} loading="lazy" onError={() => setMissing(true)} className="max-h-48 max-w-[14rem] rounded-lg object-cover" />
+    </a>
+  )
 }
 
 function MessageTime({ at }: { at: number }) {
