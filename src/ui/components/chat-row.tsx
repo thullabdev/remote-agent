@@ -49,6 +49,8 @@ type ChatRowContentProps = {
   chat: Chat
   /** Set while selecting for archive: the row shows a checkbox in place of the avatar. */
   selection: { selected: boolean } | null
+  /** The clock the age is told against. The list passes a ticking one; it defaults to the current time. */
+  now?: number
 }
 
 /** A small mark of where the session runs: the computer, or a terminal for one spawned from Remote Agent (it lives in tmux). */
@@ -64,7 +66,7 @@ function OriginIcon({ chat }: { chat: Chat }) {
   )
 }
 
-export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
+export function ChatRowContent({ chat, selection, now = Date.now() }: ChatRowContentProps) {
   const state = chatState(chat)
   const isGeneral = chat.id === 'general'
   const unreadDot = chat.unread > 0 ? <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full bg-primary" /> : null
@@ -89,7 +91,7 @@ export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
             <OriginIcon chat={chat} />
             {chat.lastMessage !== null && (
               <time dateTime={new Date(chat.lastMessage.at).toISOString()} className="font-mono text-xs text-muted-foreground">
-                {formatRelativeTime(chat.lastMessage.at)}
+                {formatRelativeTime(chat.lastMessage.at, now)}
               </time>
             )}
             {isGeneral && unreadDot}

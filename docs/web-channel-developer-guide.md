@@ -314,6 +314,7 @@ Send `presence` when the socket opens and whenever any of the three fields chang
 ### 3.4 When the server drops you
 
 - A client that sends no frame and answers no ping for about 90 seconds is dropped (browsers answer protocol pings on their own; send an occasional `ping` if you want to be sure).
+- A socket can look open after the network is gone (no `close` ever fires), so do not trust it: send a `ping` every 30 s and treat 10 s of silence (any message counts, not only the `pong`) as dead. Drop the socket and reconnect at once with `after=<last seq seen>`, which replays what was missed. When the user returns to the app after a quiet spell (the tab becomes visible, `online`, `pageshow`), probe with a `ping` and a 4 s deadline, and skip the retry delay if the socket is already gone. The web UI does this in `src/ui/liveness.ts` and `src/ui/use-web-channel.ts`.
 - A client that cannot keep up (more than 8 MiB of unsent data) is closed with code `1013`; reconnect and resume.
 - `1011` means the handshake failed on the server; `1001` means the server is stopping.
 - The maximum size of a frame you send is 16 MiB.

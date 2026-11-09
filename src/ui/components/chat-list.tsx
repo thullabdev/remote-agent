@@ -6,6 +6,7 @@ import { chatRowLabel, rowOpenTarget } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { ChatRowContent } from './chat-row.tsx'
+import { useNow } from './usage-meters.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
@@ -21,6 +22,8 @@ type ChatListProps = {
   /** `focus` asks the app to open at a Prompt: a tap on a session that needs you goes straight to what it waits for. */
   onOpen(chatId: string, focus?: { promptId: string }): void
   onNew(): void
+  /** Tries the connection again now. The notice offers it only when this is set. */
+  onRetry?(): void
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onActionError(error: unknown): void
@@ -84,7 +87,7 @@ const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
 }
 
 /** Says nothing while all is well. A line that is always on becomes invisible, so it only shows when the connection is not fine. */
-function ConnectionNotice({ status }: { status: ConnectionStatus }) {
+function ConnectionNotice({ status, onRetry }: { status: ConnectionStatus; onRetry?: () => void }) {
   const text = CONNECTION_NOTICE[status]
   if (text === undefined) {
     return null
@@ -92,7 +95,12 @@ function ConnectionNotice({ status }: { status: ConnectionStatus }) {
   return (
     <div role="status" className="mx-4 mb-1 flex shrink-0 items-center gap-2 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
       <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
-      {text}
+      <span className="min-w-0 flex-1">{text}</span>
+      {onRetry !== undefined && (status === 'reconnecting' || status === 'error') && (
+        <button type="button" onClick={onRetry} className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-background/60">
+          Retry
+        </button>
+      )}
     </div>
   )
 }
@@ -182,6 +190,7 @@ export function ChatList({
   status,
   onOpen,
   onNew,
+  onRetry,
   onSettings,
   onArchiveSelected,
   onActionError,
@@ -200,6 +209,8 @@ export function ChatList({
     () => filterChats(chats, query, filter, origin),
     [chats, query, filter, origin],
   )
+  // Ticks every 30 s so "12m" becomes "13m" without waiting for something else to re-render the list.
+  const now = useNow()
   const counts = useMemo(() => filterCounts(chats, origin), [chats, origin])
   const endedUnread = useMemo(
     () => chats.some(chat => matchesOrigin(chat, origin) && chat.status === 'ended' && !chat.archived && chat.unread > 0),
@@ -341,7 +352,7 @@ export function ChatList({
         </Button>
       </header>
 
-      <ConnectionNotice status={status} />
+      <ConnectionNotice status={status} onRetry={onRetry} />
       <ChatFilterBar value={filter} counts={counts} endedUnread={endedUnread} onSelect={selectFilter} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
         {filter === 'ended' && filteredChats.length > 0 && !selectionMode && (
@@ -395,13 +406,13 @@ export function ChatList({
               aria-label={
                 selectionMode && selectableIds.has(chat.id)
                   ? `${chat.title}, ${selectedIds.has(chat.id) ? 'selected' : 'not selected'}`
-                  : chatRowLabel(chat)
+                  : chatRowLabel(chat, now)
               }
               className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors ${
                 activeId === chat.id ? 'bg-muted' : 'hover:bg-muted/70'
               }`}
             >
-              <ChatRowContent chat={chat} selection={selectionMode && selectableIds.has(chat.id) ? { selected: selectedIds.has(chat.id) } : null} />
+              <ChatRowContent chat={chat} now={now} selection={selectionMode && selectableIds.has(chat.id) ? { selected: selectedIds.has(chat.id) } : null} />
             </button>
           ))}
           {filteredChats.length === 0 && (

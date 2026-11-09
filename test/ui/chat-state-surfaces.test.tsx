@@ -310,3 +310,26 @@ test('the list uses no text smaller than 12px', () => {
   const markup = listWith([{ ...base, unread: 3, draft: { preview: 'x', at: 1 }, status: 'ended' }, blocked], { status: 'error' })
   expect(markup).not.toMatch(/text-\[(?:9|10|11)px\]/)
 })
+
+test('the connection notice offers a retry only when the connection is not fine and the app can retry', () => {
+  const render = (status: 'connected' | 'reconnecting' | 'error', onRetry?: () => void): string =>
+    renderToStaticMarkup(
+      createElement(ChatList, {
+        chats: [base], activeId: null, status, onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        onArchiveSelected: async () => {}, onActionError: () => {}, ...(onRetry === undefined ? {} : { onRetry }),
+      }),
+    )
+  expect(render('reconnecting', () => {})).toContain('>Retry<')
+  expect(render('error', () => {})).toContain('>Retry<')
+  expect(render('connected', () => {})).not.toContain('>Retry<')
+  expect(render('reconnecting')).not.toContain('>Retry<')
+})
+
+test('rows tell the age against the clock they are given, so the list can keep it moving', () => {
+  const sentAt = Date.UTC(2026, 10, 10, 12, 0)
+  const aged: Chat = { ...base, lastMessage: { seq: 1, at: sentAt, preview: 'hello' } }
+  const at = (now: number): string => renderToStaticMarkup(createElement(ChatRowContent, { chat: aged, selection: null, now }))
+  expect(at(Date.UTC(2026, 10, 10, 12, 5))).toContain('>5m<')
+  expect(at(Date.UTC(2026, 10, 10, 12, 30))).toContain('>30m<')
+  expect(at(Date.UTC(2026, 10, 10, 15, 0))).toContain('>3h<')
+})

@@ -61,7 +61,7 @@ export function App() {
   const [accessDenied, setAccessDenied] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { realtime, status, error, reload, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
+  const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
   const push = usePushSubscription(api)
 
   const notify = useCallback((message: string) => {
@@ -491,6 +491,7 @@ export function App() {
         activeId={activeChatId}
         status={status}
         onOpen={openChat}
+        onRetry={retry}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onArchiveSelected={async chatIds => {

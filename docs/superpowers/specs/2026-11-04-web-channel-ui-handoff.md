@@ -113,6 +113,7 @@ Rules:
 - Reconnect with backoff (1 s → 30 s) and `after=<last seq seen>`. Apply events in `seq` order; ignore events already applied (idempotent by `message.id` + `seq`).
 - **Presence drives push.** While any device reports `visible && focused`, the server sends no Web Push (unread counts still update). Send `presence` accurately, including `visible:false` on `pagehide`.
 - Server pings idle connections; a client that misses pings is dropped. Slow clients are dropped rather than buffered.
+- A socket can look open after the network is gone, so the client pings every 30 s and treats 10 s with no message at all as a dead connection: it reconnects at once with `after=<last seq seen>`. On return to the app after a quiet spell it probes with a 4 s deadline, and reconnects without the backoff if the socket is gone.
 
 ## 6. Push notifications
 
