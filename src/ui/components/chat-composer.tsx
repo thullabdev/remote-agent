@@ -1,10 +1,10 @@
-import { FileText, Image as ImageIcon, RotateCcw, Send, X } from 'lucide-react'
+import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { filterUploads, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
-import { UploadPicker } from './upload-picker.tsx'
+import { UPLOAD_ACCEPT, UploadPicker } from './upload-picker.tsx'
 import { UsageButton, UsagePanel } from './usage-panel.tsx'
 import { useNow } from './usage-meters.tsx'
 
@@ -45,6 +45,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   const [usageOpen, setUsageOpen] = useState(false)
   const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
@@ -295,6 +296,33 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
             disabled={disabled}
             className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={UPLOAD_ACCEPT}
+            multiple
+            tabIndex={-1}
+            className="sr-only"
+            onChange={event => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ''
+              if (files.length > 0) {
+                void uploadFiles(files)
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Attach file"
+            title="Attach an image or PDF"
+            disabled={disabled || uploading || limitReached}
+            onClick={() => fileInputRef.current?.click()}
+            className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
+          >
+            <Paperclip aria-hidden="true" />
+          </Button>
           <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>

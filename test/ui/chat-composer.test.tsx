@@ -66,3 +66,21 @@ describe('Enter key preference', () => {
     expect(shouldSendOnEnter(key({ isComposing: true, ctrlKey: true }), false)).toBe(false)
   })
 })
+
+test('the composer has an attach button that opens the file chooser', () => {
+  const markup = renderToStaticMarkup(createElement(ChatComposer, {
+    chat,
+    usage: { accounts: [], chats: {} } as never,
+    sending: false,
+    enterSends: true,
+    library: [],
+    onRefreshLibrary: () => {},
+    onUpload: async () => null,
+    onDeleteUpload: () => {},
+    onSend: async () => {},
+    onResume: async () => {},
+  }))
+  expect(markup).toContain('aria-label="Attach file"')
+  expect(markup).toContain('type="file"')
+})
+
