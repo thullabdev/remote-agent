@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { redactSecrets, truncate } from '../../core/text.ts'
-import type { Chat, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import type { Chat, Draft, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
 /** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS read_cursors (
 );
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS drafts (
+  chat_id TEXT PRIMARY KEY REFERENCES chats(id), text TEXT NOT NULL, attachments TEXT NOT NULL
 );
 `
 
@@ -373,6 +376,26 @@ export class ChatLog {
   }
 
   /** Pinned messages of a chat in order, with a short preview for the chat details list. */
+  /** The unsent message for this chat, or null. Drafts are not events: other devices read them when they open the chat. */
+  getDraft(chatId: string): Draft | null {
+    const row = this.db.query<{ text: string; attachments: string }, [string]>('SELECT text, attachments FROM drafts WHERE chat_id = ?').get(chatId)
+    return row === null ? null : { text: row.text, attachments: JSON.parse(row.attachments) as Draft['attachments'] }
+  }
+
+  /** Saves the draft; an empty one removes it. */
+  setDraft(chatId: string, draft: Draft): void {
+    this.chatOrThrow(chatId)
+    if (draft.text === '' && draft.attachments.length === 0) {
+      this.db.query('DELETE FROM drafts WHERE chat_id = ?').run(chatId)
+      return
+    }
+    this.db
+      .query(
+        'INSERT INTO drafts (chat_id, text, attachments) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments',
+      )
+      .run(chatId, draft.text, JSON.stringify(draft.attachments))
+  }
+
   listPins(chatId: string): { id: string; seq: number; at: number; kind: MessageKind; preview: string }[] {
     const rows = this.db
       .query<MessageRecord, [string, number]>(

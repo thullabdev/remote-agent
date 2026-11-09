@@ -126,3 +126,23 @@ export const ReadSchema = z.object({ seq: z.number().int().min(0) })
 export const AwaySchema = z.object({ away: z.boolean() })
 
 export const PinSchema = z.object({ pinned: z.boolean() })
+
+/** Longest draft kept for a chat; the composer is a single message, so this is generous. */
+export const MAX_DRAFT_CHARS = 20_000
+
+/** An unsent message kept per chat, so it can be finished on another device. */
+export const DraftSchema = z.object({
+  text: z.string().max(MAX_DRAFT_CHARS),
+  attachments: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        name: z.string().max(255),
+        mime: z.string().max(100),
+        size: z.number().int().nonnegative(),
+      }),
+    )
+    .max(5),
+})
+
+export type Draft = z.infer<typeof DraftSchema>

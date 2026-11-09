@@ -19,6 +19,8 @@ const chat: Chat = {
   tmuxName: null,
 }
 
+const noDrafts = { getDraft: async () => ({ draft: null }), saveDraft: async () => ({ ok: true as const }) }
+
 describe('chat composer surface', () => {
   test('preserves the rounded input wrapper without a focus border or ring', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
@@ -31,7 +33,7 @@ describe('chat composer surface', () => {
       onUpload: async () => null,
       onDeleteUpload: () => {},
       onSend: async () => {},
-      onResume: async () => {},
+      onResume: async () => {}, drafts: noDrafts,
     }))
 
     expect(markup).toContain('chat-composer-dock')
@@ -78,7 +80,7 @@ test('the attach button is a toggle for the library picker', () => {
     onUpload: async () => null,
     onDeleteUpload: () => {},
     onSend: async () => {},
-    onResume: async () => {},
+    onResume: async () => {}, drafts: noDrafts,
   }))
   expect(markup).toContain('aria-label="Attach file"')
   expect(markup).toContain('aria-pressed="false"')

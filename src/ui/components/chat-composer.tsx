@@ -2,6 +2,7 @@ import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'luc
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
+import { useDraft, type DraftApi } from '../use-draft.ts'
 import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
 import { UploadPicker } from './upload-picker.tsx'
@@ -22,6 +23,8 @@ type ChatComposerProps = {
   onDeleteUpload(upload: UploadRecord): void
   onSend(text: string, attachments: UploadRef[]): Promise<void>
   onResume(): Promise<void>
+  /** Loads and saves this chat's unsent draft. */
+  drafts: DraftApi
 }
 
 /** Whether a keydown in the composer should send the message, given the Enter preference. */
@@ -38,8 +41,8 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-function ChatComposerView({ chat, usage, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume }: ChatComposerProps) {
-  const [text, setText] = useState('')
+function ChatComposerView({ chat, usage, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts }: ChatComposerProps) {
+  const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
@@ -85,7 +88,6 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
     }
   }, [])
 
-  const [attachments, setAttachments] = useState<UploadRef[]>([])
   const [uploading, setUploading] = useState(false)
   const [pickerIndex, setPickerIndex] = useState(0)
   const [pickerDismissed, setPickerDismissed] = useState(false)

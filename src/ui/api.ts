@@ -1,4 +1,4 @@
-import type { Chat, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
 
 export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
@@ -39,6 +39,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   renameChat(chatId: string, title: string): Promise<{ toast: string }>
   pinMessage(messageId: string, pinned: boolean): Promise<{ toast: string }>
   listPins(chatId: string): Promise<{ pins: PinView[] }>
+  getDraft(chatId: string): Promise<{ draft: Draft | null }>
+  saveDraft(chatId: string, draft: Draft): Promise<{ ok: true }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
   resumeChat(chatId: string): Promise<{ toast: string }>
@@ -76,6 +78,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       headers: { 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
+  }
+
+  function put<T>(path: string, body: unknown): Promise<T> {
+    return request<T>(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   }
 
   function del<T>(path: string): Promise<T> {
@@ -121,6 +127,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     renameChat: (chatId, title) => post(`/api/chats/${encodeURIComponent(chatId)}/rename`, { title }),
     pinMessage: (messageId, pinned) => post(`/api/messages/${encodeURIComponent(messageId)}/pin`, { pinned }),
     listPins: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/pins`),
+    getDraft: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/draft`),
+    saveDraft: (chatId, draft) => put(`/api/chats/${encodeURIComponent(chatId)}/draft`, draft),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),

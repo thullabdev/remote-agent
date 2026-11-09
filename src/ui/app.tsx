@@ -482,6 +482,8 @@ export function App() {
                   onTogglePin={togglePin}
                 />
                 <ChatComposer
+                  key={activeChat.id}
+                  drafts={api}
                   chat={activeChat}
                   usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}

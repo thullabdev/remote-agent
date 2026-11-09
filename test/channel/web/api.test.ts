@@ -703,6 +703,28 @@ test('pins and unpins a message; pins list the chat in order with previews; syst
   expect((await call('GET', '/api/chats/nope/pins')).status).toBe(404)
 })
 
+test('a draft is saved per chat, read back on any device, and an empty draft removes it', async () => {
+  const chatId = seedSession()
+  const other = seedSession('s2')
+  expect(await call('GET', `/api/chats/${chatId}/draft`)).toEqual({ status: 200, body: { draft: null } })
+
+  const attachment = { id: 'u_one', name: 'plan.pdf', mime: 'application/pdf', size: 120 }
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'Continue from @plan.pdf', attachments: [attachment] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toEqual({ text: 'Continue from @plan.pdf', attachments: [attachment] })
+  expect((await call('GET', `/api/chats/${other}/draft`)).body.draft).toBeNull()
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'Second try', attachments: [] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toEqual({ text: 'Second try', attachments: [] })
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: '', attachments: [] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toBeNull()
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'x'.repeat(20_001), attachments: [] })).status).toBe(400)
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'ok', attachments: [] }))).toMatchObject({ status: 200 })
+  expect((await call('GET', '/api/chats/nope/draft')).status).toBe(404)
+  expect((await call('PUT', '/api/chats/nope/draft', { text: 'x', attachments: [] })).status).toBe(404)
+})
+
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3])
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n')
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])

@@ -9,7 +9,7 @@ import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushService } from './push.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
+import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
 import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
 
 const GENERAL_ID = 'general'
@@ -88,6 +88,8 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'draft'], run: ({ deps }, id) => getDraft(deps, id) },
+  { method: 'PUT', pattern: ['chats', ':id', 'draft'], run: ({ deps, request }, id) => saveDraft(deps, request, id) },
   { method: 'GET', pattern: ['uploads'], run: ({ deps }) => listUploads(deps) },
   { method: 'POST', pattern: ['uploads'], run: ({ deps, request }) => addUpload(deps, request) },
   { method: 'GET', pattern: ['uploads', ':id'], run: ({ deps, url }, id) => uploadFile(deps, id, url) },
@@ -506,6 +508,18 @@ async function renameChat(deps: ApiDeps, request: Request, chatId: string): Prom
 function listPins(deps: ApiDeps, chatId: string): unknown {
   requireChat(deps, chatId)
   return { pins: deps.chatLog.listPins(chatId) }
+}
+
+function getDraft(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  return { draft: deps.chatLog.getDraft(chatId) }
+}
+
+async function saveDraft(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const draft = await readBody(request, DraftSchema)
+  requireChat(deps, chatId)
+  deps.chatLog.setDraft(chatId, draft)
+  return { ok: true }
 }
 
 async function pinMessage(deps: ApiDeps, request: Request, messageId: string): Promise<unknown> {
