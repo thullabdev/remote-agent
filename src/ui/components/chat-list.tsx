@@ -282,13 +282,13 @@ export function ChatList({
 
   return (
     <aside
-      className={`absolute inset-0 z-10 flex min-w-0 flex-col border-r border-border bg-background transition-transform duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
+      className={`absolute inset-0 z-10 flex min-w-0 flex-col bg-background transition-transform duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
         activeId === null ? 'translate-x-0' : '-translate-x-full'
       }`}
       style={{ '--chat-list-width': `${width}px` } as CSSProperties}
       aria-label="Chats"
     >
-      <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/70 px-4">
+      <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
         <BrandMark className="size-11 shrink-0 text-foreground" />
         {selectionMode ? (
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
@@ -439,7 +439,7 @@ export function ChatList({
           )}
         </div>
       </div>
-      <footer className="border-t border-border/70 px-4 py-3 text-[11px] text-muted-foreground">
+      <footer className="px-4 py-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-2">
           <span className={`size-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-600 dark:bg-emerald-400' : status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} />
           {status === 'connected' ? 'Connected to your Bridge' : status === 'reconnecting' ? 'Reconnecting to Bridge…' : status === 'resyncing' ? 'Syncing recent activity…' : status === 'error' ? 'Bridge connection unavailable' : 'Connecting to your Bridge…'}

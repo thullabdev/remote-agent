@@ -33,7 +33,7 @@ function connectionLabel(status: ConnectionStatus): string {
 
 export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: ChatHeaderProps) {
   return (
-    <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/80 bg-background/85 px-2 backdrop-blur md:px-4">
+    <header className="flex h-[4.25rem] shrink-0 items-center gap-2 bg-background/85 px-2 backdrop-blur md:px-4">
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
       </Button>

@@ -96,8 +96,8 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
     <>
       <aside className="fixed inset-0 z-30 flex justify-end bg-black/30 md:static md:z-auto md:w-80 md:shrink-0 md:bg-transparent">
         <button className="absolute inset-0 md:hidden" onClick={onClose} aria-label="Close session information" />
-        <div className="relative flex h-full w-[min(88vw,22rem)] flex-col border-l border-border bg-background shadow-2xl md:w-80 md:shadow-none xl:border-l-0">
-          <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-border/70 px-4">
+        <div className="relative flex h-full w-[min(88vw,22rem)] flex-col bg-background shadow-2xl md:w-80 md:shadow-none">
+          <header className="flex h-[4.25rem] shrink-0 items-center justify-between px-4">
             <div className="flex items-center gap-2 font-display font-semibold">
               <Info className="size-4 text-muted-foreground" aria-hidden="true" />
               Session details
