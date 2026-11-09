@@ -223,6 +223,7 @@ test('on a phone the new-session button sits at the bottom right, and the header
   expect(markup.match(/aria-label="Start a new session"/g)).toHaveLength(2)
   expect(markup).toContain('md:hidden')
   expect(markup).toMatch(/fixed|absolute bottom-/)
+  expect(markup).toContain('size-14 rounded-full')
 })
 
 test('the list uses no text smaller than 12px', () => {

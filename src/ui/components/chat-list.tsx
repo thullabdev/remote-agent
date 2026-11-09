@@ -353,7 +353,7 @@ export function ChatList({
       {!selectionMode && (
         <Button
           size="icon"
-          className="absolute bottom-4 right-4 z-20 size-14 rounded-2xl shadow-lg md:hidden"
+          className="absolute bottom-4 right-4 z-20 size-14 rounded-full shadow-lg md:hidden"
           aria-label="Start a new session"
           title="Start a new session"
           onClick={onNew}
