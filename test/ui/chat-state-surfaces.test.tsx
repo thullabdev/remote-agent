@@ -23,7 +23,7 @@ function list(chat: Chat): string {
   return renderToStaticMarkup(
     createElement(ChatList, {
       chats: [chat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-      onArchiveSelected: async () => {}, onActionError: () => {},
+      onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
 }
@@ -98,7 +98,7 @@ function listOf(chats: Chat[]): string {
   return renderToStaticMarkup(
     createElement(ChatList, {
       chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-      onArchiveSelected: async () => {}, onActionError: () => {},
+      onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
 }
@@ -212,7 +212,7 @@ test('the header offers a source filter that narrows the list and shows when it 
     renderToStaticMarkup(
       createElement(ChatList, {
         chats: [spawnedChat, computerChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-        onArchiveSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
+        onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
       }),
     )
   const everything = render()
@@ -234,7 +234,7 @@ test('the Ended tab says how to archive, since selection is a press and hold', (
     renderToStaticMarkup(
       createElement(ChatList, {
         chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-        onArchiveSelected: async () => {}, onActionError: () => {}, initialFilter: filter,
+        onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialFilter: filter,
       }),
     )
   expect(render('ended', [ended])).toContain('Press and hold a session to select it')
@@ -272,7 +272,7 @@ function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' 
   return renderToStaticMarkup(
     createElement(ChatList, {
       chats, activeId: props.activeId ?? null, status: props.status ?? 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-      onArchiveSelected: async () => {}, onActionError: () => {},
+      onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
 }
@@ -316,7 +316,7 @@ test('the connection notice offers a retry only when the connection is not fine 
     renderToStaticMarkup(
       createElement(ChatList, {
         chats: [base], activeId: null, status, onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-        onArchiveSelected: async () => {}, onActionError: () => {}, ...(onRetry === undefined ? {} : { onRetry }),
+        onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(onRetry === undefined ? {} : { onRetry }),
       }),
     )
   expect(render('reconnecting', () => {})).toContain('>Retry<')
@@ -365,7 +365,7 @@ test('the list counts its results while a search is on', () => {
     renderToStaticMarkup(
       createElement(ChatList, {
         chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
-        onArchiveSelected: async () => {}, onActionError: () => {}, initialQuery: query,
+        onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialQuery: query,
       }),
     )
   expect(render([searched, { ...searched, id: 'c2' }], 'upload')).toContain('2 results')

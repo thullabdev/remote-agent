@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { isSelectableChat } from '../../src/ui/components/chat-list.tsx'
+import { isPinnableChat, isSelectableChat, selectionGroupOf } from '../../src/ui/components/chat-list.tsx'
 
 const general: Chat = {
   id: 'general',
@@ -31,4 +31,13 @@ test('only ended unarchived sessions can be selected for archive', () => {
   expect(isSelectableChat(computer)).toBe(false)
   expect(isSelectableChat(archivedComputer)).toBe(false)
   expect(isSelectableChat(general)).toBe(false)
+})
+
+test('long press groups sessions: ended ones archive, live ones pin, General and archived do neither', () => {
+  expect(selectionGroupOf(endedComputer)).toBe('ended')
+  expect(selectionGroupOf(computer)).toBe('live')
+  expect(selectionGroupOf(spawned)).toBe('live')
+  expect(selectionGroupOf(general)).toBeNull()
+  expect(selectionGroupOf(archivedComputer)).toBeNull()
+  expect(isPinnableChat(endedComputer)).toBe(false)
 })

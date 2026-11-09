@@ -498,6 +498,13 @@ export function App() {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
         }}
+        onPinSelected={async (chatIds, pinned) => {
+          let toast = ''
+          for (const chatId of chatIds) {
+            toast = (await api.pinChat(chatId, pinned)).toast
+          }
+          notify(toast)
+        }}
         onActionError={handleError}
       />
 

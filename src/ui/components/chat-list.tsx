@@ -1,4 +1,4 @@
-import { Archive, Check, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
+import { Archive, Check, Pin, PinOff, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, searchTerms, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
@@ -28,6 +28,7 @@ type ChatListProps = {
   onRetry?(): void
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
+  onPinSelected(chatIds: string[], pinned: boolean): Promise<void>
   onActionError(error: unknown): void
 }
 
@@ -177,6 +178,20 @@ export function isSelectableChat(chat: Chat): boolean {
   return chat.id !== 'general' && chat.status === 'ended' && !chat.archived
 }
 
+export function isPinnableChat(chat: Chat): boolean {
+  return chat.id !== 'general' && chat.status !== 'ended' && !chat.archived
+}
+
+type SelectionGroup = 'ended' | 'live'
+
+// A selection holds one kind of session: ended ones can be archived, live ones can be pinned.
+export function selectionGroupOf(chat: Chat): SelectionGroup | null {
+  if (isSelectableChat(chat)) {
+    return 'ended'
+  }
+  return isPinnableChat(chat) ? 'live' : null
+}
+
 export function ChatList({
   initialFilter = 'all',
   initialQuery = '',
@@ -189,6 +204,7 @@ export function ChatList({
   onRetry,
   onSettings,
   onArchiveSelected,
+  onPinSelected,
   onActionError,
 }: ChatListProps) {
   const [query, setQuery] = useState(initialQuery)
@@ -213,7 +229,14 @@ export function ChatList({
     () => chats.some(chat => matchesOrigin(chat, origin) && chat.status === 'ended' && !chat.archived && chat.unread > 0),
     [chats, origin],
   )
-  const selectableIds = useMemo(() => new Set(chats.filter(isSelectableChat).map(chat => chat.id)), [chats])
+  const groups = useMemo(() => new Map(chats.map(chat => [chat.id, selectionGroupOf(chat)] as const)), [chats])
+  const [selectionGroup, setSelectionGroup] = useState<SelectionGroup | null>(null)
+  const selectableIds = useMemo(
+    () => new Set(chats.filter(chat => selectionGroup !== null && groups.get(chat.id) === selectionGroup).map(chat => chat.id)),
+    [chats, groups, selectionGroup],
+  )
+  const selectedChats = chats.filter(chat => selectedIds.has(chat.id))
+  const allSelectedPinned = selectedChats.length > 0 && selectedChats.every(chat => chat.pinned)
 
   useEffect(() => {
     setSelectedIds(current => new Set([...current].filter(id => selectableIds.has(id))))
@@ -240,6 +263,7 @@ export function ChatList({
   }
 
   const beginSelection = (chatId: string) => {
+    setSelectionGroup(groups.get(chatId) ?? null)
     setSelectionMode(true)
     setSelectedIds(new Set([chatId]))
   }
@@ -260,6 +284,7 @@ export function ChatList({
   const cancelSelection = () => {
     setSelectedIds(new Set())
     setSelectionMode(false)
+    setSelectionGroup(null)
   }
 
   const archiveSelected = async () => {
@@ -268,6 +293,22 @@ export function ChatList({
     setArchiving(true)
     try {
       await onArchiveSelected(ids)
+      cancelSelection()
+    } catch (error) {
+      onActionError(error)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  const pinSelected = async () => {
+    const ids = [...selectedIds].filter(id => selectableIds.has(id))
+    if (ids.length === 0 || archiving) {
+      return
+    }
+    setArchiving(true)
+    try {
+      await onPinSelected(ids, !allSelectedPinned)
       cancelSelection()
     } catch (error) {
       onActionError(error)
@@ -317,16 +358,23 @@ export function ChatList({
         {selectionMode ? (
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
             <div className="min-w-0 flex-1 truncate text-sm font-medium">
-              {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select ended sessions'}
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select sessions'}
             </div>
             <Button variant="ghost" size="icon" aria-label="Cancel selection" onClick={cancelSelection}>
               <X aria-hidden="true" />
             </Button>
-            <Button aria-label="Archive selected" onClick={() => void archiveSelected()} disabled={selectedIds.size === 0 || archiving}>
-              {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
-              <span className="sm:hidden">Archive</span>
-              <span className="hidden sm:inline">Archive selected</span>
-            </Button>
+            {selectionGroup === 'live' ? (
+              <Button aria-label={allSelectedPinned ? 'Unpin selected' : 'Pin selected'} onClick={() => void pinSelected()} disabled={selectedIds.size === 0 || archiving}>
+                {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : allSelectedPinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+                <span>{allSelectedPinned ? 'Unpin' : 'Pin'}</span>
+              </Button>
+            ) : (
+              <Button aria-label="Archive selected" onClick={() => void archiveSelected()} disabled={selectedIds.size === 0 || archiving}>
+                {archiving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+                <span className="sm:hidden">Archive</span>
+                <span className="hidden sm:inline">Archive selected</span>
+              </Button>
+            )}
           </div>
         ) : (
           <div className="relative min-w-0 flex-1">
@@ -376,7 +424,7 @@ export function ChatList({
                 onOpen(chat.id, rowOpenTarget(chat))
               }}
               onPointerDown={event => {
-                if (selectionMode || !isSelectableChat(chat) || event.button !== 0) return
+                if (selectionMode || groups.get(chat.id) === null || event.button !== 0) return
                 cancelLongPress()
                 const { clientX: x, clientY: y } = event
                 const timer = setTimeout(() => {
@@ -398,7 +446,7 @@ export function ChatList({
               onPointerUp={cancelLongPress}
               onPointerCancel={cancelLongPress}
               onContextMenu={event => {
-                if (isSelectableChat(chat)) event.preventDefault()
+                if (groups.get(chat.id) !== null) event.preventDefault()
               }}
               aria-disabled={selectionMode && !selectableIds.has(chat.id)}
               aria-current={activeId === chat.id ? 'page' : undefined}
