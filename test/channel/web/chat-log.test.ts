@@ -484,3 +484,56 @@ test('a cleared prompt no longer counts as pending', () => {
   log.clearChat('c1')
   expect(log.getChat('c1')?.pendingPrompt).toBeNull()
 })
+
+const previewOf = (): string | undefined => log.getChat('c1')?.lastMessage?.preview
+
+test('a prompt previews what it asks, not the session name', () => {
+  log.appendMessage('c1', askPrompt('q1', 'Which database?'))
+  expect(previewOf()).toBe('Which database?')
+  log.appendMessage('c1', {
+    ...permission,
+    body: { kind: 'permission', tool: 'Bash', summary: '$ bun test', reason: null, agentId: null },
+  })
+  expect(previewOf()).toBe('Bash: bun test')
+})
+
+test('a tool run previews what it is doing or did', () => {
+  const run = (tool: string, status: 'running' | 'done' | 'error', input: unknown): MessageBody => ({
+    kind: 'tool_run',
+    tool,
+    input,
+    result: null,
+    resultTruncated: false,
+    status,
+    durationMs: null,
+  })
+  log.appendMessage('c1', run('Bash', 'running', { command: 'bun test\n--watch' }))
+  expect(previewOf()).toBe('Running Bash: bun test')
+  log.appendMessage('c1', run('Bash', 'done', { command: 'ls' }))
+  expect(previewOf()).toBe('Ran Bash: ls')
+  log.appendMessage('c1', run('Bash', 'error', { command: 'ls' }))
+  expect(previewOf()).toBe('Bash failed: ls')
+  log.appendMessage('c1', run('Read', 'done', { file_path: '/a/b.ts' }))
+  expect(previewOf()).toBe('Ran Read: /a/b.ts')
+  log.appendMessage('c1', run('Glob', 'done', {}))
+  expect(previewOf()).toBe('Ran Glob')
+})
+
+test('a user message previews with a You prefix so it is not mistaken for the agent', () => {
+  log.appendMessage('c1', userText('continue with the migration'))
+  expect(previewOf()).toBe('You: continue with the migration')
+})
+
+test('command replies and system messages preview as plain text', () => {
+  log.appendMessage('c1', { kind: 'command_reply', text: '**Usage**\n- one\n- two' })
+  expect(previewOf()).toBe('Usage one two')
+  log.appendMessage('c1', { kind: 'system', text: 'Session ended (`exit`)' })
+  expect(previewOf()).toBe('Session ended (exit)')
+})
+
+test('a preview never splits an emoji and stays cheap for a huge message', () => {
+  log.appendMessage('c1', agent(`${'a'.repeat(139)}😀 tail`))
+  expect(previewOf()).toBe(`${'a'.repeat(139)}😀`)
+  log.appendMessage('c1', agent(`**${'x'.repeat(500_000)}`))
+  expect(previewOf()?.length).toBe(140)
+})

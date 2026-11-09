@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
-import { redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
+import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
 import type { Chat, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
@@ -114,10 +114,39 @@ function normalizeBody(body: MessageBody): MessageBody {
   }
 }
 
+/** Longest source text read for a preview, so a huge message is not scanned in full. */
+const PREVIEW_SOURCE_MAX = 2_000
+
+/** A short hint of what a tool call acts on: its command (first line), file or URL. Empty when there is none. */
+function toolHint(input: unknown): string {
+  if (input === null || typeof input !== 'object') {
+    return ''
+  }
+  const record = input as Record<string, unknown>
+  const value = [record.command, record.file_path, record.url].find(item => typeof item === 'string' && item.trim() !== '')
+  return typeof value === 'string' ? (value.trim().split('\n')[0] ?? '') : ''
+}
+
 function previewOf(body: MessageBody): string {
-  const source =
-    body.kind === 'agent_text' ? body.markdown : body.kind === 'prompt' ? body.title : body.kind === 'tool_run' ? body.tool : body.text
-  return (body.kind === 'agent_text' ? stripMarkdown(source) : source).slice(0, PREVIEW_MAX)
+  const plain = (text: string): string => clipChars(stripMarkdown(text.slice(0, PREVIEW_SOURCE_MAX)), PREVIEW_MAX)
+  switch (body.kind) {
+    case 'agent_text':
+      return plain(body.markdown)
+    case 'prompt':
+      return clipChars(promptSummary(body.body), PREVIEW_MAX)
+    case 'tool_run': {
+      const hint = toolHint(body.input)
+      const label = body.status === 'running' ? `Running ${body.tool}` : body.status === 'error' ? `${body.tool} failed` : `Ran ${body.tool}`
+      return clipChars(hint === '' ? label : `${label}: ${hint}`, PREVIEW_MAX)
+    }
+    case 'user_text':
+      return clipChars(`You: ${body.text.replace(/\s+/g, ' ').trim()}`, PREVIEW_MAX)
+    case 'command_reply':
+    case 'system':
+      return plain(body.text)
+    case 'picker':
+      return clipChars(body.text, PREVIEW_MAX)
+  }
 }
 
 /** One plain line describing what a pending Prompt asks, for the chat list. */
