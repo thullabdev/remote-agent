@@ -5,6 +5,7 @@ import type { Chat } from '../../src/channel/web/protocol.ts'
 import { ChatHeader } from '../../src/ui/components/chat-header.tsx'
 import { ChatInfo } from '../../src/ui/components/chat-info.tsx'
 import { ChatList } from '../../src/ui/components/chat-list.tsx'
+import { ChatRowContent } from '../../src/ui/components/chat-row.tsx'
 import { MessageFeed } from '../../src/ui/components/message-feed.tsx'
 
 const base: Chat = {
@@ -102,14 +103,32 @@ function listOf(chats: Chat[]): string {
   )
 }
 
-test('the filter bar offers states, with a count on the ones that need attention', () => {
-  const markup = listOf([{ ...base, id: 'g', title: 'General', pinned: true }, blocked, { ...base, id: 'w', busy: true }])
-  for (const label of ['Needs you', 'Working', 'All', 'Ended', 'Archived']) {
-    expect(markup).toContain(`>${label}`)
-  }
-  expect(markup).toMatch(/aria-pressed="true"[^>]*>All/)
-  expect(markup).toMatch(/Needs you<span[^>]*>1</)
-  expect(markup).toMatch(/Working<span[^>]*>1</)
+test('the filter bar opens on All, first, and shows Needs you and Working only while they hold something', () => {
+  const quiet = listOf([{ ...base, id: 'g', title: 'General', pinned: true }, base])
+  expect(quiet.indexOf('>All')).toBeGreaterThan(-1)
+  expect(quiet.indexOf('>All')).toBeLessThan(quiet.indexOf('>Ended'))
+  expect(quiet.indexOf('>Ended')).toBeLessThan(quiet.indexOf('>Archived'))
+  expect(quiet).toMatch(/aria-pressed="true"[^>]*>All/)
+  expect(quiet).not.toContain('>Needs you')
+  expect(quiet).not.toContain('>Working<')
+
+  const busy = listOf([blocked, { ...base, id: 'w', busy: true }])
+  expect(busy.indexOf('>All')).toBeLessThan(busy.indexOf('>Needs you'))
+  expect(busy.indexOf('>Needs you')).toBeLessThan(busy.indexOf('>Working'))
+  expect(busy).toMatch(/Needs you<span[^>]*>1</)
+  expect(busy).toMatch(/Working<span[^>]*>1</)
+})
+
+test('the Ended tab shows a dot when an ended session has something unread', () => {
+  expect(listOf([{ ...base, status: 'ended', unread: 2 }])).toContain('data-unread="true"')
+  expect(listOf([{ ...base, status: 'ended', unread: 0 }])).not.toContain('data-unread')
+  expect(listOf([{ ...base, unread: 2 }])).not.toContain('data-unread')
+})
+
+test('ended sessions are not in the All list', () => {
+  const markup = listOf([base, { ...base, id: 'e', title: 'Old ended one', status: 'ended' }])
+  expect(markup).toContain('Billing fix')
+  expect(markup).not.toContain('Old ended one')
 })
 
 test('the origin tabs and the Chats counter are gone from the list', () => {
@@ -136,7 +155,7 @@ test('the row drops the origin and Ended badges and the pin icon', () => {
 })
 
 test('an ended row says Ended in its preview and is dimmed', () => {
-  const markup = row({ ...base, status: 'ended' })
+  const markup = renderToStaticMarkup(createElement(ChatRowContent, { chat: { ...base, status: 'ended' }, selection: null }))
   expect(markup).toContain('Ended · ')
   expect(markup).toContain('opacity-70')
 })
@@ -189,18 +208,10 @@ function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' 
   )
 }
 
-test('a strip says how many sessions need you and filters to them', () => {
-  const two = [blocked, { ...blocked, id: 'c2', title: 'Second' }]
-  const markup = listWith(two)
-  expect(markup).toContain('2 sessions need you')
-  expect(markup).toMatch(/<button[^>]*>[^<]*Show<\/button>|Show<\/span><\/button>/)
-  expect(listWith([blocked])).toContain('1 session needs you')
-})
-
-test('there is no strip when nothing needs you', () => {
-  const markup = listWith([base, { ...base, id: 'w', busy: true }])
-  expect(markup).not.toContain('needs you<')
-  expect(markup).not.toContain('need you<')
+test('there is no separate strip: a blocked session is announced by its tab and its row', () => {
+  const markup = listWith([blocked, { ...blocked, id: 'c2', title: 'Second' }])
+  expect(markup).not.toContain('sessions need you')
+  expect(markup).not.toContain('session needs you')
 })
 
 test('the footer is silent while connected, and plain-spoken when the connection is not fine', () => {

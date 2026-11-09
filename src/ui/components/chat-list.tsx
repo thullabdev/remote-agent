@@ -1,7 +1,7 @@
 import { Archive, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { filterChats, filterCounts, LIST_FILTERS, type ListFilter } from '../chat-filters.ts'
+import { filterChats, filterCounts, visibleFilters, type ListFilter } from '../chat-filters.ts'
 import { chatRowLabel } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
@@ -41,24 +41,37 @@ function ConnectionNotice({ status }: { status: ConnectionStatus }) {
   )
 }
 
-/** Horizontally scrolling filter chips. Every chip stays reachable by scrolling, so "Needs you" is never hidden behind a "More" menu. */
-function ChatFilterBar({ value, counts, onSelect }: { value: ListFilter; counts: Record<ListFilter, number>; onSelect(filter: ListFilter): void }) {
+/** Horizontally scrolling tabs. Needs you and Working only appear while they hold something. */
+function ChatFilterBar({
+  value,
+  counts,
+  endedUnread,
+  onSelect,
+}: {
+  value: ListFilter
+  counts: Record<ListFilter, number>
+  /** An ended session has unread messages, so a session that just finished or failed is not missed behind the Ended tab. */
+  endedUnread: boolean
+  onSelect(filter: ListFilter): void
+}) {
   return (
     <div
       className="flex shrink-0 gap-2 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       role="group"
       aria-label="Filter sessions"
     >
-      {LIST_FILTERS.map(([filter, label]) => {
+      {visibleFilters(counts, value).map(([filter, label]) => {
         const selected = value === filter
         const count = counts[filter]
         const attention = filter === 'needs_you' && count > 0
         const showCount = (filter === 'needs_you' || filter === 'working') && count > 0
+        const showDot = filter === 'ended' && endedUnread
         return (
           <button
             key={filter}
             type="button"
             aria-pressed={selected}
+            aria-label={showDot ? `${label}, has unread messages` : undefined}
             onClick={() => onSelect(filter)}
             className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-medium transition-colors ${
               selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
@@ -66,6 +79,7 @@ function ChatFilterBar({ value, counts, onSelect }: { value: ListFilter; counts:
           >
             {label}
             {showCount && <span className={`tabular-nums text-xs ${attention ? 'text-status-needs' : ''}`}>{count}</span>}
+            {showDot && <span data-unread="true" aria-hidden="true" className="size-2 rounded-full bg-primary" />}
           </button>
         )
       })}
@@ -128,6 +142,7 @@ export function ChatList({
     [chats, query, filter],
   )
   const counts = useMemo(() => filterCounts(chats), [chats])
+  const endedUnread = useMemo(() => chats.some(chat => chat.status === 'ended' && !chat.archived && chat.unread > 0), [chats])
   const selectableIds = useMemo(() => new Set(chats.filter(isSelectableChat).map(chat => chat.id)), [chats])
 
   useEffect(() => {
@@ -264,17 +279,7 @@ export function ChatList({
       </header>
 
       <ConnectionNotice status={status} />
-      <ChatFilterBar value={filter} counts={counts} onSelect={selectFilter} />
-      {counts.needs_you > 0 && filter !== 'needs_you' && (
-        <button
-          type="button"
-          onClick={() => selectFilter('needs_you')}
-          className="mx-4 mb-1 flex h-11 shrink-0 items-center justify-between rounded-xl border border-status-needs/30 bg-status-needs/10 px-3 text-sm font-medium text-status-needs"
-        >
-          {counts.needs_you === 1 ? '1 session needs you' : `${counts.needs_you} sessions need you`}
-          <span>Show</span>
-        </button>
-      )}
+      <ChatFilterBar value={filter} counts={counts} endedUnread={endedUnread} onSelect={selectFilter} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
         <div className="space-y-1">
           {filteredChats.map(chat => (
