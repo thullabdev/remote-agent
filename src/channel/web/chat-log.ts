@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
-import { redactSecrets, truncate } from '../../core/text.ts'
+import { redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
 import type { Chat, Draft, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
@@ -117,7 +117,7 @@ function normalizeBody(body: MessageBody): MessageBody {
 function previewOf(body: MessageBody): string {
   const source =
     body.kind === 'agent_text' ? body.markdown : body.kind === 'prompt' ? body.title : body.kind === 'tool_run' ? body.tool : body.text
-  return source.slice(0, PREVIEW_MAX)
+  return (body.kind === 'agent_text' ? stripMarkdown(source) : source).slice(0, PREVIEW_MAX)
 }
 
 /** What the chat list shows for an unsent draft: its text, or how many files it holds. Null when there is no draft. */

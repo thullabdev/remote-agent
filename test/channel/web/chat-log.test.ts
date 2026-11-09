@@ -237,6 +237,11 @@ test('lastMessage previews the newest visible message in at most 140 chars', () 
   expect(log.getChat('c1')?.lastMessage).toEqual({ seq: message.seq, at: clock, preview: 'x'.repeat(140) })
 })
 
+test('lastMessage preview of an agent message is plain text, not markdown', () => {
+  log.appendMessage('c1', agent('## Result\n\nMerged `7ade68a` into **main**.'))
+  expect(log.getChat('c1')?.lastMessage?.preview).toBe('Result Merged 7ade68a into main.')
+})
+
 test('opening a database created without counts_unread migrates it, and old rows count as unread', () => {
   const store = new Store(':memory:', () => clock)
   const first = new ChatLog(store, () => clock)

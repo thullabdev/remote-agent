@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { escapeHtml, REDACTED, redactSecrets, truncate } from '../../src/core/text.ts'
+import { escapeHtml, REDACTED, redactSecrets, truncate, stripMarkdown} from '../../src/core/text.ts'
 
 describe('truncate', () => {
   test('returns short text unchanged', () => {
@@ -71,4 +71,17 @@ describe('escapeHtml', () => {
   test('escapes the three characters Telegram HTML requires', () => {
     expect(escapeHtml('a < b && c > d')).toBe('a &lt; b &amp;&amp; c &gt; d')
   })
+})
+
+test('stripMarkdown leaves the words a reader would see', () => {
+  expect(stripMarkdown('The fix is committed as `7ade68a`, merged into `main`')).toBe('The fix is committed as 7ade68a, merged into main')
+  expect(stripMarkdown('## Lino\'s "under 10 a day" can only be partly checked')).toBe('Lino\'s "under 10 a day" can only be partly checked')
+  expect(stripMarkdown('**Done** and *tested*, see [the PR](https://x.test/1)')).toBe('Done and tested, see the PR')
+  expect(stripMarkdown('- one\n- [x] two\n1. three')).toBe('one two three')
+  expect(stripMarkdown('> quoted\n\n```ts\nconst a = 1\n```')).toBe('quoted const a = 1')
+})
+
+test('stripMarkdown keeps snake_case, multiplication and plain text intact', () => {
+  expect(stripMarkdown('set my_var_name to 2 * 3 * 4')).toBe('set my_var_name to 2 * 3 * 4')
+  expect(stripMarkdown('')).toBe('')
 })
