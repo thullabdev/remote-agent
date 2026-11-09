@@ -254,13 +254,29 @@ export function App() {
       .catch(handleError)
   }
 
+  /**
+   * Sends an answer and tells the card whether it worked: the toast is kept, and a failure is rethrown so the card can say so
+   * next to the choice that was pressed instead of leaving it looking untouched.
+   */
+  const sendAnswer = useCallback(async (send: () => Promise<{ toast?: string }>) => {
+    try {
+      const result = await send()
+      if (result.toast) {
+        notify(result.toast)
+      }
+    } catch (reason) {
+      handleError(reason)
+      throw reason
+    }
+  }, [handleError, notify])
+
   const handlePromptAction = useCallback(async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
-    await runChatAction(() => api.performAction(chatId, body))
-  }, [api, runChatAction])
+    await sendAnswer(() => api.performAction(chatId, body))
+  }, [api, sendAnswer])
 
   const handlePromptReply = useCallback(async (promptId: string, body: { questionIndex: number; text: string }) => {
-    await runChatAction(() => api.replyToPrompt(promptId, body))
-  }, [api, runChatAction])
+    await sendAnswer(() => api.replyToPrompt(promptId, body))
+  }, [api, sendAnswer])
 
   const handlePickerAction = useCallback(async (chatId: string, body: { pickerId: string; choice: number }) => {
     await runChatAction(() => api.performAction(chatId, body))

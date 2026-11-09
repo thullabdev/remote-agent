@@ -1,8 +1,8 @@
-import { ArrowDown, Bookmark, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
-import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
+import { NEEDS_YOU_BADGE_CLASS, commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
 import { isPdf, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
@@ -606,46 +606,134 @@ function DiffText({ line }: { line: DiffLine }) {
   )
 }
 
+/**
+ * What the card shows about an answer the user just gave: which choice was pressed, and whether it is still being sent, was sent
+ * (the session has not confirmed yet), or failed. The tapped choice stays marked, so the card never looks as if nothing happened.
+ */
+export type PromptFeedback =
+  | { phase: 'idle' }
+  | { phase: 'sending' | 'sent'; key: string }
+  | { phase: 'error'; message: string }
+
 type PromptCardProps = {
   message: Extract<Message, { kind: 'prompt' }>
   questionIndex: number
   onAction?: MessageFeedProps['onPromptAction']
   onReply?: MessageFeedProps['onPromptReply']
+  /** Where the card starts. Only tests set it. */
+  initialFeedback?: PromptFeedback
 }
 
-function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardProps) {
+type ChoicePhase = 'sending' | 'sent'
+
+/** Marks a button that was pressed: a spinner while sending, a check once sent. */
+function ChoiceMark({ phase }: { phase: ChoicePhase | undefined }) {
+  if (phase === undefined) {
+    return null
+  }
+  return phase === 'sending' ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" /> : <Check className="size-4 shrink-0" aria-hidden="true" />
+}
+
+function pressedLabel(phase: ChoicePhase | undefined, idle: string, sending: string, sent: string): string {
+  return phase === 'sending' ? sending : phase === 'sent' ? sent : idle
+}
+
+/** The note of a resolution, with where it was answered when the note does not already say. */
+function resolutionText(resolution: { note: string; source: 'local' | 'remote' } | null): string {
+  if (resolution === null) {
+    return 'Answered'
+  }
+  return resolution.source === 'local' && !resolution.note.toLowerCase().includes('terminal') ? `${resolution.note} (in the terminal)` : resolution.note
+}
+
+/** What was decided, in plain sight: the chosen answer (the chosen option marked among the others), or Allowed / Denied. */
+function AnsweredResult({ message }: { message: Extract<Message, { kind: 'prompt' }> }) {
+  const note = resolutionText(message.resolution)
+  if (message.body.kind === 'permission') {
+    const denied = note.startsWith('Denied')
+    return (
+      <div data-result="true" className="flex items-start gap-2 px-4 py-3">
+        {denied ? <X className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Check className="mt-0.5 size-4 shrink-0 text-status-working" aria-hidden="true" />}
+        <p className="text-sm font-medium">{note}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-3 px-4 py-3">
+      {message.body.questions.map((question, index) => {
+        const answered = question.answered
+        return (
+          <div key={`${message.id}-result-${index}`} className="grid gap-2">
+            {question.options.length > 0 && (
+              <div className="grid gap-1.5">
+                {question.options.map((option, optionIndex) => {
+                  const chosen = answered === option.label
+                  return (
+                    <div
+                      key={`${message.id}-result-option-${optionIndex}`}
+                      data-chosen={chosen ? 'true' : undefined}
+                      className={`flex items-start gap-3 rounded-xl p-3 ${chosen ? 'border border-primary bg-primary/10' : 'bg-background/40 opacity-50'}`}
+                    >
+                      <span className="mt-0.5 grid size-4 shrink-0 place-items-center">{chosen && <Check className="size-4" aria-hidden="true" />}</span>
+                      <span className="block text-sm font-medium">{option.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <div data-result="true" className="flex items-start gap-2">
+              <Check className="mt-0.5 size-4 shrink-0 text-status-working" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">You answered</p>
+                <p className="text-sm font-medium">{answered ?? note}</p>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+      {message.resolution?.source === 'local' && <p className="text-xs text-muted-foreground">Answered in the terminal</p>}
+    </div>
+  )
+}
+
+export function PromptCard({ message, questionIndex, onAction, onReply, initialFeedback = { phase: 'idle' } }: PromptCardProps) {
   const [selected, setSelected] = useState<number[]>([])
   const [answer, setAnswer] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const pending = message.status === 'pending' && !submitting
-  const run = async (action: () => Promise<void>) => {
-    setSubmitting(true)
+  const [feedback, setFeedback] = useState<PromptFeedback>(initialFeedback)
+  const active = feedback.phase === 'sending' || feedback.phase === 'sent' ? feedback : null
+  const canAct = message.status === 'pending' && active === null
+  const choiceOf = (key: string): ChoicePhase | undefined => (active !== null && active.key === key ? active.phase : undefined)
+  const run = async (key: string, action: () => Promise<void>) => {
+    setFeedback({ phase: 'sending', key })
     try {
       await action()
-    } finally {
-      setSubmitting(false)
+      setFeedback({ phase: 'sent', key })
+    } catch (reason) {
+      setFeedback({ phase: 'error', message: reason instanceof Error ? reason.message : 'Could not send your answer. Try again.' })
     }
   }
+  const choose = (key: string, optionIndex: number, index: number) =>
+    void run(key, () => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: index, optionIndex }) ?? Promise.resolve())
 
   return (
     <article className={`max-w-full overflow-hidden rounded-2xl shadow-sm sm:max-w-[92%] ${
-      message.status === 'pending' ? 'border border-amber-500/40 bg-card' : 'bg-card/75'
+      message.status === 'pending' ? 'border border-status-needs/40 bg-card' : 'bg-card/75'
     }`}>
       <div className="flex items-start gap-3 border-b border-border/70 px-4 py-3.5">
         <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl ${
-          message.status === 'pending' ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground'
+          message.status === 'pending' ? 'bg-status-needs/10 text-status-needs' : 'bg-muted text-muted-foreground'
         }`}>
           {message.body.kind === 'permission' ? <ShieldIcon /> : <MessageCircleIcon />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold">{message.title}</p>
-            {message.status === 'pending' ? <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">Needs you</Badge> : <Badge>Answered</Badge>}
+            {message.status === 'pending' ? <Badge className={NEEDS_YOU_BADGE_CLASS}>Needs you</Badge> : <Badge>Answered</Badge>}
           </div>
           {message.body.kind === 'question' ? (
             message.body.questions.map((question, index) => (
               <div key={`${message.id}-${index}`} className="mt-2">
-                {question.header && <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{question.header}</p>}
+                {question.header && <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{question.header}</p>}
                 <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{question.question}</p>
               </div>
             ))
@@ -675,6 +763,7 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!canAct}
                           onChange={() => setSelected(current => checked ? current.filter(item => item !== optionIndex) : [...current, optionIndex])}
                           className="mt-1 accent-[var(--primary)]"
                         />
@@ -685,16 +774,24 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                       </label>
                     )
                   }
+                  const key = `option:${optionIndex}`
+                  const phase = choiceOf(key)
                   return (
                     <button
                       type="button"
                       key={`${message.id}-option-${optionIndex}`}
-                      disabled={!pending}
-                      className="rounded-xl bg-background/70 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-50"
-                      onClick={() => void run(() => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: index, optionIndex }) ?? Promise.resolve())}
+                      disabled={!canAct}
+                      data-choice={phase}
+                      className={`flex items-start gap-3 rounded-xl p-3 text-left transition-colors ${
+                        phase !== undefined ? 'border border-primary bg-primary/10' : 'bg-background/70 hover:bg-muted disabled:opacity-50'
+                      }`}
+                      onClick={() => choose(key, optionIndex, index)}
                     >
-                      <span className="block text-sm font-medium">{option.label}</span>
-                      {option.description && <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">{option.label}</span>
+                        {option.description && <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>}
+                      </span>
+                      <ChoiceMark phase={phase} />
                     </button>
                   )
                 })}
@@ -702,58 +799,76 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
             )
           })}
           <div className="flex gap-2">
-            <Input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Write an answer…" disabled={!pending} />
+            <Input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Write an answer…" disabled={!canAct} />
             <Button
               variant="secondary"
-              disabled={!pending || answer.trim() === ''}
-              onClick={() => void run(() => onReply?.(message.promptId, { questionIndex, text: answer.trim() }) ?? Promise.resolve())}
+              disabled={!canAct || answer.trim() === ''}
+              onClick={() => void run('text', () => onReply?.(message.promptId, { questionIndex, text: answer.trim() }) ?? Promise.resolve())}
             >
-              Send
+              <ChoiceMark phase={choiceOf('text')} />
+              {pressedLabel(choiceOf('text'), 'Send', 'Sending…', 'Sent')}
             </Button>
           </div>
-          {message.body.questions.some(question => question.multiSelect) && selected.length > 0 && (
+          {message.body.questions.some(question => question.multiSelect) && (selected.length > 0 || choiceOf('multi') !== undefined) && (
             <Button
               variant="outline"
-              disabled={!pending}
-              onClick={() => void run(() => onReply?.(message.promptId, { questionIndex, text: [...selected].sort((a, b) => a - b).map(index => index + 1).join(',') }) ?? Promise.resolve())}
+              disabled={!canAct}
+              onClick={() => void run('multi', () => onReply?.(message.promptId, { questionIndex, text: [...selected].sort((a, b) => a - b).map(index => index + 1).join(',') }) ?? Promise.resolve())}
             >
-              Submit {selected.length} selected
+              <ChoiceMark phase={choiceOf('multi')} />
+              {pressedLabel(choiceOf('multi'), `Submit ${selected.length} selected`, 'Sending…', 'Sent')}
             </Button>
           )}
+          <FeedbackLine feedback={feedback} />
         </div>
       )}
 
       {message.status === 'pending' && message.body.kind === 'permission' && (
         <div className="grid gap-3 p-4">
-          <Textarea value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Optional feedback if you deny…" disabled={!pending} className="min-h-20" />
+          <Textarea value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Optional feedback if you deny…" disabled={!canAct} className="min-h-20" />
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
-              disabled={!pending}
-              onClick={() => void run(() => answer.trim()
+              disabled={!canAct}
+              data-choice={choiceOf('deny')}
+              onClick={() => void run('deny', () => answer.trim()
                 ? onReply?.(message.promptId, { questionIndex: 0, text: answer.trim() }) ?? Promise.resolve()
                 : onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 1 }) ?? Promise.resolve())}
             >
-              Deny
+              <ChoiceMark phase={choiceOf('deny')} />
+              {pressedLabel(choiceOf('deny'), 'Deny', 'Denying…', 'Denied')}
             </Button>
             <Button
-              disabled={!pending}
-              onClick={() => void run(() => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 0 }) ?? Promise.resolve())}
+              disabled={!canAct}
+              data-choice={choiceOf('allow')}
+              onClick={() => void run('allow', () => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 0 }) ?? Promise.resolve())}
             >
-              Allow
+              <ChoiceMark phase={choiceOf('allow')} />
+              {pressedLabel(choiceOf('allow'), 'Allow', 'Allowing…', 'Allowed')}
             </Button>
           </div>
+          <FeedbackLine feedback={feedback} />
         </div>
       )}
 
-      {message.status === 'answered' && (
-        <div className="px-4 py-3 text-xs text-muted-foreground">
-          {message.resolution?.note ?? 'Answered'}
-          {message.resolution?.source === 'local' && ' in the terminal'}
-        </div>
-      )}
+      {message.status === 'answered' && <AnsweredResult message={message} />}
       {message.status === 'pending' && message.body.kind === 'permission' && <MessageTime at={message.at} />}
     </article>
+  )
+}
+
+/** One line under the choices that says what is happening with the answer, so the user is never left guessing. */
+function FeedbackLine({ feedback }: { feedback: PromptFeedback }) {
+  if (feedback.phase === 'idle') {
+    return null
+  }
+  if (feedback.phase === 'error') {
+    return <p role="alert" className="text-sm text-red-600 dark:text-red-400">{feedback.message}</p>
+  }
+  return (
+    <p role="status" className="text-sm text-muted-foreground">
+      {feedback.phase === 'sending' ? 'Sending your answer…' : 'Sent. Waiting for the session to continue…'}
+    </p>
   )
 }
 
