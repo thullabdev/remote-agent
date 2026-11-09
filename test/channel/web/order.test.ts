@@ -66,33 +66,42 @@ test('equal chats keep a stable order by id and the input is not mutated', () =>
 
 const drafted = (at: number): Chat['draft'] => ({ preview: 'half a reply', at })
 
-test('chats with a draft come first, the most recently edited draft on top', () => {
+test('drafts come after sessions that need you and before working ones, the most recently edited draft first', () => {
   const ordered = orderChats([
     chat('plain', { lastMessage: said(900) }),
+    chat('working', { busy: true, lastMessage: said(800) }),
     chat('draft-old', { draft: drafted(100), lastMessage: said(10) }),
+    chat('blocked', { pendingPrompt: waiting(5), lastMessage: said(1) }),
     chat('general', { pinned: true }),
     chat('draft-new', { draft: drafted(300), lastMessage: said(5) }),
   ])
-  expect(ids(ordered)).toEqual(['draft-new', 'draft-old', 'general', 'plain'])
+  expect(ids(ordered)).toEqual(['general', 'blocked', 'draft-new', 'draft-old', 'working', 'plain'])
 })
 
-test('General is first as before, but sorts among the drafts while it has one', () => {
-  const withDraft = orderChats([chat('a', { draft: drafted(100) }), chat('general', { pinned: true, draft: drafted(200) }), chat('b')])
-  expect(ids(withDraft)).toEqual(['general', 'a', 'b'])
-  const older = orderChats([chat('a', { draft: drafted(300) }), chat('general', { pinned: true, draft: drafted(200) }), chat('b')])
-  expect(ids(older)).toEqual(['a', 'general', 'b'])
+test('General stays first even when it has a draft', () => {
+  const ordered = orderChats([chat('a', { draft: drafted(900) }), chat('general', { pinned: true, draft: drafted(1) }), chat('b')])
+  expect(ids(ordered)).toEqual(['general', 'a', 'b'])
+})
+
+test('a draft never pushes a session that needs you down, and a blocked session with a draft stays blocked', () => {
+  const ordered = orderChats([
+    chat('drafting', { draft: drafted(900) }),
+    chat('blocked-with-draft', { pendingPrompt: waiting(50), draft: drafted(1) }),
+    chat('blocked', { pendingPrompt: waiting(5) }),
+  ])
+  expect(ids(ordered)).toEqual(['blocked', 'blocked-with-draft', 'drafting'])
+})
+
+test('a working session with a draft is ranked as a draft', () => {
+  const ordered = orderChats([chat('working', { busy: true, lastMessage: said(900) }), chat('both', { busy: true, draft: drafted(1), lastMessage: said(1) })])
+  expect(ids(ordered)).toEqual(['both', 'working'])
 })
 
 test('deleting a draft puts the chat back where its latest message puts it', () => {
   const chats = [chat('older', { lastMessage: said(10) }), chat('newer', { lastMessage: said(50) }), chat('general', { pinned: true })]
   const withDraft = chats.map(item => (item.id === 'older' ? { ...item, draft: drafted(1) } : item))
-  expect(ids(orderChats(withDraft))).toEqual(['older', 'general', 'newer'])
+  expect(ids(orderChats(withDraft))).toEqual(['general', 'older', 'newer'])
   expect(ids(orderChats(chats))).toEqual(['general', 'newer', 'older'])
-})
-
-test('a draft ranks above a session that needs you, because the draft is the user\'s own work in progress', () => {
-  const ordered = orderChats([chat('blocked', { pendingPrompt: waiting(5) }), chat('drafting', { draft: drafted(1) }), chat('general', { pinned: true })])
-  expect(ids(ordered)).toEqual(['drafting', 'general', 'blocked'])
 })
 
 test('an ended chat with a draft is not ranked as a draft', () => {

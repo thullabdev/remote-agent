@@ -110,7 +110,7 @@ A client has no login screen. Treat a 401 or 403 from steps 1 and 2 as "access d
 
 This is the order a client should do things in. Everything after step 2 is driven by events.
 
-1. **`GET /api/state`** → `{ seq, away, chats }`. Keep `seq` (an *event* seq). `chats` is chats with an unsent draft first (newest edit on top), then General, then chats waiting on you, then working chats, then the rest by latest message time. Render the chat list from it.
+1. **`GET /api/state`** → `{ seq, away, chats }`. Keep `seq` (an *event* seq). `chats` is General first, then chats waiting on you, then chats with an unsent draft (newest edit first), then working chats, then the rest by latest message time. Render the chat list from it.
 2. **Open the WebSocket** `/ws?after=<seq from step 1>`. The first frame is `hello`. Because you pass `after`, anything that happened between step 1 and the connection is replayed, and nothing is missed.
 3. **Send your presence** as soon as the socket opens, and again whenever it changes (see 3.3). This is what stops pushes while you are looking at the page.
 4. **When the user opens a chat:** `GET /api/chats/:id/messages` (latest 50). Render ascending. For older history call again with `before=<smallest message seq you have>` until `hasMore` is `false`.
@@ -175,7 +175,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 
 ### GET /state
 
-`200 { seq: number, away: boolean, chats: Chat[] }`. `seq` is an event seq. `chats` has chats with a `draft` first (`draft.at` descending; General sorts among them while it has one; ended chats do not count), then General, then chats with a `pendingPrompt` (waiting longest first), then `busy` chats, then the rest, each group by `lastMessage.at` descending (chats without messages last). Ended chats count as the rest. `src/channel/web/order.ts` is the ordering the server uses; reuse it in a client so a `chat.updated` lands in the same place.
+`200 { seq: number, away: boolean, chats: Chat[] }`. `seq` is an event seq. `chats` has General first, then chats with a `pendingPrompt` (waiting longest first), then chats with a `draft` (`draft.at` descending; ended chats do not count), then `busy` chats, then the rest, each group by `lastMessage.at` descending (chats without messages last). Ended chats count as the rest. `src/channel/web/order.ts` is the ordering the server uses; reuse it in a client so a `chat.updated` lands in the same place.
 
 ### GET /chats/:id/messages
 
