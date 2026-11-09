@@ -15,6 +15,8 @@ export interface ChatSink {
   promptCreated(prompt: PromptRow, session: SessionRow): string[]
   /** Flips the prompt messages (the refs Notifier stored) to answered with the resolution. */
   promptResolved(prompt: PromptRow, refs: string[]): void
+  /** One question of a multi-question Prompt was answered: flips that question's message (`ref`) to answered. The Prompt still waits for the rest. */
+  promptPartAnswered?(prompt: PromptRow, ref: string, questionIndex: number, value: string): void
   /** Appends a user_text message (queued) for an Instruction; used by the web API, not by Inbound. A clientId makes the append idempotent. `display` is what the message shows when the Instruction text also carries file paths for the Session. */
   instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null, display?: { text: string; attachments: UploadRef[] }): Message
   /** Flips the user_text of that instruction to delivered. */

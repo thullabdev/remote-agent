@@ -8,6 +8,8 @@ export type Log = (message: string, error?: unknown) => void
 export interface PromptEvents {
   promptCreated(prompt: PromptRow): Promise<void>
   promptResolved(prompt: PromptRow): Promise<void>
+  /** One question of a multi-question Prompt was answered; the Prompt still waits for the rest. */
+  promptPartAnswered?(prompt: PromptRow, questionIndex: number, value: string): Promise<void>
   promptReminder(prompt: PromptRow): Promise<void>
 }
 
@@ -108,6 +110,8 @@ export class PromptService {
       return this.answer(id, { kind: 'question', answers: partial }, 'remote')
     }
     this.store.setPartial(id, partial)
+    const latest = this.requirePrompt(id)
+    this.fire('promptPartAnswered', () => this.events.promptPartAnswered?.(latest, questionIndex, value) ?? Promise.resolve())
     return { accepted: true, state: { status: 'pending' } }
   }
 

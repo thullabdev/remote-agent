@@ -270,7 +270,8 @@ test('resolution marks each question message answered', async () => {
 
   const first = chatLog.findMessage(refs[0]!)
   const second = chatLog.findMessage(refs[1]!)
-  expect(first).toMatchObject({ status: 'answered', resolution: { note: 'Answered (remote): sqlite / unit', source: 'remote' } })
+  expect(first).toMatchObject({ status: 'answered', resolution: { note: 'Answered: sqlite', source: 'remote' } })
+  expect(second).toMatchObject({ status: 'answered', resolution: { note: 'Answered: unit', source: 'remote' } })
   expect(first?.kind === 'prompt' && first.body.kind === 'question' ? first.body.questions[0]?.answered : null).toBe('sqlite')
   expect(second?.kind === 'prompt' && second.body.kind === 'question' ? second.body.questions[0]?.answered : null).toBe('unit')
 })
@@ -526,6 +527,67 @@ function sessionRow() {
   store.upsertSession(webSession)
   return store.getSession(webSession.sessionId)!
 }
+
+const twoQuestionBody: PromptBody = {
+  kind: 'question',
+  questions: [
+    { question: 'Where?', header: 'Where', multiSelect: false, options: [{ label: 'Top', description: '' }, { label: 'Bottom', description: '' }] },
+    { question: 'Which?', header: 'Which', multiSelect: false, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] },
+  ],
+}
+
+test('answering one question of several flips only its card to answered with its own answer, and the chat still needs you', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:two', twoQuestionBody)
+  const refs = channel.promptCreated(prompt, session)
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+  expect(chatLog.getChat(chatId)?.pendingPrompt).toMatchObject({ promptId: 'p:two', count: 1 })
+
+  channel.promptPartAnswered(prompt, refs[0]!, 0, 'Bottom')
+
+  const [first, second] = refs.map(ref => chatLog.findMessage(ref))
+  expect(first).toMatchObject({ kind: 'prompt', status: 'answered', resolution: { note: 'Answered: Bottom', source: 'remote' } })
+  expect(first?.kind === 'prompt' && first.body.kind === 'question' ? first.body.questions[0]?.answered : null).toBe('Bottom')
+  expect(second).toMatchObject({ kind: 'prompt', status: 'pending', resolution: null })
+  expect(chatLog.getChat(chatId)?.pendingPrompt).toMatchObject({ promptId: 'p:two', count: 1 })
+})
+
+test('when every question is answered each card keeps its own answer, not the joined list', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:two-done', twoQuestionBody)
+  const refs = channel.promptCreated(prompt, session)
+  channel.promptPartAnswered(prompt, refs[0]!, 0, 'Bottom')
+  store.resolvePrompt('p:two-done', { kind: 'question', answers: { 'Where?': 'Bottom', 'Which?': 'Two' } }, 'remote')
+
+  channel.promptResolved(store.getPrompt('p:two-done')!, refs)
+
+  const notes = refs.map(ref => {
+    const message = chatLog.findMessage(ref)
+    return message?.kind === 'prompt' ? message.resolution?.note : null
+  })
+  expect(notes).toEqual(['Answered: Bottom', 'Answered: Two'])
+  expect(chatLog.getChat(store.getSession(webSession.sessionId)!.chatId!)?.pendingPrompt).toBeNull()
+})
+
+test('a permission request resolves with a plain note: Allowed, or Denied with the feedback', () => {
+  const session = sessionRow()
+  const allow = insertPrompt('p:allow', permissionBody)
+  const allowRefs = channel.promptCreated(allow, session)
+  store.resolvePrompt('p:allow', { kind: 'permission', decision: 'allow' }, 'remote')
+  channel.promptResolved(store.getPrompt('p:allow')!, allowRefs)
+
+  const deny = insertPrompt('p:deny', permissionBody)
+  const denyRefs = channel.promptCreated(deny, session)
+  store.resolvePrompt('p:deny', { kind: 'permission', decision: 'deny', message: 'use pnpm' }, 'remote')
+  channel.promptResolved(store.getPrompt('p:deny')!, denyRefs)
+
+  const noteOf = (ref: string) => {
+    const message = chatLog.findMessage(ref)
+    return message?.kind === 'prompt' ? message.resolution?.note : null
+  }
+  expect(noteOf(allowRefs[0]!)).toBe('Allowed')
+  expect(noteOf(denyRefs[0]!)).toBe('Denied: use pnpm')
+})
 
 test('a stale prompt creates one system message and one push', () => {
   const session = sessionRow()

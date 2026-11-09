@@ -246,6 +246,10 @@ class RecordingSink implements ChatSink {
     this.calls.push(`promptResolved ${prompt.id} ${refs.join(',')}`)
   }
 
+  promptPartAnswered(prompt: PromptRow, ref: string, questionIndex: number, value: string): void {
+    this.calls.push(`promptPartAnswered ${prompt.id} ${ref} #${questionIndex}=${value}`)
+  }
+
   instructionQueued(): Message {
     throw new Error('not used by the Notifier')
   }
@@ -324,6 +328,18 @@ test('promptResolved hands the prompt and its message refs to the sink', async (
 
   expect(sink.calls.filter(call => call.startsWith('promptResolved'))).toEqual(['promptResolved p:1 m-q1'])
   expect(channel.resolved).toEqual([])
+})
+
+test('a partly answered prompt tells the sink which question message was answered', async () => {
+  const sink = new RecordingSink()
+  sink.refsToReturn = ['m-q1', 'm-q2']
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  await notifier.promptCreated(addPrompt('p:1'))
+
+  await notifier.promptPartAnswered(store.getPrompt('p:1')!, 1, 'b2')
+  await notifier.promptPartAnswered(store.getPrompt('p:1')!, 5, 'nope')
+
+  expect(sink.calls.filter(call => call.startsWith('promptPartAnswered'))).toEqual(['promptPartAnswered p:1 m-q2 #1=b2'])
 })
 
 test('no sink: notifier behaviour is unchanged and prompts still go through the channel', async () => {

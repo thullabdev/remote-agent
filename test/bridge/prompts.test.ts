@@ -9,11 +9,15 @@ class RecordingEvents implements PromptEvents {
   created: string[] = []
   resolved: string[] = []
   reminded: string[] = []
+  partial: string[] = []
   async promptCreated(prompt: PromptRow) {
     this.created.push(prompt.id)
   }
   async promptResolved(prompt: PromptRow) {
     this.resolved.push(prompt.id)
+  }
+  async promptPartAnswered(prompt: PromptRow, questionIndex: number, value: string) {
+    this.partial.push(`${prompt.id}#${questionIndex}=${value}`)
   }
   async promptReminder(prompt: PromptRow) {
     this.reminded.push(prompt.id)
@@ -92,6 +96,24 @@ test('multi-question prompts complete when every question is answered', () => {
     state: { status: 'answered', answer: { kind: 'question', answers: { 'A?': 'a2', 'B?': 'b1' } }, source: 'remote' },
   })
   expect(service.answerQuestionPart('q:1', 0, 'a1')?.accepted).toBe(false)
+})
+
+test('answering one question of several announces that part, and the last part is announced as the resolution instead', async () => {
+  service.create(twoQuestions)
+
+  service.answerQuestionPart('q:1', 1, 'b2')
+  await flush()
+  expect(events.partial).toEqual(['q:1#1=b2'])
+  expect(events.resolved).toEqual([])
+
+  service.answerQuestionPart('q:1', 0, 'a1')
+  await flush()
+  expect(events.partial).toEqual(['q:1#1=b2'])
+  expect(events.resolved).toEqual(['q:1'])
+
+  service.answerQuestionPart('q:1', 0, 'a2')
+  await flush()
+  expect(events.partial).toEqual(['q:1#1=b2'])
 })
 
 test('answerQuestionPart rejects a bad question index', () => {

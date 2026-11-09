@@ -223,7 +223,7 @@ export class WebChannel implements Channel, ChatSink {
     if (answer === null || source === null) {
       return
     }
-    const note = plainResolutionNote(answer, source)
+    const note = plainResolutionNote(answer)
     for (const ref of refs) {
       const current = this.chatLog.findMessage(ref)
       if (current?.kind !== 'prompt') {
@@ -239,15 +239,33 @@ export class WebChannel implements Channel, ChatSink {
               })),
             }
           : current.body
+      // Each question's card says its own answer, not the list of all of them.
+      const own = body.kind === 'question' ? body.questions[0]?.answered ?? null : null
       this.chatLog.updateMessage(ref, {
         kind: 'prompt',
         promptId: current.promptId,
         title: current.title,
         body,
         status: 'answered',
-        resolution: { note, source },
+        resolution: { note: own === null ? note : `Answered: ${own}`, source },
       })
     }
+  }
+
+  /** One question of several was answered: its card shows the answer now, while the Prompt keeps waiting for the rest. */
+  promptPartAnswered(_prompt: PromptRow, ref: string, _questionIndex: number, value: string): void {
+    const current = this.chatLog.findMessage(ref)
+    if (current?.kind !== 'prompt' || current.body.kind !== 'question' || current.status === 'answered') {
+      return
+    }
+    this.chatLog.updateMessage(ref, {
+      kind: 'prompt',
+      promptId: current.promptId,
+      title: current.title,
+      body: { kind: 'question', questions: current.body.questions.map(question => ({ ...question, answered: value })) },
+      status: 'answered',
+      resolution: { note: `Answered: ${value}`, source: 'remote' },
+    })
   }
 
   instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null, display?: { text: string; attachments: UploadRef[] }): Message {

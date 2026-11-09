@@ -143,17 +143,14 @@ export function resolutionNote(answer: Answer, source: AnswerSource): string {
 }
 
 /** The resolution note as plain text for the web channel: no emoji and no clipping. */
-export function plainResolutionNote(answer: Answer, source: AnswerSource): string {
+export function plainResolutionNote(answer: Answer): string {
   if (answer.kind === 'permission') {
     if (answer.message === SETTLED_LOCALLY_MESSAGE) {
       return 'Answered in the terminal'
     }
-    const head = `${answer.decision === 'allow' ? 'Allowed' : 'Denied'} (${source})`
+    const head = answer.decision === 'allow' ? 'Allowed' : 'Denied'
     return answer.message === undefined ? head : `${head}: ${answer.message}`
   }
   const values = Object.values(answer.answers)
-  if (values.length === 0) {
-    return `Dismissed (${source})`
-  }
-  return `Answered (${source}): ${values.join(' / ')}`
+  return values.length === 0 ? 'Dismissed' : `Answered: ${values.join(' / ')}`
 }

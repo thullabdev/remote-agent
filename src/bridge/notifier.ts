@@ -189,6 +189,18 @@ export class Notifier implements PromptEvents {
     await this.channel.markResolved(session.threadId, refs, resolutionNote(prompt.answer, prompt.source))
   }
 
+  /** One question of a multi-question Prompt was answered: its message flips to answered while the others keep waiting. */
+  async promptPartAnswered(prompt: PromptRow, questionIndex: number, value: string): Promise<void> {
+    const ref = this.store.listPromptMessageRefs(prompt.id)[questionIndex]
+    const sink = this.sink
+    if (ref === undefined || sink?.promptPartAnswered === undefined) {
+      return
+    }
+    this.sinkStep('promptPartAnswered', () => {
+      sink.promptPartAnswered?.(prompt, ref, questionIndex, value)
+    })
+  }
+
   async promptReminder(prompt: PromptRow): Promise<void> {
     const session = this.store.getSession(prompt.sessionId)
     if (session === undefined || session.threadId === null) {
