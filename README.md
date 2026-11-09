@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/remote-agent-logo-dark.svg">
+    <img src="docs/assets/remote-agent-logo.svg" alt="Remote Agent" width="520">
+  </picture>
+</p>
+
 # Remote Agent
 
 Watch and steer your active [Claude Code](https://claude.com/claude-code) sessions from a web chat (or Telegram). When a session is blocked on a question or a permission request, you answer it from your phone and the session carries on.
@@ -32,6 +39,11 @@ Remote Agent exists to make those stops cheap to handle from anywhere, while kee
 - **Answer prompts remotely.** Questions (single choice, multi choice, or free text) and permission requests (allow or deny) reach your web chat or Telegram. The session resumes when you answer.
 - **Get reports.** Turn-finished and session-started/ended notifications are pushed while Away mode is on. Web Push works on installed web apps, including iPhone and iPad.
 - **Send instructions to idle sessions.** Text you send is queued while a session is busy and delivered when it is idle.
+- **Share files and images.** Attach PNG, JPEG, GIF, WebP or PDF files from the composer, or pick files from a shared library with `@`. The session receives each file's path and can read it.
+- **Pin messages.** Pin important messages in a chat and list them in the chat details.
+- **Read edits as diffs.** Edit tool calls show as a diff, with the changed characters highlighted.
+- **Track usage.** Context usage per session and account limits appear in the web UI.
+- **Follow the timeline.** Messages are grouped by day under sticky date labels.
 - **Start sessions from chat.** `/new` starts Claude Code in a detached tmux session inside a trusted folder. You can attach to it from a terminal at any time.
 - **Resume past work.** `/new --resume` starts a new session forked from an earlier transcript, leaving the original history unchanged.
 - **Choose a model.** `/new --model` starts a session on `opus`, `sonnet`, `haiku`, `opusplan`, or a full model id.
@@ -255,6 +267,8 @@ When the Bridge is running, open the Tailscale URL from a device on your tailnet
 - **Questions** are answered with the option buttons, or with free text for "Other". Multi-select questions are answered with numbers, such as `1,3`.
 - **Permission requests** show Allow and Deny. Replying `allow` or `yes` allows, `deny` or `no` denies, and any other reply denies with that text as feedback to the agent.
 - **Any other text** in a session's chat is an instruction. It is queued if the session is busy and delivered when it is idle.
+- **Attach files.** Use the attach button, or type `@` in the composer to pick from the shared library. A message takes up to five files. The picker can upload new files and delete library files (after a confirmation). Attachments work in session chats only, not in General.
+- **Pin messages.** Use the bookmark button on a message to pin it. Pinned messages are listed in the chat details.
 - **Commands** (in the General chat or any chat):
 
   | Command | Effect |
@@ -393,6 +407,7 @@ Report security problems privately to the maintainer rather than in a public iss
 - **Single user.** One Bridge serves one person.
 - **Windows** is supported only through WSL2. **macOS** support is not yet tested end to end, including starting sessions from chat.
 - **Headless sessions** (`claude -p`, the Agent SDK) are not bridged.
+- **Uploads** are images and PDFs only, up to 10 MB each and five per message. Uploaded files stay in the library until you delete them.
 - **Telegram is not end-to-end encrypted.** Bot chats are readable by Telegram.
 - **Permission races.** A permission request can be answered in the terminal or remotely. Whichever answer comes first wins. Telegram may keep showing buttons for a request that was answered in the terminal until the tool call finishes.
 - **Question dialogs** stay open in the terminal when a question was answered remotely. Press **Esc** to clear them.
