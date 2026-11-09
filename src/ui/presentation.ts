@@ -252,6 +252,6 @@ export function pendingPromptLabel(prompt: PendingPrompt): string {
   return prompt.kind === 'permission' ? 'Permission' : 'Question'
 }
 
-/** The look of the "needs you" state. Amber, not the accent, so it cannot be mistaken for an unread count in any accent. */
-export const NEEDS_YOU_TEXT_CLASS = 'text-amber-700 dark:text-amber-300'
-export const NEEDS_YOU_BADGE_CLASS = 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300'
+/** The look of the "needs you" state: the --status-needs token, not the accent, so it is never mistaken for an unread count. */
+export const NEEDS_YOU_TEXT_CLASS = 'text-status-needs'
+export const NEEDS_YOU_BADGE_CLASS = 'border-status-needs/30 bg-status-needs/10 text-status-needs'

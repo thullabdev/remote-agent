@@ -170,6 +170,15 @@ const ACCENT_COLORS: Record<Exclude<AccentId, 'ink'>, Record<ThemeMode, Pick<Pal
   },
 }
 
+/**
+ * Colors for what a session is doing. They belong to the mode, not to a theme or accent: the accent is user-chosen and could
+ * match them. themes.test.ts checks every theme's surfaces give them at least 4.5:1 contrast.
+ */
+export const STATUS_COLORS: Record<ThemeMode, { needs: string; working: string }> = {
+  light: { needs: '#78350f', working: '#14532d' },
+  dark: { needs: '#fcd34d', working: '#86efac' },
+}
+
 /** CSS custom properties for a theme, mode and accent. Every key is always returned, so applying them overwrites the previous theme. */
 export function appearanceVars(themeId: string, mode: ThemeMode, accent: AccentId): Record<string, string> {
   const theme = COLOR_THEMES.find(candidate => candidate.id === themeId) ?? COLOR_THEMES[0]
@@ -188,5 +197,7 @@ export function appearanceVars(themeId: string, mode: ThemeMode, accent: AccentI
     '--primary': palette.primary,
     '--primary-foreground': palette.primaryForeground,
     '--glow': palette.glow,
+    '--status-needs': STATUS_COLORS[mode].needs,
+    '--status-working': STATUS_COLORS[mode].working,
   }
 }

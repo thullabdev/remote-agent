@@ -1,13 +1,13 @@
-import { Archive, Check, ChevronDown, LoaderCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { Archive, Check, LoaderCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
+import { filterChats, filterCounts, LIST_FILTERS, type ListFilter } from '../chat-filters.ts'
 import { formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Input } from './ui/input.tsx'
 
 type ChatListProps = {
@@ -21,106 +21,34 @@ type ChatListProps = {
   onActionError(error: unknown): void
 }
 
-type SessionSourceFilter = 'all' | 'laptop' | 'spawned' | 'archived'
-
-const SESSION_FILTERS: readonly [SessionSourceFilter, string][] = [
-  ['all', 'All'],
-  ['laptop', 'Active Session'],
-  ['spawned', 'Spawned'],
-  ['archived', 'Archived'],
-]
-const TAB_GAP_PX = 4 // gap-1
-const CHEVRON_RESERVE_PX = 20 // chevron plus the gap before it, on the More button
-
-// How many leading tabs fit in `available` px, leaving room for a More button when some do not fit.
-export function countFittingTabs(widths: number[], available: number, moreWidth: number): number {
-  const widthOf = (count: number) => widths.slice(0, count).reduce((sum, width) => sum + width, 0) + Math.max(0, count - 1) * TAB_GAP_PX
-  if (widthOf(widths.length) <= available) {
-    return widths.length
-  }
-  for (let count = widths.length - 1; count >= 0; count--) {
-    const withMore = widthOf(count) + (count > 0 ? TAB_GAP_PX : 0) + moreWidth
-    if (withMore <= available) {
-      return count
-    }
-  }
-  return 0
-}
-
-function SessionFilterTabs({ value, onSelect }: { value: SessionSourceFilter; onSelect(source: SessionSourceFilter): void }) {
-  const rowRef = useRef<HTMLDivElement>(null)
-  const measureRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const [visibleCount, setVisibleCount] = useState(SESSION_FILTERS.length)
-
-  useLayoutEffect(() => {
-    const row = rowRef.current
-    if (row === null) return
-    const fit = () => {
-      const widths = SESSION_FILTERS.map((_, index) => measureRefs.current[index]?.offsetWidth ?? 0)
-      const longest = Math.max(0, ...widths)
-      setVisibleCount(countFittingTabs(widths, row.clientWidth, longest + CHEVRON_RESERVE_PX))
-    }
-    fit()
-    const observer = new ResizeObserver(fit)
-    observer.observe(row)
-    return () => observer.disconnect()
-  }, [])
-
-  const visible = SESSION_FILTERS.slice(0, visibleCount)
-  const hidden = SESSION_FILTERS.slice(visibleCount)
-  const hiddenActive = hidden.find(([source]) => source === value)
-
+/** Horizontally scrolling filter chips. Every chip stays reachable by scrolling, so "Needs you" is never hidden behind a "More" menu. */
+function ChatFilterBar({ value, counts, onSelect }: { value: ListFilter; counts: Record<ListFilter, number>; onSelect(filter: ListFilter): void }) {
   return (
-    <div className="relative px-2 pt-3 pb-2" role="group" aria-label="Filter sessions">
-      <div ref={rowRef} className="flex min-w-0 items-center gap-1">
-        {visible.map(([source, label]) => (
-          <Button
-            key={source}
-            variant={value === source ? 'secondary' : 'ghost'}
-            size="sm"
-            aria-pressed={value === source}
-            onClick={() => onSelect(source)}
+    <div
+      className="flex shrink-0 gap-2 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      role="group"
+      aria-label="Filter sessions"
+    >
+      {LIST_FILTERS.map(([filter, label]) => {
+        const selected = value === filter
+        const count = counts[filter]
+        const attention = filter === 'needs_you' && count > 0
+        const showCount = (filter === 'needs_you' || filter === 'working') && count > 0
+        return (
+          <button
+            key={filter}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(filter)}
+            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-medium transition-colors ${
+              selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
+            } ${attention && !selected ? 'text-status-needs' : ''}`}
           >
             {label}
-          </Button>
-        ))}
-        {hidden.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant={hiddenActive ? 'secondary' : 'ghost'}
-                size="sm"
-                aria-label={hiddenActive ? `More filters, ${hiddenActive[1]} selected` : 'More filters'}
-              >
-                {hiddenActive ? hiddenActive[1] : 'More'}
-                <ChevronDown aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {hidden.map(([source, label]) => (
-                <DropdownMenuItem key={source} onSelect={() => onSelect(source)}>
-                  <span className="flex-1">{label}</span>
-                  {value === source && <Check className="size-4" aria-hidden="true" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-      {/* Off-screen copies of every tab, measured to decide how many fit. */}
-      <div aria-hidden="true" className="pointer-events-none invisible absolute left-2 top-0 flex gap-1 whitespace-nowrap">
-        {SESSION_FILTERS.map(([source, label], index) => (
-          <Button
-            key={source}
-            ref={element => { measureRefs.current[index] = element }}
-            size="sm"
-            variant="ghost"
-            tabIndex={-1}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+            {showCount && <span className={`tabular-nums text-xs ${attention ? 'text-status-needs' : ''}`}>{count}</span>}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -156,19 +84,6 @@ export function isSelectableChat(chat: Chat): boolean {
   return chat.id !== 'general' && chat.status === 'ended' && !chat.archived
 }
 
-export function filterChats(chats: Chat[], query: string, source: SessionSourceFilter): Chat[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  return chats.filter(chat => {
-    if (source === 'archived') {
-      return chat.id !== 'general' && chat.archived && chat.title.toLocaleLowerCase().includes(normalizedQuery)
-    }
-    if (chat.archived) return false
-    const sourceMatches =
-      source === 'all' || (chat.id !== 'general' && chat.spawned === (source === 'spawned'))
-    return sourceMatches && chat.title.toLocaleLowerCase().includes(normalizedQuery)
-  })
-}
-
 export function ChatList({
   chats,
   activeId,
@@ -180,7 +95,7 @@ export function ChatList({
   onActionError,
 }: ChatListProps) {
   const [query, setQuery] = useState('')
-  const [sourceFilter, setSourceFilter] = useState<SessionSourceFilter>('all')
+  const [filter, setFilter] = useState<ListFilter>('all')
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [archiving, setArchiving] = useState(false)
@@ -189,9 +104,10 @@ export function ChatList({
   const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClick = useRef<string | null>(null)
   const filteredChats = useMemo(
-    () => filterChats(chats, query, sourceFilter),
-    [chats, query, sourceFilter],
+    () => filterChats(chats, query, filter),
+    [chats, query, filter],
   )
+  const counts = useMemo(() => filterCounts(chats), [chats])
   const selectableIds = useMemo(() => new Set(chats.filter(isSelectableChat).map(chat => chat.id)), [chats])
 
   useEffect(() => {
@@ -211,9 +127,11 @@ export function ChatList({
     }
   }
 
-  const selectFilter = (source: SessionSourceFilter) => {
-    setSourceFilter(source)
-    if (source === 'archived') cancelSelection()
+  const selectFilter = (next: ListFilter) => {
+    setFilter(next)
+    if (next === 'archived') {
+      cancelSelection()
+    }
   }
 
   const beginSelection = (chatId: string) => {
@@ -325,11 +243,8 @@ export function ChatList({
         </Button>
       </header>
 
+      <ChatFilterBar value={filter} counts={counts} onSelect={selectFilter} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        <SessionFilterTabs value={sourceFilter} onSelect={selectFilter} />
-        <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
-          Chats <span className="ml-1 font-mono normal-case tracking-normal">{filteredChats.length}</span>
-        </div>
         <div className="space-y-1">
           {filteredChats.map(chat => (
             <button
@@ -441,13 +356,15 @@ export function ChatList({
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
               {query.trim()
                 ? 'No chats match that search.'
-                : sourceFilter === 'all'
+                : filter === 'all'
                   ? 'Your chats will appear here.'
-                  : sourceFilter === 'laptop'
-                    ? 'No active sessions.'
-                    : sourceFilter === 'spawned'
-                      ? 'No spawned sessions.'
-                      : 'No archived sessions.'}
+                  : filter === 'needs_you'
+                    ? 'Nothing is waiting on you.'
+                    : filter === 'working'
+                      ? 'No session is working right now.'
+                      : filter === 'ended'
+                        ? 'No ended sessions.'
+                        : 'No archived sessions.'}
             </div>
           )}
         </div>

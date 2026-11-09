@@ -63,7 +63,7 @@ test('the list still says Working for a session that is working, and the last me
   expect(list({ ...base, busy: true })).toContain('Working…')
   const idle = list(base)
   expect(idle).toContain('Done with the migration')
-  expect(idle).not.toContain('Needs you')
+  expect(idle).not.toContain('Needs you ·')
 })
 
 test('a pending prompt is shown even when the chat has an unsent draft', () => {
@@ -91,4 +91,36 @@ test('the feed shows the working indicator only while the session is working', (
   expect(feed({ ...base, busy: true })).toContain('Session is working')
   expect(feed(blocked)).not.toContain('Session is working')
   expect(feed(base)).not.toContain('Session is working')
+})
+
+function listOf(chats: Chat[]): string {
+  return renderToStaticMarkup(
+    createElement(ChatList, {
+      chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+      onArchiveSelected: async () => {}, onActionError: () => {},
+    }),
+  )
+}
+
+test('the filter bar offers states, with a count on the ones that need attention', () => {
+  const markup = listOf([{ ...base, id: 'g', title: 'General', pinned: true }, blocked, { ...base, id: 'w', busy: true }])
+  for (const label of ['Needs you', 'Working', 'All', 'Ended', 'Archived']) {
+    expect(markup).toContain(`>${label}`)
+  }
+  expect(markup).toMatch(/aria-pressed="true"[^>]*>All/)
+  expect(markup).toMatch(/Needs you<span[^>]*>1</)
+  expect(markup).toMatch(/Working<span[^>]*>1</)
+})
+
+test('the origin tabs and the Chats counter are gone from the list', () => {
+  const markup = listOf([base])
+  expect(markup).not.toContain('aria-pressed="false">Active Session')
+  expect(markup).not.toContain('aria-pressed="false">Spawned')
+  expect(markup).not.toContain('Chats <')
+})
+
+test('the filter bar sits outside the scrolling list, so it stays in view', () => {
+  const markup = listOf([base])
+  expect(markup.indexOf('aria-label="Filter sessions"')).toBeGreaterThan(-1)
+  expect(markup.indexOf('aria-label="Filter sessions"')).toBeLessThan(markup.indexOf('overflow-y-auto'))
 })
