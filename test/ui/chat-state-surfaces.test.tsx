@@ -60,7 +60,7 @@ test('the list says what a blocked session waits for, not Working', () => {
 })
 
 test('the list still says Working for a session that is working, and the last message when idle', () => {
-  expect(list({ ...base, busy: true })).toContain('Working…')
+  expect(list({ ...base, busy: true })).toContain('Working · ')
   const idle = list(base)
   expect(idle).toContain('Done with the migration')
   expect(idle).not.toContain('Needs you ·')
@@ -123,4 +123,59 @@ test('the filter bar sits outside the scrolling list, so it stays in view', () =
   const markup = listOf([base])
   expect(markup.indexOf('aria-label="Filter sessions"')).toBeGreaterThan(-1)
   expect(markup.indexOf('aria-label="Filter sessions"')).toBeLessThan(markup.indexOf('overflow-y-auto'))
+})
+
+const row = (chat: Chat): string => listOf([chat])
+
+test('the row drops the origin and Ended badges and the pin icon', () => {
+  const markup = listOf([{ ...base, spawned: true }, { ...base, id: 'c2', spawned: false, status: 'ended' }, { ...base, id: 'g', pinned: true }])
+  expect(markup).not.toContain('>Spawned<')
+  expect(markup).not.toContain('>Active Session<')
+  expect(markup).not.toContain('uppercase tracking-wide')
+  expect(markup).not.toContain('aria-label="Pinned"')
+})
+
+test('an ended row says Ended in its preview and is dimmed', () => {
+  const markup = row({ ...base, status: 'ended' })
+  expect(markup).toContain('Ended · ')
+  expect(markup).toContain('opacity-70')
+})
+
+test('a working row keeps the last message visible next to the state', () => {
+  const markup = row({ ...base, busy: true })
+  expect(markup).toContain('Working · ')
+  expect(markup).toContain('Done with the migration')
+})
+
+test('the project shows on its own line, and a draft stays a marker that does not hide the preview', () => {
+  const markup = row({ ...base, draft: { preview: 'half a reply' } })
+  expect(markup).toContain('>api<')
+  expect(markup).toContain('Draft')
+  expect(markup).toContain('half a reply')
+  expect(markup).toContain('Done with the migration')
+})
+
+test('unread is a dot, and the count is spoken in the label instead of shown', () => {
+  const markup = row({ ...base, unread: 7 })
+  expect(markup).toContain('7 unread')
+  expect(markup).not.toContain('>7<')
+})
+
+test('the row has a state-first accessible name and a machine-readable time', () => {
+  const markup = row(blocked)
+  expect(markup).toContain('aria-label="Needs you, permission: Bash: bun test, Billing fix, api, just now"')
+  expect(markup).toMatch(/<time dateTime="[^"]+"/)
+})
+
+test('a row is a toggle only while selecting, so a screen reader does not announce a switch on a plain row', () => {
+  expect(row({ ...base, status: 'ended' })).not.toContain('aria-pressed="false" aria-disabled')
+  expect(row({ ...base, status: 'ended' })).not.toMatch(/<button[^>]*aria-disabled[^>]*aria-pressed/)
+})
+
+test('the avatar takes its color from the project and carries a state badge', () => {
+  const markup = row(blocked)
+  expect(markup).toContain('--avatar-hue')
+  expect(markup).toContain('data-state="needs_you"')
+  expect(row({ ...base, busy: true })).toContain('data-state="working"')
+  expect(row(base)).not.toContain('data-state=')
 })

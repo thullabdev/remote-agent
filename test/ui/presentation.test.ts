@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Message } from '../../src/channel/web/protocol.ts'
-import { commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import type { Chat, Message } from '../../src/channel/web/protocol.ts'
+import { avatarHue, chatRowLabel, relativeTimeWords, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -158,5 +158,42 @@ describe('changed ranges', () => {
   test('leaves unpaired lines without a highlight', () => {
     const lines = markChangedRanges(diffLines('a', 'b\nc'))
     expect(lines.map(line => line.changed)).toEqual([{ start: 0, end: 1 }, { start: 0, end: 1 }, undefined])
+  })
+})
+
+describe('chat row helpers', () => {
+  const now = Date.UTC(2026, 10, 10, 12, 0)
+
+  test('avatarHue is stable per key, in range, and differs for different projects', () => {
+    expect(avatarHue('remote-agent')).toBe(avatarHue('remote-agent'))
+    expect(avatarHue('remote-agent')).not.toBe(avatarHue('vulcan'))
+    for (const key of ['', 'a', 'remote-agent', 'ü', '😀 emoji']) {
+      expect(avatarHue(key)).toBeGreaterThanOrEqual(0)
+      expect(avatarHue(key)).toBeLessThan(360)
+    }
+  })
+
+  test('relativeTimeWords reads aloud what formatRelativeTime abbreviates', () => {
+    expect(relativeTimeWords(now - 10_000, now)).toBe('just now')
+    expect(relativeTimeWords(now - 60_000, now)).toBe('1 minute ago')
+    expect(relativeTimeWords(now - 12 * 60_000, now)).toBe('12 minutes ago')
+    expect(relativeTimeWords(now - 3_600_000, now)).toBe('1 hour ago')
+    expect(relativeTimeWords(now - 7 * 3_600_000, now)).toBe('7 hours ago')
+    expect(relativeTimeWords(now - 3 * 86_400_000, now)).toMatch(/Nov/)
+  })
+
+  const chat: Chat = {
+    id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: false, unread: 0,
+    lastMessage: { seq: 1, at: now - 12 * 60_000, preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
+  }
+
+  test('chatRowLabel starts with the state, then title, project and age', () => {
+    expect(chatRowLabel(chat, now)).toBe('Billing fix, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, busy: true }, now)).toBe('Working, Billing fix, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, status: 'ended' }, now)).toBe('Ended, Billing fix, api, 12 minutes ago')
+    expect(
+      chatRowLabel({ ...chat, busy: true, pendingPrompt: { promptId: 'p', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 } }, now),
+    ).toBe('Needs you, permission: Bash: ls, Billing fix, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x' } }, now)).toBe('Billing fix, api, 12 minutes ago, 3 unread, has a draft')
   })
 })

@@ -1,12 +1,11 @@
-import { Archive, Check, LoaderCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
+import { Archive, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { filterChats, filterCounts, LIST_FILTERS, type ListFilter } from '../chat-filters.ts'
-import { formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
+import { chatRowLabel } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
-import { Avatar } from './ui/avatar.tsx'
+import { ChatRowContent } from './chat-row.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 
@@ -289,67 +288,17 @@ export function ChatList({
               }}
               aria-disabled={selectionMode && !selectableIds.has(chat.id)}
               aria-current={activeId === chat.id ? 'page' : undefined}
-              aria-pressed={selectableIds.has(chat.id) ? selectedIds.has(chat.id) : undefined}
-              aria-label={selectionMode && selectableIds.has(chat.id)
-                ? `${chat.title}, ${selectedIds.has(chat.id) ? 'selected' : 'not selected'}`
-                : undefined}
-              className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+              aria-pressed={selectionMode && selectableIds.has(chat.id) ? selectedIds.has(chat.id) : undefined}
+              aria-label={
+                selectionMode && selectableIds.has(chat.id)
+                  ? `${chat.title}, ${selectedIds.has(chat.id) ? 'selected' : 'not selected'}`
+                  : chatRowLabel(chat)
+              }
+              className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors ${
                 activeId === chat.id ? 'bg-muted' : 'hover:bg-muted/70'
               }`}
             >
-              {selectionMode && selectableIds.has(chat.id) ? (
-                <span
-                  className={`grid size-11 shrink-0 place-items-center rounded-2xl border ${
-                    selectedIds.has(chat.id) ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-muted text-transparent'
-                  }`}
-                  aria-hidden="true"
-                >
-                  <Check className="size-5" />
-                </span>
-              ) : (
-                <Avatar fallback={chat.id === 'general' ? '⌘' : chat.title} className="size-11 rounded-2xl text-sm" />
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{chat.title}</span>
-                  {chat.id !== 'general' && (
-                    <span className="shrink-0 rounded-full bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                      {chat.spawned ? 'Spawned' : 'Active Session'}
-                    </span>
-                  )}
-                  {chat.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-label="Pinned" />}
-                  {chat.status === 'ended' && (
-                    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
-                      Ended
-                    </span>
-                  )}
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
-                    {chat.lastMessage ? formatRelativeTime(chat.lastMessage.at) : ''}
-                  </span>
-                </span>
-                <span className="mt-1 flex items-center gap-2">
-                  {chat.pendingPrompt !== null && chatState(chat) === 'needs_you' ? (
-                    <span className="truncate text-xs text-muted-foreground">
-                      <span className={`font-medium ${NEEDS_YOU_TEXT_CLASS}`}>Needs you · {pendingPromptLabel(chat.pendingPrompt)}: </span>
-                      {chat.pendingPrompt.summary}
-                    </span>
-                  ) : chat.draft !== null ? (
-                    <span className="truncate text-xs text-muted-foreground">
-                      <span className="font-medium text-primary">Draft: </span>
-                      {chat.draft.preview}
-                    </span>
-                  ) : (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {chat.busy ? 'Working…' : chat.lastMessage?.preview ?? chat.project ?? 'No messages yet'}
-                    </span>
-                  )}
-                  {chat.unread > 0 && (
-                    <span className="ml-auto grid min-h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                      {chat.unread > 99 ? '99+' : chat.unread}
-                    </span>
-                  )}
-                </span>
-              </span>
+              <ChatRowContent chat={chat} selection={selectionMode && selectableIds.has(chat.id) ? { selected: selectedIds.has(chat.id) } : null} />
             </button>
           ))}
           {filteredChats.length === 0 && (

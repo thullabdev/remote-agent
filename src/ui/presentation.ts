@@ -1,4 +1,5 @@
-import type { Message, PendingPrompt } from '../channel/web/protocol.ts'
+import { chatState } from '../channel/web/chat-state.ts'
+import type { Chat, Message, PendingPrompt } from '../channel/web/protocol.ts'
 
 export type MessageGroup = { kind: 'message'; message: Message } | { kind: 'tool-group'; messages: Extract<Message, { kind: 'tool_run' }>[] }
 
@@ -255,3 +256,56 @@ export function pendingPromptLabel(prompt: PendingPrompt): string {
 /** The look of the "needs you" state: the --status-needs token, not the accent, so it is never mistaken for an unread count. */
 export const NEEDS_YOU_TEXT_CLASS = 'text-status-needs'
 export const NEEDS_YOU_BADGE_CLASS = 'border-status-needs/30 bg-status-needs/10 text-status-needs'
+
+/** A stable hue (0-359) for a project or title, so sessions of one project share a color. */
+export function avatarHue(key: string): number {
+  let hash = 0
+  for (const char of key) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
+  }
+  return hash % 360
+}
+
+/** The same age as formatRelativeTime, in words a screen reader can say ("12 minutes ago"). */
+export function relativeTimeWords(at: number, now = Date.now()): string {
+  const delta = Math.max(0, now - at)
+  if (delta < 60_000) {
+    return 'just now'
+  }
+  if (delta < 3_600_000) {
+    const minutes = Math.floor(delta / 60_000)
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`
+  }
+  if (delta < 86_400_000) {
+    const hours = Math.floor(delta / 3_600_000)
+    return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  }
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(at)
+}
+
+/** The accessible name of a chat row. It starts with the state, so a screen reader user hears what matters first. */
+export function chatRowLabel(chat: Chat, now = Date.now()): string {
+  const state = chatState(chat)
+  const parts: string[] = []
+  if (state === 'needs_you' && chat.pendingPrompt !== null) {
+    parts.push('Needs you', `${chat.pendingPrompt.kind}: ${chat.pendingPrompt.summary}`)
+  } else if (state === 'working') {
+    parts.push('Working')
+  } else if (state === 'ended') {
+    parts.push('Ended')
+  }
+  parts.push(chat.title)
+  if (chat.project !== null) {
+    parts.push(chat.project)
+  }
+  if (chat.lastMessage !== null) {
+    parts.push(relativeTimeWords(chat.lastMessage.at, now))
+  }
+  if (chat.unread > 0) {
+    parts.push(`${chat.unread} unread`)
+  }
+  if (chat.draft !== null) {
+    parts.push('has a draft')
+  }
+  return parts.join(', ')
+}
