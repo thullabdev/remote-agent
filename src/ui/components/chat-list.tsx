@@ -1,7 +1,8 @@
 import { Archive, Check, ChevronDown, LoaderCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { formatRelativeTime } from '../presentation.ts'
+import { formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
@@ -412,7 +413,12 @@ export function ChatList({
                   </span>
                 </span>
                 <span className="mt-1 flex items-center gap-2">
-                  {chat.draft !== null ? (
+                  {chat.pendingPrompt !== null && chatState(chat) === 'needs_you' ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      <span className={`font-medium ${NEEDS_YOU_TEXT_CLASS}`}>Needs you · {pendingPromptLabel(chat.pendingPrompt)}: </span>
+                      {chat.pendingPrompt.summary}
+                    </span>
+                  ) : chat.draft !== null ? (
                     <span className="truncate text-xs text-muted-foreground">
                       <span className="font-medium text-primary">Draft: </span>
                       {chat.draft.preview}

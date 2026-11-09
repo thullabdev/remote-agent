@@ -1,4 +1,4 @@
-import type { Message } from '../channel/web/protocol.ts'
+import type { Message, PendingPrompt } from '../channel/web/protocol.ts'
 
 export type MessageGroup = { kind: 'message'; message: Message } | { kind: 'tool-group'; messages: Extract<Message, { kind: 'tool_run' }>[] }
 
@@ -246,3 +246,12 @@ export function toolInputText(input: unknown): string {
     return String(input)
   }
 }
+
+/** What a pending Prompt is, in the words the list uses. */
+export function pendingPromptLabel(prompt: PendingPrompt): string {
+  return prompt.kind === 'permission' ? 'Permission' : 'Question'
+}
+
+/** The look of the "needs you" state. Amber, not the accent, so it cannot be mistaken for an unread count in any accent. */
+export const NEEDS_YOU_TEXT_CLASS = 'text-amber-700 dark:text-amber-300'
+export const NEEDS_YOU_BADGE_CLASS = 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300'

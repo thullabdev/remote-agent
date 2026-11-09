@@ -1,5 +1,6 @@
 import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
+import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, PinView, UsageView } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
@@ -8,7 +9,7 @@ import { Input } from './ui/input.tsx'
 import { Separator } from './ui/separator.tsx'
 import { AccountLimitsSection, useNow } from './usage-meters.tsx'
 import { formatContextText } from '../usage-format.ts'
-import { formatTime } from '../presentation.ts'
+import { formatTime, NEEDS_YOU_BADGE_CLASS } from '../presentation.ts'
 
 type ChatInfoProps = {
   chat: Chat
@@ -33,6 +34,7 @@ type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
 export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
   const now = useNow()
+  const state = chatState(chat)
   const sessionUsage = usage.chats[chat.id]
   const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
   const [confirm, setConfirm] = useState<Action | null>(null)
@@ -114,7 +116,8 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                 <Badge>{chat.status}</Badge>
                 {chat.spawned && <Badge>Spawned</Badge>}
                 {chat.archived && <Badge>Archived</Badge>}
-                {chat.busy && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">Working</Badge>}
+                {state === 'working' && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">Working</Badge>}
+                {state === 'needs_you' && <Badge className={NEEDS_YOU_BADGE_CLASS}>Needs you</Badge>}
               </div>
             </section>
 

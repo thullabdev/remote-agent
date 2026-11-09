@@ -1,5 +1,6 @@
 import { ArrowDown, Bookmark, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
@@ -163,7 +164,7 @@ function MessageFeedView({
               {group.nodes}
             </section>
           ))}
-          {chat.busy && (
+          {chatState(chat) === 'working' && (
             <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
               <div className="grid size-8 place-items-center rounded-xl bg-card">
                 <span className="font-display text-sm">✳</span>
