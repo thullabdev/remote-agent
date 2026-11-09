@@ -1,10 +1,17 @@
 # File and Image Upload — Plan
 
-**Status:** plan only, not implemented. Open questions are listed at the end and need a decision before phase 1 starts.
+**Status:** plan only, not implemented. Decisions from review are recorded below.
 
 ## Goal
 
-From the web chat, attach an image or a file to a message. The Session receives it and can read it.
+From the web chat, refer to an image or PDF in a message. The Session receives its path and can read it. Files live in one shared library, so any Session can refer to a file uploaded for another.
+
+## Decisions
+
+1. **Path references.** The Session gets the file's path and reads it with its Read tool. No change to the mod's submit API.
+2. **Types: images and PDFs only.** Nothing else for now.
+3. **Sessions only.** Uploads and `@` references do not work in General.
+4. **Storage: one shared library, kept until deleted.** Files are not tied to a chat or a Session, and nothing expires automatically. Files are removed only by a delete action in the library picker.
 
 ## Current path (what exists today)
 
@@ -13,23 +20,26 @@ From the web chat, attach an image or a file to a message. The Session receives 
 3. The Claude mod polls queued Instructions and submits each one as a user turn: `pollInstructions` in `mod/remote-agent/hooks/flows.ts`. `Instruction` carries `text` only.
 4. The web feed shows the message as a `user_text` body (`src/channel/web/protocol.ts`).
 
-So today a message is text only, and nothing in the path carries files.
+## Storage
 
-## Approach
+- **Files:** `<stateDir>/uploads/<uploadId>/<safe-name>`, where `<stateDir>` is the Bridge state directory (`~/.local/state/remote-agent` by default). The Bridge creates the path; the client never chooses it.
+- **Metadata:** a new `uploads` table in the Bridge SQLite database: `id`, `name`, `mime`, `size`, `sha256`, `created_at`.
+- **Dedup:** the same bytes uploaded twice return the existing entry (matched by `sha256`), so the library does not fill with copies.
+- **Name:** the original name, sanitized to a basename with a safe character set and a length cap. It is used only for display and as the file name on disk.
 
-Store the file on the Bridge, and send Claude its path inside the instruction text. Claude reads the file with its Read tool. This needs no change to the mod's submit API, which takes text.
+**Limits:** 10 MB per file; 5 references per message. Allowed: PNG, JPEG, GIF, WebP, PDF. Type comes from magic bytes, not the client's `Content-Type`. SVG is refused.
 
-### Phase 1: images and PDFs by reference
+## API (all behind the existing auth)
 
-**Upload storage.** Files go under the Bridge state directory (for example `~/.local/state/remote-agent/uploads/<uploadId>/<safe-name>`), not into the session's repo. Each upload gets a random id, and the original name is sanitized (basename only, no separators, length capped).
+- `GET /api/uploads`: the library, newest first, with name, mime, size and created time.
+- `POST /api/uploads`: raw file body, `X-File-Name` header. Returns `{ upload }`. Refused for a non-image, non-PDF file, an oversized one, or bad magic bytes.
+- `GET /api/uploads/:id`: serves the file with its sniffed `Content-Type`, `Cache-Control: private`, and `X-Content-Type-Options: nosniff`. Authenticated; no per-chat check, since the library is shared.
+- `DELETE /api/uploads/:id`: removes the file and its row. Messages that already reference it keep the name and show the file as removed.
+- `POST /api/chats/:id/messages` gains `attachmentIds: string[]` (max 5, default empty). Each id must exist, otherwise `400`. General chat refuses attachments with `409`.
 
-**Limits.** 10 MB per file, 5 files per message. Allowed types: PNG, JPEG, GIF, WebP, and PDF. The Bridge sniffs magic bytes and does not trust the client's `Content-Type`. SVG is refused, since it can carry scripts.
+## Sending and what the Session receives
 
-**Endpoints (all behind the existing auth):**
-- `POST /api/chats/:id/uploads`: body is the raw file with `X-File-Name` header. Returns `{ upload: { id, name, mime, size } }`. Refused for General and for ended Sessions.
-- `GET /api/uploads/:id`: serves the file with its sniffed `Content-Type`, `Cache-Control: private`, and `X-Content-Type-Options: nosniff`. Only the chat that owns the upload may read it.
-
-**Sending.** `SendMessageSchema` gains `attachmentIds: string[]` (max 5, default empty). The Bridge checks each id belongs to this chat and exists, otherwise `400`. The instruction text becomes the typed text plus a block the Session can act on:
+The instruction text is the typed text plus a block with the absolute paths:
 
 ```
 <typed text>
@@ -38,46 +48,48 @@ Attached files (read them with the Read tool):
 - /home/u/.local/state/remote-agent/uploads/<id>/<name>.png
 ```
 
-**Permissions.** Claude Code may ask before reading a path outside the working directory. Spawned Sessions can start with `--add-dir <uploadsDir>` through the agent adapter (`claudeCodeAdapter`), so the directory is allowed from the start. Sessions the Bridge did not start cannot get that flag, so reads there may still prompt. This is a known limit.
+## Composer: `@` picks from the library
 
-**Message model.** `user_text` gains `attachments: { id, name, mime, size }[]`. The feed shows image thumbnails (loaded through the authenticated GET) and file chips for PDFs.
+- Typing `@` in the composer opens a picker above the text box. It lists library files, filtered by what comes after the `@`.
+- Choosing a file inserts a chip with its name and adds its id to the message's `attachmentIds`. Several can be added to one message, up to 5.
+- The picker also has **Upload new…**, which opens the system file chooser (images and PDFs only). The upload goes to the library, and the new file is selected right away.
+- Delete is available in the picker for each library file, with a confirmation.
+- Keyboard: arrow keys move through the list, Enter picks, Escape closes. On phones the picker is a bottom sheet.
 
-**Composer UI.** An attach button opens `<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" multiple>`. Selected files upload on pick and show as removable chips above the text box. Send stays disabled while an upload is in progress. The button works on phones, where it opens the photo library or camera.
+The message feed shows chosen files as chips on the message. Images show a thumbnail, loaded through the authenticated GET. A deleted file shows as removed.
 
-### Phase 2: paste and drag
+## Permissions
 
-- Paste an image from the clipboard into the composer.
-- Drag and drop onto the chat.
+Claude Code may ask before reading a path outside its working directory. The library is outside every repo, so:
 
-Both reuse phase 1 uploads.
+- Spawned Sessions start with `--add-dir <uploadsDir>` through the agent adapter (`claudeCodeAdapter`), so reads from the library are allowed from the start.
+- Sessions the Bridge did not start cannot get that flag. Reads there may still prompt. This is a known limit.
 
-### Phase 3: retention
+## Phases
 
-- Delete upload files when their chat is cleared, or after a set number of days (default 30, configurable).
-- Attachments that are no longer referenced by any message are removed by the same sweep.
+**Phase 1:** library storage, the API above, the `@` picker with upload and delete, and the message chips and thumbnails. Sessions only.
+
+**Phase 2:** paste an image from the clipboard into the composer, and drag and drop onto the chat. Both add to the library the same way as Upload new.
+
+Retention is manual by design, so there is no sweep phase.
 
 ## Tests
 
-- Upload refuses an oversized file, a disallowed type, an SVG, a file whose bytes do not match its type, and a missing or traversing name.
-- Upload and GET require auth, and a GET for another chat's upload is refused.
-- Send with an unknown or foreign `attachmentIds` entry is `400`.
-- The instruction text contains the absolute path, and nothing else from the user's typed text is changed.
-- Composer: chip added on pick, removed on ×, send disabled during upload, attachments shown on the message.
+- Upload refuses an oversized file, a disallowed type, an SVG, bytes that don't match the type, and a traversing or empty name.
+- Upload with identical bytes returns the existing entry.
+- Upload, GET and DELETE require auth. GET serves the stored type with `nosniff`.
+- Send with an unknown `attachmentIds` entry is `400`; send with attachments in General is `409`.
+- The instruction text contains the absolute paths and the typed text unchanged.
+- Delete removes the file and the row, and old messages still render with a "removed" marker.
+- Composer: `@` opens the picker and filters it; picking adds a chip; Escape closes; Upload new selects the new file; delete asks first.
 
 ## Security notes
 
-- Names are sanitized and storage paths are generated by the Bridge; a client-chosen name never becomes a path.
-- Uploads are served only to authenticated users of the owning chat.
-- Content type comes from magic bytes, and `nosniff` is set on serving.
-- Text pasted into the instruction is not escaped beyond what already happens today. The file name is shown to Claude, so it is sanitized to a safe character set.
+- Names are sanitized; storage paths are generated by the Bridge.
+- Content type comes from magic bytes, and `nosniff` is set when serving.
+- Uploads are served only to authenticated users. The library is visible to everyone who can use the web channel, which is the single allowed login.
+- Uploaded files may contain secrets, and a Session can read any file in the library. The picker should make that clear.
 
 ## Open questions
 
-1. **Native image blocks or path references?** Path references (phase 1) need no mod change. Passing image content to Claude directly would need the mod's submit API to accept content blocks. Not verified yet; check the mod host API before choosing.
-2. **Which file types beyond images and PDFs?** Text and code files are easy to add, but each adds a sniffing rule.
-3. **General chat.** Should uploads work there, or only in Sessions?
-4. **Retention default.** 30 days, or keep until the chat is archived?
-
-## Order of work
-
-Phase 1 first, with the API tests before the UI. Phase 2 and 3 after phase 1 has run for a while.
+None. Ready to start phase 1 when you say so.
