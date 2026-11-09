@@ -77,23 +77,23 @@ const spawnedEnded: Chat = { ...ended, id: 'spawned-ended', title: 'Spawned ende
 const mixed = [general, idle, waiting, ended, spawnedIdle, spawnedWaiting, spawnedEnded]
 
 test('the source filter is named after where a session runs, with every source first', () => {
-  expect(ORIGIN_FILTERS.map(([, label])  => label)).toEqual(['All sources', 'Laptop', 'Spawned'])
+  expect(ORIGIN_FILTERS.map(([, label])  => label)).toEqual(['All sources', 'Computer', 'Spawned'])
 })
 
-test('Laptop shows only sessions started on the laptop and Spawned only those started from Remote Agent, never General', () => {
-  expect(ids(filterChats(mixed, '', 'all', 'laptop'))).toEqual(['idle', 'waiting'])
+test('Computer shows only sessions started on the computer and Spawned only those started from Remote Agent, never General', () => {
+  expect(ids(filterChats(mixed, '', 'all', 'computer'))).toEqual(['idle', 'waiting'])
   expect(ids(filterChats(mixed, '', 'all', 'spawned'))).toEqual(['spawned-idle', 'spawned-waiting'])
   expect(ids(filterChats(mixed, '', 'all', 'all'))).toEqual(['general', 'idle', 'waiting', 'spawned-idle', 'spawned-waiting'])
 })
 
 test('the source filter combines with the state tabs and with search', () => {
   expect(ids(filterChats(mixed, '', 'needs_you', 'spawned'))).toEqual(['spawned-waiting'])
-  expect(ids(filterChats(mixed, '', 'ended', 'laptop'))).toEqual(['ended'])
+  expect(ids(filterChats(mixed, '', 'ended', 'computer'))).toEqual(['ended'])
   expect(ids(filterChats(mixed, 'ended', 'all', 'spawned'))).toEqual(['spawned-ended'])
-  expect(ids(filterChats(mixed, 'idle', 'all', 'laptop'))).toEqual(['idle'])
+  expect(ids(filterChats(mixed, 'idle', 'all', 'computer'))).toEqual(['idle'])
 })
 
 test('tab counts follow the source filter, so a tab never promises rows the list will not show', () => {
   expect(filterCounts(mixed, 'spawned')).toEqual({ all: 2, needs_you: 1, working: 0, ended: 1, archived: 0 })
-  expect(filterCounts(mixed, 'laptop')).toMatchObject({ all: 2, needs_you: 1, ended: 1 })
+  expect(filterCounts(mixed, 'computer')).toMatchObject({ all: 2, needs_you: 1, ended: 1 })
 })

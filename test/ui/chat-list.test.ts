@@ -18,17 +18,17 @@ const general: Chat = {
   pendingPrompt: null,
 }
 
-const laptop: Chat = { ...general, id: 'laptop-chat', title: 'Laptop session', pinned: false }
+const computer: Chat = { ...general, id: 'computer-chat', title: 'Computer session', pinned: false }
 const spawned: Chat = { ...general, id: 'spawned-chat', title: 'Spawned session', spawned: true, pinned: false }
 const endedSpawned: Chat = { ...spawned, id: 'ended-spawned-chat', title: 'Ended spawned session', status: 'ended' }
-const endedLaptop: Chat = { ...laptop, id: 'ended-laptop-chat', title: 'Ended active session', status: 'ended' }
+const endedComputer: Chat = { ...computer, id: 'ended-computer-chat', title: 'Ended active session', status: 'ended' }
 const archivedSpawned: Chat = { ...endedSpawned, id: 'archived-spawned-chat', title: 'Archived spawned session', archived: true }
-const archivedLaptop: Chat = { ...endedLaptop, id: 'archived-laptop-chat', title: 'Archived active session', archived: true }
+const archivedComputer: Chat = { ...endedComputer, id: 'archived-computer-chat', title: 'Archived active session', archived: true }
 
 test('only ended unarchived sessions can be selected for archive', () => {
-  expect(isSelectableChat(endedLaptop)).toBe(true)
+  expect(isSelectableChat(endedComputer)).toBe(true)
   expect(isSelectableChat(endedSpawned)).toBe(true)
-  expect(isSelectableChat(laptop)).toBe(false)
-  expect(isSelectableChat(archivedLaptop)).toBe(false)
+  expect(isSelectableChat(computer)).toBe(false)
+  expect(isSelectableChat(archivedComputer)).toBe(false)
   expect(isSelectableChat(general)).toBe(false)
 })

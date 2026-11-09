@@ -25,7 +25,7 @@ type ChatListProps = {
   onActionError(error: unknown): void
 }
 
-/** Narrows the list to sessions started on the laptop or spawned from Remote Agent. Sits inside the search field to keep the header light. */
+/** Narrows the list to sessions started on the computer or spawned from Remote Agent. Sits inside the search field to keep the header light. */
 function SourceFilter({ value, onSelect }: { value: OriginFilter; onSelect(origin: OriginFilter): void }) {
   const active = value !== 'all'
   return (

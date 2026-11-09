@@ -4,12 +4,12 @@ import type { Chat } from '../channel/web/protocol.ts'
 /** What the user wants to see in the chat list: by what a session is doing, not by how it was started. */
 export type ListFilter = 'all' | 'needs_you' | 'working' | 'ended' | 'archived'
 
-/** Where a session runs: on the user's laptop (started there), or spawned from Remote Agent in a tmux session. */
-export type OriginFilter = 'all' | 'laptop' | 'spawned'
+/** Where a session runs: on the user's computer (started there), or spawned from Remote Agent in a tmux session. */
+export type OriginFilter = 'all' | 'computer' | 'spawned'
 
 export const ORIGIN_FILTERS: readonly [OriginFilter, string][] = [
   ['all', 'All sources'],
-  ['laptop', 'Laptop'],
+  ['computer', 'Computer'],
   ['spawned', 'Spawned'],
 ]
 

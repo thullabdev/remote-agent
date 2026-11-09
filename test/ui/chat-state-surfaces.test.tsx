@@ -177,14 +177,14 @@ test('a row shows its draft text on a third line, without a project line or a pe
   expect(row(base)).not.toContain('Draft')
 })
 
-test('a row says where its session runs: laptop or spawned', () => {
-  const laptopRow = row({ ...base, spawned: false })
+test('a row says where its session runs: computer or spawned', () => {
+  const computerRow = row({ ...base, spawned: false })
   const spawnedRow = row({ ...base, spawned: true })
-  expect(laptopRow).toContain('data-origin="laptop"')
-  expect(laptopRow).toContain('Started on your laptop')
+  expect(computerRow).toContain('data-origin="computer"')
+  expect(computerRow).toContain('Started on your computer')
   expect(spawnedRow).toContain('data-origin="spawned"')
   expect(spawnedRow).toContain('Spawned from Remote Agent')
-  expect(spawnedRow).not.toContain('data-origin="laptop"')
+  expect(spawnedRow).not.toContain('data-origin="computer"')
 })
 
 test('the tile letter is the project initial, so the letter and the color name the same thing', () => {
@@ -207,25 +207,25 @@ test('General has no preview or origin, but its draft text and unread still show
 
 test('the header offers a source filter that narrows the list and shows when it is on', () => {
   const spawnedChat: Chat = { ...base, id: 's1', title: 'Spawned one', spawned: true }
-  const laptopChat: Chat = { ...base, id: 'l1', title: 'Laptop one', spawned: false }
-  const render = (origin?: 'all' | 'laptop' | 'spawned'): string =>
+  const computerChat: Chat = { ...base, id: 'l1', title: 'Computer one', spawned: false }
+  const render = (origin?: 'all' | 'computer' | 'spawned'): string =>
     renderToStaticMarkup(
       createElement(ChatList, {
-        chats: [spawnedChat, laptopChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        chats: [spawnedChat, computerChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
         onArchiveSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
       }),
     )
   const everything = render()
   expect(everything).toContain('aria-label="Filter by source"')
   expect(everything).toContain('Spawned one')
-  expect(everything).toContain('Laptop one')
+  expect(everything).toContain('Computer one')
   expect(everything).not.toContain('data-active')
 
   const onlySpawned = render('spawned')
   expect(onlySpawned).toContain('Spawned one')
-  expect(onlySpawned).not.toContain('Laptop one')
+  expect(onlySpawned).not.toContain('Computer one')
   expect(onlySpawned).toContain('data-active="true"')
-  expect(render('laptop')).not.toContain('Spawned one')
+  expect(render('computer')).not.toContain('Spawned one')
 })
 
 test('the Ended tab says how to archive, since selection is a press and hold', () => {
@@ -250,7 +250,7 @@ test('unread is a dot, and the count is spoken in the label instead of shown', (
 
 test('the row has a state-first accessible name and a machine-readable time', () => {
   const markup = row(blocked)
-  expect(markup).toContain('aria-label="Needs you, permission: Bash: bun test, Billing fix, laptop session, api, just now"')
+  expect(markup).toContain('aria-label="Needs you, permission: Bash: bun test, Billing fix, computer session, api, just now"')
   expect(markup).toMatch(/<time dateTime="[^"]+"/)
 })
 

@@ -1,4 +1,4 @@
-import { Check, Laptop, Terminal } from 'lucide-react'
+import { Check, Monitor, Terminal } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { avatarHue, formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
@@ -51,14 +51,14 @@ type ChatRowContentProps = {
   selection: { selected: boolean } | null
 }
 
-/** A small mark of where the session runs: the laptop, or a terminal for one spawned from Remote Agent (it lives in tmux). */
+/** A small mark of where the session runs: the computer, or a terminal for one spawned from Remote Agent (it lives in tmux). */
 function OriginIcon({ chat }: { chat: Chat }) {
   if (chat.id === 'general') {
     return null
   }
-  const Icon = chat.spawned ? Terminal : Laptop
+  const Icon = chat.spawned ? Terminal : Monitor
   return (
-    <span data-origin={chat.spawned ? 'spawned' : 'laptop'} title={chat.spawned ? 'Spawned from Remote Agent' : 'Started on your laptop'} className="flex shrink-0">
+    <span data-origin={chat.spawned ? 'spawned' : 'computer'} title={chat.spawned ? 'Spawned from Remote Agent' : 'Started on your computer'} className="flex shrink-0">
       <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
     </span>
   )

@@ -134,13 +134,13 @@ test('markResolved flips the messages to answered with the note', async () => {
   const thread = await channel.createThread('app')
   const refs = await channel.sendPrompt(thread, view)
 
-  await channel.markResolved(thread, refs, 'Answered on the laptop')
+  await channel.markResolved(thread, refs, 'Answered on the computer')
 
   for (const ref of refs) {
     expect(chatLog.findMessage(ref)).toMatchObject({
       kind: 'prompt',
       status: 'answered',
-      resolution: { note: 'Answered on the laptop', source: 'remote' },
+      resolution: { note: 'Answered on the computer', source: 'remote' },
     })
   }
   expect(chatLog.listMessages(thread, { limit: 10 }).messages.map(message => message.kind)).toEqual(['prompt', 'prompt'])

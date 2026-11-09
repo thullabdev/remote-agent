@@ -188,14 +188,14 @@ describe('chat row helpers', () => {
   }
 
   test('chatRowLabel starts with the state, then title, project and age', () => {
-    expect(chatRowLabel(chat, now)).toBe('Billing fix, laptop session, api, 12 minutes ago')
-    expect(chatRowLabel({ ...chat, busy: true }, now)).toBe('Working, Billing fix, laptop session, api, 12 minutes ago')
-    expect(chatRowLabel({ ...chat, status: 'ended' }, now)).toBe('Ended, Billing fix, laptop session, api, 12 minutes ago')
+    expect(chatRowLabel(chat, now)).toBe('Billing fix, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, busy: true }, now)).toBe('Working, Billing fix, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, status: 'ended' }, now)).toBe('Ended, Billing fix, computer session, api, 12 minutes ago')
     expect(
       chatRowLabel({ ...chat, busy: true, pendingPrompt: { promptId: 'p', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 } }, now),
-    ).toBe('Needs you, permission: Bash: ls, Billing fix, laptop session, api, 12 minutes ago')
+    ).toBe('Needs you, permission: Bash: ls, Billing fix, computer session, api, 12 minutes ago')
     expect(chatRowLabel({ ...chat, spawned: true }, now)).toBe('Billing fix, spawned session, api, 12 minutes ago')
     expect(chatRowLabel({ ...chat, id: 'general', title: 'General', project: null }, now)).toBe('General, 12 minutes ago')
-    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x', at: 1 } }, now)).toBe('Billing fix, laptop session, api, 12 minutes ago, 3 unread, has a draft')
+    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x', at: 1 } }, now)).toBe('Billing fix, computer session, api, 12 minutes ago, 3 unread, has a draft')
   })
 })
