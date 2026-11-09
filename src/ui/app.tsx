@@ -12,6 +12,7 @@ import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
+import { deepLink, pendingPromptMessage } from './presentation.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
@@ -22,13 +23,31 @@ type PendingMessage = {
   error: string | null
 }
 
+const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
+/** The feed renders a loaded page on a later frame, so retry the scroll for a few frames. False when the message never appears. */
+async function scrollWhenRendered(messageId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (scrollToMessage(messageId)) {
+      return true
+    }
+    await nextFrame()
+  }
+  return false
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
 
 export function App() {
   const api = useMemo(() => createApiClient(), [])
-  const [activeChatId, setActiveChatId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('chat'))
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
+  // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
+  const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
+    const link = deepLink(window.location.search)
+    return link.chatId !== null && link.promptId !== null ? { chatId: link.chatId, promptId: link.promptId } : null
+  })
   const [infoOpen, setInfoOpen] = useState(false)
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
@@ -95,7 +114,8 @@ export function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      setActiveChatId(new URLSearchParams(window.location.search).get('chat'))
+      setActiveChatId(deepLink(window.location.search).chatId)
+      setFocusPrompt(null)
       setInfoOpen(false)
     }
     window.addEventListener('popstate', handlePopState)
@@ -124,10 +144,12 @@ export function App() {
     }
   }, [])
 
-  const openChat = useCallback((chatId: string | null) => {
+  const openChat = useCallback((chatId: string | null, focus?: { promptId: string }) => {
     setActiveChatId(chatId)
+    setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
+    url.searchParams.delete('prompt')
     if (chatId === null) {
       url.searchParams.delete('chat')
     } else {
@@ -334,7 +356,7 @@ export function App() {
   }, [activeChat, pendingForChat, retryMessage])
 
   const openLinkedChat = () => {
-    const chatId = new URLSearchParams(window.location.search).get('chat')
+    const chatId = deepLink(window.location.search).chatId
     if (chatId && chats.some(chat => chat.id === chatId)) {
       setActiveChatId(chatId)
     }
@@ -348,7 +370,6 @@ export function App() {
     if (chatId === null) {
       return
     }
-    const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     let before = messages[0]?.seq
     let hasMore = realtime?.hasMore[chatId] ?? false
     if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
@@ -367,15 +388,45 @@ export function App() {
         })
       }
     }
-    // The feed renders the loaded page on a later frame, so retry the scroll for a few frames.
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (scrollToMessage(pin.id)) {
-        return
-      }
-      await nextFrame()
+    if (await scrollWhenRendered(pin.id)) {
+      return
     }
     notify('That message could not be found in this chat.')
   }
+
+  /** Scrolls to the Prompt a session waits on, loading older pages if it is above the loaded ones. Quiet if it was answered meanwhile. */
+  const revealPrompt = async (chatId: string, promptId: string) => {
+    let found = pendingPromptMessage(messages, promptId)
+    let before = messages[0]?.seq
+    let hasMore = realtime?.hasMore[chatId] ?? false
+    while (found === undefined && before !== undefined && hasMore) {
+      const page = await loadMessages(chatId, before)
+      found = pendingPromptMessage(page.messages, promptId)
+      hasMore = page.hasMore
+      if (page.messages.length === 0) {
+        break
+      }
+      before = page.messages[0]?.seq ?? before
+    }
+    if (found !== undefined) {
+      await scrollWhenRendered(found.id)
+    }
+  }
+
+  // Once the chat's messages are loaded, scroll to the Prompt that was asked for, then drop it so a reload does not scroll again.
+  useEffect(() => {
+    if (focusPrompt === null || activeChatId !== focusPrompt.chatId || realtime === null || !realtime.loadedChats.has(focusPrompt.chatId)) {
+      return
+    }
+    const target = focusPrompt
+    setFocusPrompt(null)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('prompt')) {
+      url.searchParams.delete('prompt')
+      window.history.replaceState(null, '', url)
+    }
+    void revealPrompt(target.chatId, target.promptId).catch(handleError)
+  }, [focusPrompt, activeChatId, realtime?.loadedChats])
 
   // The chat's pins load when the chat is opened, and again after a pin change or a manual refresh. Opening the details does not fetch.
   useEffect(() => {

@@ -312,3 +312,20 @@ export function chatRowLabel(chat: Chat, now = Date.now()): string {
   }
   return parts.join(', ')
 }
+
+/** The message to scroll to for a Prompt that waits: its first pending message. Undefined once it is answered or if it is not loaded. */
+export function pendingPromptMessage(messages: Message[], promptId: string): Message | undefined {
+  return messages.find(message => message.kind === 'prompt' && message.promptId === promptId && message.status === 'pending')
+}
+
+/** What a tap on a chat row asks for besides opening it: the pending Prompt of a session that needs you. */
+export function rowOpenTarget(chat: Chat): { promptId: string } | undefined {
+  return chatState(chat) === 'needs_you' && chat.pendingPrompt !== null ? { promptId: chat.pendingPrompt.promptId } : undefined
+}
+
+/** The chat and Prompt a link names (`/?chat=<id>&prompt=<id>`, from a notification or a shared link). A Prompt needs its chat. */
+export function deepLink(search: string): { chatId: string | null; promptId: string | null } {
+  const params = new URLSearchParams(search)
+  const chatId = params.get('chat') || null
+  return { chatId, promptId: chatId === null ? null : params.get('prompt') || null }
+}

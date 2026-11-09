@@ -306,3 +306,14 @@ test("a concurrent create keeps the first file's keys", async () => {
 afterEach(() => {
   store?.close()
 })
+
+test('a prompt push carries the prompt id so the notification can open the chat at it', async () => {
+  await service().notify({ ...prompt, promptId: 'p7' })
+  expect(JSON.parse(sent[0]?.payload ?? '{}')).toEqual({ chatId: 'c1', title: 'Allow Bash?', preview: 'ls -la', kind: 'prompt', promptId: 'p7' })
+})
+
+test('a report push has no prompt id', async () => {
+  away.set(true)
+  await service().notify(report)
+  expect(Object.keys(JSON.parse(sent[0]?.payload ?? '{}'))).not.toContain('promptId')
+})

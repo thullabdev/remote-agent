@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, Message } from '../../src/channel/web/protocol.ts'
-import { avatarHue, chatRowLabel, relativeTimeWords, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import { avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -197,5 +197,45 @@ describe('chat row helpers', () => {
     expect(chatRowLabel({ ...chat, spawned: true }, now)).toBe('Billing fix, spawned session, api, 12 minutes ago')
     expect(chatRowLabel({ ...chat, id: 'general', title: 'General', project: null }, now)).toBe('General, 12 minutes ago')
     expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x', at: 1 } }, now)).toBe('Billing fix, computer session, api, 12 minutes ago, 3 unread, has a draft')
+  })
+})
+
+describe('opening a chat at the prompt that needs you', () => {
+  const promptMessage = (id: string, seq: number, promptId: string, status: 'pending' | 'answered'): Message => ({
+    id, chatId: 'c1', seq, at: seq, kind: 'prompt', promptId, title: 'Allow Bash?', status, resolution: null,
+    body: { kind: 'permission', tool: 'Bash', summary: 'ls', reason: null, agentId: null },
+  })
+  const text = (id: string, seq: number): Message => ({ id, chatId: 'c1', seq, at: seq, kind: 'agent_text', markdown: 'hi' })
+
+  test('pendingPromptMessage finds the first pending message of the prompt, skipping answered ones and other prompts', () => {
+    const messages = [text('m1', 1), promptMessage('m2', 2, 'old', 'answered'), promptMessage('m3', 3, 'p1', 'pending'), promptMessage('m4', 4, 'p1', 'pending'), promptMessage('m5', 5, 'p2', 'pending')]
+    expect(pendingPromptMessage(messages, 'p1')?.id).toBe('m3')
+    expect(pendingPromptMessage(messages, 'p2')?.id).toBe('m5')
+  })
+
+  test('pendingPromptMessage is undefined once the prompt is answered or when it is not loaded', () => {
+    expect(pendingPromptMessage([promptMessage('m2', 2, 'p1', 'answered')], 'p1')).toBeUndefined()
+    expect(pendingPromptMessage([text('m1', 1)], 'p1')).toBeUndefined()
+    expect(pendingPromptMessage([], 'p1')).toBeUndefined()
+  })
+
+  const chat: Chat = {
+    id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: true, unread: 0,
+    lastMessage: null, draft: null, pinned: false, tmuxName: null,
+    pendingPrompt: { promptId: 'p1', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 },
+  }
+
+  test('rowOpenTarget asks to open at the prompt only for a session that needs you', () => {
+    expect(rowOpenTarget(chat)).toEqual({ promptId: 'p1' })
+    expect(rowOpenTarget({ ...chat, pendingPrompt: null })).toBeUndefined()
+    expect(rowOpenTarget({ ...chat, status: 'ended' })).toBeUndefined()
+  })
+
+  test('deepLink reads the chat and the prompt from the address, and ignores a prompt without a chat', () => {
+    expect(deepLink('?chat=c1&prompt=p9')).toEqual({ chatId: 'c1', promptId: 'p9' })
+    expect(deepLink('?chat=c1')).toEqual({ chatId: 'c1', promptId: null })
+    expect(deepLink('')).toEqual({ chatId: null, promptId: null })
+    expect(deepLink('?prompt=p9')).toEqual({ chatId: null, promptId: null })
+    expect(deepLink('?chat=&prompt=p9')).toEqual({ chatId: null, promptId: null })
   })
 })

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remote-agent-shell-v18'
+const CACHE_NAME = 'remote-agent-shell-v19'
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -104,7 +104,7 @@ self.addEventListener('push', event => {
     self.registration.showNotification(payload.title || 'Remote Agent', {
       body: payload.preview || 'A Session needs your attention.',
       tag: payload.chatId || 'remote-agent',
-      data: { chatId: payload.chatId || 'general' },
+      data: { chatId: payload.chatId || 'general', promptId: payload.promptId || null },
       icon: '/icon.svg',
       badge: '/icon.svg',
     }),
@@ -114,7 +114,10 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close()
   const chatId = event.notification.data?.chatId || 'general'
-  const target = new URL(`/?chat=${encodeURIComponent(chatId)}`, self.location.origin).href
+  const promptId = event.notification.data?.promptId
+  // A prompt notification opens the chat scrolled to the prompt that is waiting.
+  const query = `chat=${encodeURIComponent(chatId)}${promptId ? `&prompt=${encodeURIComponent(promptId)}` : ''}`
+  const target = new URL(`/?${query}`, self.location.origin).href
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
       const windowClient = clients.find(client => client.url.startsWith(self.location.origin))

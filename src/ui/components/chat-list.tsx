@@ -2,7 +2,7 @@ import { Archive, Check, LoaderCircle, Plus, Search, Settings, SlidersHorizontal
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
-import { chatRowLabel } from '../presentation.ts'
+import { chatRowLabel, rowOpenTarget } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { ChatRowContent } from './chat-row.tsx'
@@ -18,7 +18,8 @@ type ChatListProps = {
   chats: Chat[]
   activeId: string | null
   status: ConnectionStatus
-  onOpen(chatId: string): void
+  /** `focus` asks the app to open at a Prompt: a tap on a session that needs you goes straight to what it waits for. */
+  onOpen(chatId: string, focus?: { promptId: string }): void
   onNew(): void
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
@@ -361,7 +362,7 @@ export function ChatList({
                   if (selectableIds.has(chat.id)) toggleSelection(chat.id)
                   return
                 }
-                onOpen(chat.id)
+                onOpen(chat.id, rowOpenTarget(chat))
               }}
               onPointerDown={event => {
                 if (selectionMode || !isSelectableChat(chat) || event.button !== 0) return

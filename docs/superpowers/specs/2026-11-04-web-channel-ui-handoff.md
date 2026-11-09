@@ -117,7 +117,7 @@ Rules:
 ## 6. Push notifications
 
 - Register a service worker; `GET /api/push/key`; `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`; `POST` the subscription. Do this from a user gesture (a Settings toggle).
-- Payload: `{ chatId, title, preview, kind: 'prompt' | 'report' }`. The service worker shows it and, on click, focuses/opens `/?chat=<chatId>`. The UI reads `chat` on load and opens that chat.
+- Payload: `{ chatId, title, preview, kind: 'prompt' | 'report', promptId? }` (`promptId` on prompts only). The service worker shows it and, on click, focuses/opens `/?chat=<chatId>` (plus `&prompt=<promptId>` for a prompt). The UI reads `chat` on load and opens that chat, then scrolls to the pending Prompt named by `prompt`. A tap on a chat row that has a `pendingPrompt` does the same.
 - Requires HTTPS (Tailscale serve provides it). **iOS**: only works for a page added to the Home Screen; the UI should explain that when the browser is Safari and not installed.
 - Prompts always push; Reports push only in Away mode; nothing pushes while the UI is visible and focused on any device.
 

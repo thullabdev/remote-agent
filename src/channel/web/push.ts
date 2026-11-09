@@ -22,7 +22,8 @@ const VAPID_FILE = 'vapid.json'
 export type PushOptions = { urgency: 'high' | 'normal'; ttlSeconds: number }
 export type PushSend = (subscription: PushSubscriptionRecord, payload: string, options: PushOptions) => Promise<{ status: number }>
 
-export type PushEvent = { kind: 'prompt' | 'report'; chatId: string; title: string; text: string }
+/** `promptId` names the Prompt a prompt push is about, so the notification can open the chat at it. Reports have none. */
+export type PushEvent = { kind: 'prompt' | 'report'; chatId: string; title: string; text: string; promptId?: string }
 
 export type PushDeps = {
   chatLog: Pick<ChatLog, 'addPushSubscription' | 'removePushSubscription' | 'listPushSubscriptions'>
@@ -76,6 +77,7 @@ export class PushService {
       title: capChars(redactSecrets(event.title), TITLE_CHARS),
       preview: capChars(redactSecrets(event.text), PREVIEW_CHARS),
       kind: event.kind,
+      ...(event.promptId === undefined ? {} : { promptId: capChars(event.promptId, CHAT_ID_CHARS) }),
     })
     const subscriptions = this.deps.chatLog.listPushSubscriptions()
     await Promise.allSettled(subscriptions.map(subscription => this.deliver(subscription, payload, options)))

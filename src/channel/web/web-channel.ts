@@ -178,7 +178,7 @@ export class WebChannel implements Channel, ChatSink {
     const title = sessionLabel(session)
     const body = prompt.body
     const refs = this.appendPromptMessages(chatId, prompt.id, title, body)
-    this.push(chatId, 'prompt', promptPushText(body))
+    this.push(chatId, 'prompt', promptPushText(body), prompt.id)
     return refs
   }
 
@@ -186,7 +186,7 @@ export class WebChannel implements Channel, ChatSink {
   promptReminder(prompt: PromptRow, session: SessionRow): void {
     const chatId = this.chatFor(session)
     this.chatLog.appendMessage(chatId, { kind: 'system', text: `Still waiting for your answer (${this.chatTitle(chatId)})` })
-    this.push(chatId, 'prompt', promptPushText(prompt.body))
+    this.push(chatId, 'prompt', promptPushText(prompt.body), prompt.id)
   }
 
   private appendPromptMessages(chatId: string, promptId: string, title: string, body: PromptBody): string[] {
@@ -354,12 +354,12 @@ export class WebChannel implements Channel, ChatSink {
   }
 
   /** Hands a push to the notifier without waiting for it. A push problem is logged and never reaches the chat or the Bridge. */
-  private push(chatId: string, kind: PushEvent['kind'], text: string): void {
+  private push(chatId: string, kind: PushEvent['kind'], text: string, promptId?: string): void {
     const notify = this.pushNotifier
     if (notify === null) {
       return
     }
-    const event: PushEvent = { kind, chatId, title: this.chatTitle(chatId), text }
+    const event: PushEvent = { kind, chatId, title: this.chatTitle(chatId), text, ...(promptId === undefined ? {} : { promptId }) }
     try {
       void notify(event).catch(error => {
         this.log('web push failed', error)

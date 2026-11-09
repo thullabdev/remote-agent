@@ -331,7 +331,7 @@ ws.onmessage = event => console.log(event.data)
 ## Part 4: Push notifications
 
 1. Register a service worker. From a user gesture (a settings toggle), `GET /api/push/key`, call `registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`, and `POST` the resulting subscription to `/api/push/subscriptions`. `DELETE` it with its `endpoint` to turn push off.
-2. The service worker receives `{ chatId, title, preview, kind }` where `kind` is `prompt` or `report`. `title` is at most 100 characters and `preview` at most 140; both are redacted. Show the notification and, on click, open `/?chat=<chatId>`; your app reads `chat` on load and opens that chat.
+2. The service worker receives `{ chatId, title, preview, kind, promptId? }` where `kind` is `prompt` or `report`; `promptId` is present on prompts only and names the Prompt that waits. `title` is at most 100 characters and `preview` at most 140; both are redacted. Show the notification and, on click, open `/?chat=<chatId>` (add `&prompt=<promptId>` when there is one); your app reads `chat` on load and opens that chat, and scrolls to the pending Prompt named by `prompt` if it is still pending.
 3. Push requires HTTPS (which `tailscale serve` provides). On iPhone and iPad it works only for a page added to the Home Screen.
 
 Rules, enforced by the server: Prompts always push (urgent, kept for an hour); reports push only in Away mode (normal urgency, kept for ten minutes); nothing pushes while any device is `visible` and `focused` (3.3). A subscription the push service reports as gone (404 or 410) is removed automatically. The full text is never in the notification; fetch it from the API.

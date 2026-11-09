@@ -542,6 +542,30 @@ test('a stale prompt creates one system message and one push', () => {
   expect(pushes).toMatchObject([{ kind: 'prompt', chatId, title: chat.title }])
 })
 
+test('a prompt push and its reminder name the prompt, so a notification can open the chat at it', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:named', permissionBody)
+  const pushes = recordPushes()
+
+  channel.promptCreated(prompt, session)
+  channel.promptReminder(prompt, session)
+
+  expect(pushes).toMatchObject([
+    { kind: 'prompt', promptId: 'p:named' },
+    { kind: 'prompt', promptId: 'p:named' },
+  ])
+})
+
+test('a report push does not name a prompt', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+
+  channel.report(session, turn('Done'))
+
+  expect(pushes[0]).toBeDefined()
+  expect(pushes[0]).not.toHaveProperty('promptId')
+})
+
 test('a turn_complete in Away mode pushes, out of Away mode does not', () => {
   // WebChannel always hands a turn_complete to notify; the Away filter lives in PushService (see the integration test below).
   const session = sessionRow()
