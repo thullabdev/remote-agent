@@ -34,6 +34,7 @@ From the web chat, refer to an image or PDF in a message. The Session receives i
 - `GET /api/uploads`: the library, newest first, with name, mime, size and created time.
 - `POST /api/uploads`: raw file body, `X-File-Name` header. Returns `{ upload }`. Refused for a non-image, non-PDF file, an oversized one, or bad magic bytes.
 - `GET /api/uploads/:id`: serves the file with its sniffed `Content-Type`, `Cache-Control: private`, and `X-Content-Type-Options: nosniff`. Authenticated; no per-chat check, since the library is shared.
+- Thumbnails: `GET /api/uploads/:id?thumb=1` returns a small (max 256 px) WebP or JPEG rendition of an image, generated when the file is stored. PDFs have no thumbnail; the picker shows an icon.
 - `DELETE /api/uploads/:id`: removes the file and its row. Messages that already reference it keep the name and show the file as removed.
 - `POST /api/chats/:id/messages` gains `attachmentIds: string[]` (max 5, default empty). Each id must exist, otherwise `400`. General chat refuses attachments with `409`.
 
@@ -51,6 +52,7 @@ Attached files (read them with the Read tool):
 ## Composer: `@` picks from the library
 
 - Typing `@` in the composer opens a picker above the text box. It lists library files, filtered by what comes after the `@`.
+- Each row shows a thumbnail for an image, generated from the stored file and loaded through the authenticated GET. A PDF shows a PDF icon instead, with no thumbnail. Each row also shows the name and size.
 - Choosing a file inserts a chip with its name and adds its id to the message's `attachmentIds`. Several can be added to one message, up to 5.
 - The picker also has **Upload new…**, which opens the system file chooser (images and PDFs only). The upload goes to the library, and the new file is selected right away.
 - Delete is available in the picker for each library file, with a confirmation.
@@ -75,6 +77,7 @@ Retention is manual by design, so there is no sweep phase.
 
 ## Tests
 
+- Thumbnail: an image upload gets a thumbnail; a PDF does not; `?thumb=1` on a PDF is refused.
 - Upload refuses an oversized file, a disallowed type, an SVG, bytes that don't match the type, and a traversing or empty name.
 - Upload with identical bytes returns the existing entry.
 - Upload, GET and DELETE require auth. GET serves the stored type with `nosniff`.
