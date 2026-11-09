@@ -49,6 +49,19 @@ describe('Web Channel event state', () => {
     expect(updated.chats[0]).toMatchObject({ unread: 1, pendingPrompt: null })
   })
 
+  test('a chat that starts needing the user moves above newer chats, on load and on chat.updated', () => {
+    const at = (id: string, time: number): Chat => ({ ...general, id, title: id, pinned: false, lastMessage: { seq: time, at: time, preview: '' } })
+    const ids = (state: { chats: Chat[] }): string[] => state.chats.map(chat => chat.id)
+    const blocked = { ...at('blocked', 10), pendingPrompt: { promptId: 'p', kind: 'permission' as const, summary: 'Bash: ls', at: 10, count: 1 } }
+
+    const loaded = createRealtimeState({ seq: 1, away: false, chats: [at('newer', 50), blocked, general], usage: noUsage })
+    expect(ids(loaded)).toEqual(['general', 'blocked', 'newer'])
+
+    const before = createRealtimeState({ seq: 1, away: false, chats: [general, at('newer', 50), at('blocked', 10)], usage: noUsage })
+    expect(ids(before)).toEqual(['general', 'newer', 'blocked'])
+    expect(ids(applyServerEvent(before, { type: 'chat.updated', seq: 2, chat: blocked }))).toEqual(['general', 'blocked', 'newer'])
+  })
+
   test('a clear event removes only messages at or before the server cutoff', () => {
     const withMessages = {
       ...createRealtimeState({ seq: 5, away: false, chats: [general], usage: noUsage }),

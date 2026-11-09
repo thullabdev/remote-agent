@@ -1,4 +1,5 @@
 import type { Chat, Message, ServerEvent, UsageView } from '../channel/web/protocol.ts'
+import { orderChats } from '../channel/web/order.ts'
 import type { WebState } from './api.ts'
 
 export type RealtimeState = {
@@ -22,24 +23,12 @@ export function createRealtimeState(state: WebState): RealtimeState {
     eventSeq: state.seq,
     away: state.away,
     usage: state.usage,
-    chats: state.chats.map(withDefaults),
+    chats: orderChats(state.chats.map(withDefaults)),
     messages: {},
     hasMore: {},
     loadedChats: new Set(),
     hiddenBeforeSeq: {},
   }
-}
-
-function orderChats(chats: Chat[]): Chat[] {
-  return [...chats].sort((a, b) => {
-    if (a.id === 'general') {
-      return -1
-    }
-    if (b.id === 'general') {
-      return 1
-    }
-    return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0)
-  })
 }
 
 function mergeMessages(existing: Message[], incoming: Message[]): Message[] {

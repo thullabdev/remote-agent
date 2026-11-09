@@ -8,6 +8,7 @@ import type { Project } from '../../bridge/trusted.ts'
 import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
+import { orderChats } from './order.ts'
 import type { PushService } from './push.ts'
 import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
 import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
@@ -208,21 +209,11 @@ function requireHandlers(deps: ApiDeps): ChannelHandlers {
   return handlers
 }
 
-function byRecency(a: Chat, b: Chat): number {
-  if (a.id === GENERAL_ID) {
-    return -1
-  }
-  if (b.id === GENERAL_ID) {
-    return 1
-  }
-  return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0)
-}
-
 function state(deps: ApiDeps): unknown {
   return {
     seq: deps.chatLog.currentSeq(),
     away: deps.away.isAway(),
-    chats: deps.chatLog.listChats().sort(byRecency),
+    chats: orderChats(deps.chatLog.listChats()),
     usage: deps.usage(),
   }
 }
