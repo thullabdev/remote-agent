@@ -117,3 +117,27 @@ test('local command, task-notification and noise user lines yield no entries; in
     { sourceId: 'i-2:0', at: MS, item: { kind: 'turn_end' } },
   ])
 })
+
+// Auto-compaction writes the summary as a user line. It is not something the user said and it does not start a turn.
+test('parse: a compaction summary and its boundary marker show nothing', () => {
+  const summary = JSON.stringify({
+    type: 'user',
+    uuid: 'u-sum',
+    timestamp: AT,
+    isCompactSummary: true,
+    isVisibleInTranscriptOnly: true,
+    message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context. The summary below covers…' },
+  })
+  const boundary = JSON.stringify({ type: 'system', subtype: 'compact_boundary', uuid: 's-1', timestamp: AT })
+  const summaryAsBlocks = JSON.stringify({
+    type: 'user',
+    uuid: 'u-sum-2',
+    timestamp: AT,
+    isCompactSummary: true,
+    message: { role: 'user', content: [{ type: 'text', text: 'This session is being continued…' }] },
+  })
+
+  expect(parseTranscriptLine(summary)).toEqual([])
+  expect(parseTranscriptLine(summaryAsBlocks)).toEqual([])
+  expect(parseTranscriptLine(boundary)).toEqual([])
+})

@@ -248,6 +248,46 @@ test('a chat waiting on a pending permission prompt is still reported busy', asy
   expect(messagesOf(h, chatId).some(message => message.kind === 'prompt' && message.status === 'pending')).toBe(true)
 })
 
+test('a compaction after a finished turn leaves the chat idle and adds no message from the user', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const compactBoundary = line({ type: 'system', subtype: 'compact_boundary', uuid: 'c-1', timestamp: iso(4) })
+  const compactSummary = line({
+    type: 'user',
+    uuid: 'c-2',
+    timestamp: iso(5),
+    isCompactSummary: true,
+    isVisibleInTranscriptOnly: true,
+    message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context.' },
+  })
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3))
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3) + compactBoundary + compactSummary)
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+})
+
+test('a transcript that ends on a compaction backfills to idle', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(
+    h,
+    prompt('p-1', 'go', 1) +
+      assistantText('a-1', 'done', 2) +
+      turnEnd('s-1', 3) +
+      line({ type: 'system', subtype: 'compact_boundary', uuid: 'c-1', timestamp: iso(4) }) +
+      line({ type: 'user', uuid: 'c-2', timestamp: iso(5), isCompactSummary: true, message: { role: 'user', content: 'This session is being continued…' } }),
+  )
+
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+})
+
 test('an old finished transcript backfills to idle', async () => {
   const h = setup()
   const chatId = startSession(h)
