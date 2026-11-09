@@ -119,6 +119,123 @@ export function isMarkdownFilePath(filePath: string): boolean {
   return /\.(?:md|markdown)$/i.test(filePath)
 }
 
+export function editToolInput(input: unknown): { filePath: string; oldString: string; newString: string; replaceAll: boolean } | null {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return null
+  }
+  const record = input as Record<string, unknown>
+  if (
+    typeof record.file_path !== 'string'
+    || typeof record.old_string !== 'string'
+    || typeof record.new_string !== 'string'
+    || ('replace_all' in record && typeof record.replace_all !== 'boolean')
+    || Object.keys(record).some(key => !['file_path', 'old_string', 'new_string', 'replace_all'].includes(key))
+  ) {
+    return null
+  }
+  return {
+    filePath: record.file_path,
+    oldString: record.old_string,
+    newString: record.new_string,
+    replaceAll: record.replace_all === true,
+  }
+}
+
+export type DiffLine = { kind: 'same' | 'remove' | 'add'; text: string; changed?: { start: number; end: number } }
+
+// Above this many line pairs the table would be too large, so the diff shows the whole old block removed and the new one added.
+const MAX_DIFF_CELLS = 250_000
+
+/** Line-based diff of two strings, in display order. */
+export function diffLines(before: string, after: string): DiffLine[] {
+  const a = before === '' ? [] : before.split('\n')
+  const b = after === '' ? [] : after.split('\n')
+  if (a.length * b.length > MAX_DIFF_CELLS) {
+    return [...a.map(text => ({ kind: 'remove' as const, text })), ...b.map(text => ({ kind: 'add' as const, text }))]
+  }
+  // lcs[i][j] is the longest common subsequence of a[i..] and b[j..]; out-of-range cells count as 0.
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0))
+  const cell = (i: number, j: number): number => lcs[i]?.[j] ?? 0
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i]![j] = a[i] === b[j] ? cell(i + 1, j + 1) + 1 : Math.max(cell(i + 1, j), cell(i, j + 1))
+    }
+  }
+  const lines: DiffLine[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    const removed = a[i] ?? ''
+    const added = b[j] ?? ''
+    if (removed === added) {
+      lines.push({ kind: 'same', text: removed })
+      i++
+      j++
+    } else if (cell(i + 1, j) >= cell(i, j + 1)) {
+      lines.push({ kind: 'remove', text: removed })
+      i++
+    } else {
+      lines.push({ kind: 'add', text: added })
+      j++
+    }
+  }
+  a.slice(i).forEach(text => lines.push({ kind: 'remove', text }))
+  b.slice(j).forEach(text => lines.push({ kind: 'add', text }))
+  return lines
+}
+
+/**
+ * Marks the characters that differ inside paired removed and added lines.
+ * Lines are paired in order within each block of removals followed by additions.
+ */
+export function markChangedRanges(lines: DiffLine[]): DiffLine[] {
+  const result: DiffLine[] = lines.map(line => ({ ...line }))
+  let index = 0
+  while (index < result.length) {
+    if (result[index]?.kind !== 'remove') {
+      index++
+      continue
+    }
+    const removeStart = index
+    while (result[index]?.kind === 'remove') {
+      index++
+    }
+    const addStart = index
+    while (result[index]?.kind === 'add') {
+      index++
+    }
+    const pairs = Math.min(addStart - removeStart, index - addStart)
+    for (let offset = 0; offset < pairs; offset++) {
+      const removed = result[removeStart + offset]
+      const added = result[addStart + offset]
+      if (removed === undefined || added === undefined) {
+        continue
+      }
+      const prefix = commonPrefixLength(removed.text, added.text)
+      const suffix = commonSuffixLength(removed.text.slice(prefix), added.text.slice(prefix))
+      removed.changed = { start: prefix, end: removed.text.length - suffix }
+      added.changed = { start: prefix, end: added.text.length - suffix }
+    }
+  }
+  return result
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  let length = 0
+  while (length < a.length && length < b.length && a[length] === b[length]) {
+    length++
+  }
+  return length
+}
+
+function commonSuffixLength(a: string, b: string): number {
+  let length = 0
+  while (length < a.length && length < b.length && a[a.length - 1 - length] === b[b.length - 1 - length]) {
+    length++
+  }
+  return length
+}
+
 export function toolInputText(input: unknown): string {
   if (typeof input === 'string') {
     return input

@@ -1,7 +1,7 @@
 import { ArrowDown, Bookmark, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
-import { commandToolInput, dayKey, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
+import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
 import { isPdf, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
@@ -462,6 +462,25 @@ function ToolInput({ input }: { input: unknown }) {
     )
   }
 
+  const editInput = editToolInput(input)
+  if (editInput !== null) {
+    const lines = markChangedRanges(diffLines(editInput.oldString, editInput.newString))
+    const added = lines.filter(line => line.kind === 'add').length
+    const removed = lines.filter(line => line.kind === 'remove').length
+    return (
+      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Edit</span>
+          <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{editInput.filePath}</code>
+          {editInput.replaceAll && <Badge>all occurrences</Badge>}
+          <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300">+{added}</span>
+          <span className="font-mono text-[10px] text-red-700 dark:text-red-300">−{removed}</span>
+        </div>
+        <DiffView lines={lines} />
+      </div>
+    )
+  }
+
   const writeInput = writeToolInput(input)
   if (writeInput !== null) {
     return (
@@ -491,6 +510,50 @@ function ToolInput({ input }: { input: unknown }) {
     <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">
       {toolInputText(input)}
     </CodeBlock>
+  )
+}
+
+function DiffView({ lines }: { lines: DiffLine[] }) {
+  return (
+    <div className="max-h-96 max-w-full overflow-auto overscroll-x-contain font-mono text-[11px] leading-relaxed" role="region" aria-label="Changes">
+      <div className="min-w-max py-1">
+        {lines.map((line, index) => (
+          <div
+            key={index}
+            className={`flex whitespace-pre px-3 ${
+              line.kind === 'add'
+                ? 'bg-emerald-500/10 text-emerald-900 dark:text-emerald-200'
+                : line.kind === 'remove'
+                  ? 'bg-red-500/10 text-red-900 dark:text-red-200'
+                  : 'text-muted-foreground'
+            }`}
+          >
+            <span className="w-4 shrink-0 select-none opacity-70" aria-hidden="true">
+              {line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}
+            </span>
+            <DiffText line={line} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DiffText({ line }: { line: DiffLine }) {
+  if (line.text === '') {
+    return <span>{' '}</span>
+  }
+  if (line.changed === undefined || line.changed.start >= line.changed.end) {
+    return <span>{line.text}</span>
+  }
+  const { start, end } = line.changed
+  const changedClass = line.kind === 'add' ? 'rounded-sm bg-emerald-500/35' : 'rounded-sm bg-red-500/35'
+  return (
+    <span>
+      {line.text.slice(0, start)}
+      <span className={changedClass}>{line.text.slice(start, end)}</span>
+      {line.text.slice(end)}
+    </span>
   )
 }
 
