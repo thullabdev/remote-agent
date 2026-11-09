@@ -14,7 +14,7 @@ export function Avatar({ className, fallback, src, alt = '', ...props }: AvatarP
       {...props}
     />
   ) : (
-    <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted font-display font-semibold text-muted-foreground', className)} aria-hidden="true">
+    <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl bg-muted font-display font-semibold text-muted-foreground', className)} aria-hidden="true">
       {fallback.slice(0, 1).toUpperCase()}
     </span>
   )

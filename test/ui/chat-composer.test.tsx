@@ -37,7 +37,7 @@ describe('chat composer surface', () => {
     }))
 
     expect(markup).toContain('chat-composer-dock')
-    expect(markup).toContain('rounded-3xl border border-border bg-card')
+    expect(markup).toContain('rounded-3xl bg-card')
     expect(markup).toContain('chat-composer-input')
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).not.toContain('id="chat-usage-panel"')

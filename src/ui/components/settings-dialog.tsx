@@ -74,7 +74,7 @@ export function SettingsDialog({ open, preferences, push, pushBusy, away, onPref
                   onClick={() => onPreferences({ ...preferences, palette: theme.id })}
                   className={`flex items-center gap-2 rounded-xl border-2 p-2 text-left text-sm ${preferences.palette === theme.id ? 'border-primary' : 'border-border'}`}
                 >
-                  <span className="flex size-6 shrink-0 overflow-hidden rounded-full border border-border" aria-hidden="true">
+                  <span className="flex size-6 shrink-0 overflow-hidden rounded-full " aria-hidden="true">
                     <span className="h-full w-1/2" style={{ backgroundColor: theme.light.background }} />
                     <span className="h-full w-1/2" style={{ backgroundColor: theme.dark.background }} />
                   </span>

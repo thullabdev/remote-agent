@@ -522,7 +522,7 @@ export function App() {
           </>
         ) : (
           <div className="chat-glow hidden min-w-0 flex-1 flex-col items-center justify-center px-8 text-center md:flex">
-            <div className="grid size-16 place-items-center rounded-3xl border border-border bg-card shadow-sm">
+            <div className="grid size-16 place-items-center rounded-3xl bg-card shadow-sm">
               <MessageSquareText className="size-6 text-muted-foreground" aria-hidden="true" />
             </div>
             <p className="mt-5 font-display text-xl font-semibold tracking-tight">Your Sessions, at a glance.</p>
@@ -537,7 +537,7 @@ export function App() {
       </main>
 
       {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm shadow-xl" role="status" aria-live="polite">
+        <div className="fixed bottom-5 left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-3 rounded-2xl bg-card px-4 py-3 text-sm shadow-xl" role="status" aria-live="polite">
           <span className="min-w-0">{toast}</span>
           <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Dismiss notification" onClick={() => setToast(null)}><X className="size-4" /></button>
         </div>
@@ -567,7 +567,7 @@ export function App() {
 function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
   return (
     <main className="grain flex h-full items-center justify-center bg-background px-6 text-foreground">
-      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-7 text-center shadow-sm sm:p-9">
+      <div className="w-full max-w-md rounded-3xl bg-card p-7 text-center shadow-sm sm:p-9">
         <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
         <h1 className="mt-5 font-display text-xl font-semibold">{title}</h1>
         <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">{detail}</p>

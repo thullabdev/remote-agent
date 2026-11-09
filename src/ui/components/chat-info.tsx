@@ -144,7 +144,7 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
               ) : (
                 <ul className="mt-2 space-y-2">
                   {pins.map(pin => (
-                    <li key={pin.id} className="rounded-xl border border-border bg-card p-2.5">
+                    <li key={pin.id} className="rounded-xl bg-card p-2.5">
                       <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
                         <span>{pin.kind === 'user_text' ? 'You' : 'Agent'}</span>
                         <time dateTime={new Date(pin.at).toISOString()}>{formatTime(pin.at)}</time>
@@ -175,7 +175,7 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
             )}
             <AccountLimitsSection accounts={usage.accounts} now={now} />
             {chat.tmuxName && (
-              <div className="rounded-2xl border border-border bg-card p-3">
+              <div className="rounded-2xl bg-card p-3">
                 <p className="text-xs font-medium">Attach from a terminal</p>
                 <code className="mt-2 block break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-[11px]">tmux attach -t {chat.tmuxName}</code>
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">This hint is available for Spawned Sessions only.</p>

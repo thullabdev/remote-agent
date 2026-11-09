@@ -68,7 +68,7 @@ export function ContextPill({ view }: { view: SessionUsageView | undefined }) {
     return null
   }
   return (
-    <span className={`inline-flex items-center rounded-full border border-border px-2 py-0 font-mono text-[10px] ${TEXT[limitTone(view.contextPercent)]}`} title="Context window used">
+    <span className={`inline-flex items-center rounded-full px-2 py-0 font-mono text-[10px] ${TEXT[limitTone(view.contextPercent)]}`} title="Context window used">
       {text}
     </span>
   )

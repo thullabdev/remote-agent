@@ -23,7 +23,7 @@ export function UploadPicker({ uploads, query, selected, note, onHover, onPick, 
       id="chat-upload-picker"
       role="listbox"
       aria-label="Library files"
-      className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-80 max-w-4xl overflow-auto rounded-2xl border border-border bg-card py-1 shadow-xl sm:left-6 sm:right-6"
+      className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-80 max-w-4xl overflow-auto rounded-2xl bg-card py-1 shadow-xl sm:left-6 sm:right-6"
     >
       <div className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-muted-foreground">
         <span className="font-mono uppercase tracking-[.12em]">Library</span>
@@ -90,7 +90,7 @@ export function UploadPicker({ uploads, query, selected, note, onHover, onPick, 
 function PickerThumb({ upload }: { upload: UploadRecord }) {
   if (isPdf(upload.mime)) {
     return (
-      <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-muted" aria-hidden="true">
+      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted" aria-hidden="true">
         <FileText className="size-5" />
       </span>
     )
@@ -100,7 +100,7 @@ function PickerThumb({ upload }: { upload: UploadRecord }) {
       src={uploadUrl(upload.id, upload.hasThumbnail)}
       alt=""
       loading="lazy"
-      className="size-10 shrink-0 rounded-lg border border-border bg-muted object-cover"
+      className="size-10 shrink-0 rounded-lg bg-muted object-cover"
     />
   )
 }

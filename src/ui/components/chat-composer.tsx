@@ -215,7 +215,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   return (
     <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
       {disabled && (
-        <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
+        <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
           <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
           <Button type="button" size="sm" onClick={() => void onResume()}>
             <RotateCcw aria-hidden="true" />
@@ -228,7 +228,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
           id="chat-command-suggestions"
           role="listbox"
           aria-label="Command suggestions"
-          className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-64 max-w-4xl overflow-auto rounded-2xl border border-border bg-card py-1 shadow-xl sm:left-6 sm:right-6"
+          className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-64 max-w-4xl overflow-auto rounded-2xl bg-card py-1 shadow-xl sm:left-6 sm:right-6"
         >
           {suggestions.map((suggestion, index) => (
             <button
@@ -247,7 +247,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
             >
               <span className="font-mono text-sm">/{suggestion.name}</span>
               <span className="flex-1 truncate text-xs text-muted-foreground">{suggestion.description}</span>
-              <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Command</span>
+              <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Command</span>
             </button>
           ))}
         </div>
@@ -271,7 +271,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
       {(attachments.length > 0 || uploading) && (
         <div className="mx-auto mb-1.5 flex max-w-4xl flex-wrap gap-1.5">
           {attachments.map(attachment => (
-            <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card py-1 pl-2.5 pr-1 text-xs">
+            <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-card py-1 pl-2.5 pr-1 text-xs">
               {isPdf(attachment.mime) ? <FileText className="size-3.5 shrink-0" aria-hidden="true" /> : <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />}
               <span className="truncate">{attachment.name}</span>
               <button

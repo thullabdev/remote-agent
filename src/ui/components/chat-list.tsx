@@ -397,7 +397,7 @@ export function ChatList({
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{chat.title}</span>
                   {chat.id !== 'general' && (
-                    <span className="shrink-0 rounded-full border border-border bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                    <span className="shrink-0 rounded-full bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
                       {chat.spawned ? 'Spawned' : 'Active Session'}
                     </span>
                   )}

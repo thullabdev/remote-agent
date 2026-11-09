@@ -12,7 +12,7 @@ export function UsageButton({ open, onToggle }: { open: boolean; onToggle(): voi
       onClick={onToggle}
       aria-expanded={open}
       aria-controls={USAGE_PANEL_ID}
-      className={`inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${open ? 'bg-muted text-foreground' : 'bg-card'}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${open ? 'bg-muted text-foreground' : 'bg-card'}`}
     >
       <Gauge className="size-3" aria-hidden="true" />
       Usage
@@ -75,7 +75,7 @@ export function UsagePanel({ open, accounts, session, now, timeZone }: UsagePane
   const readings = [...live.map(account => account.measuredAt), session?.measuredAt].filter((value): value is number => value !== undefined)
   const measuredAt = readings.length > 0 ? Math.max(...readings) : null
   return (
-    <section id={USAGE_PANEL_ID} aria-label="Usage" className="mx-auto mb-2 max-w-4xl min-w-0 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-sm">
+    <section id={USAGE_PANEL_ID} aria-label="Usage" className="mx-auto mb-2 max-w-4xl min-w-0 rounded-2xl bg-card px-3 py-2.5 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Usage</p>
         {measuredAt !== null && !empty && <p className="truncate text-[11px] text-muted-foreground">Updated {agoText(Math.max(0, now - measuredAt))}</p>}

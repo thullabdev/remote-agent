@@ -81,7 +81,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
                 key={`${project.cwd}-${project.label}`}
                 disabled={starting}
                 onClick={() => void start(project)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-border bg-background/70 p-3 text-left hover:border-primary/40 hover:bg-muted disabled:opacity-50"
+                className="flex w-full items-center gap-3 rounded-2xl bg-background/70 p-3 text-left hover:border-primary/40 hover:bg-muted disabled:opacity-50"
               >
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted"><Folder className="size-4 text-muted-foreground" aria-hidden="true" /></span>
                 <span className="min-w-0 flex-1">

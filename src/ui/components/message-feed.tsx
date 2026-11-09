@@ -165,10 +165,10 @@ function MessageFeedView({
           ))}
           {chat.busy && (
             <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
-              <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
+              <div className="grid size-8 place-items-center rounded-xl bg-card">
                 <span className="font-display text-sm">✳</span>
               </div>
-              <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="flex items-center gap-1.5 rounded-2xl bg-card px-4 py-3">
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
@@ -198,7 +198,7 @@ function MessageFeedView({
 function DateSeparator({ at }: { at: number }) {
   return (
     <div className="sticky top-2 z-10 flex justify-center py-1">
-      <span className="rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+      <span className="rounded-full bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
         {formatDayLabel(at)}
       </span>
     </div>
@@ -284,7 +284,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
 
   if (message.kind === 'picker') {
     return (
-      <article className="max-w-[88%] rounded-2xl rounded-bl-md border border-border bg-card p-4 shadow-sm sm:max-w-[76%]">
+      <article className="max-w-[88%] rounded-2xl rounded-bl-md bg-card p-4 shadow-sm sm:max-w-[76%]">
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.text}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {message.buttons.map(button => (
@@ -316,7 +316,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
 
   if (message.kind === 'command_reply') {
     return (
-      <article className="max-w-[88%] rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 shadow-sm sm:max-w-[76%]">
+      <article className="max-w-[88%] rounded-2xl rounded-bl-md bg-card px-4 py-3 shadow-sm sm:max-w-[76%]">
         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</div>
         <MessageTime at={message.at} />
       </article>
@@ -439,7 +439,7 @@ function ToolInput({ input }: { input: unknown }) {
   const commandInput = commandToolInput(input)
   if (commandInput !== null) {
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 pr-11 font-mono text-[11px] leading-relaxed">
           <code>{commandInput.command}</code>
         </CodeBlock>
@@ -447,12 +447,12 @@ function ToolInput({ input }: { input: unknown }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
             {commandInput.description !== undefined && <span className="min-w-0 flex-1">{commandInput.description}</span>}
             {commandInput.timeout !== undefined && (
-              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="shrink-0 rounded-md bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
                 Timeout · {commandInput.timeout} ms
               </span>
             )}
             {commandInput.runInBackground !== undefined && (
-              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="shrink-0 rounded-md bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
                 {commandInput.runInBackground ? 'Background' : 'Foreground'}
               </span>
             )}
@@ -468,7 +468,7 @@ function ToolInput({ input }: { input: unknown }) {
     const added = lines.filter(line => line.kind === 'add').length
     const removed = lines.filter(line => line.kind === 'remove').length
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Edit</span>
           <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{editInput.filePath}</code>
@@ -484,7 +484,7 @@ function ToolInput({ input }: { input: unknown }) {
   const writeInput = writeToolInput(input)
   if (writeInput !== null) {
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</span>
           <code className="min-w-0 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
@@ -579,8 +579,8 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
   }
 
   return (
-    <article className={`max-w-full overflow-hidden rounded-2xl border shadow-sm sm:max-w-[92%] ${
-      message.status === 'pending' ? 'border-amber-500/40 bg-card' : 'border-border bg-card/75'
+    <article className={`max-w-full overflow-hidden rounded-2xl shadow-sm sm:max-w-[92%] ${
+      message.status === 'pending' ? 'border border-amber-500/40 bg-card' : 'bg-card/75'
     }`}>
       <div className="flex items-start gap-3 border-b border-border/70 px-4 py-3.5">
         <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl ${
@@ -622,7 +622,7 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                   const checked = selected.includes(optionIndex)
                   if (question.multiSelect) {
                     return (
-                      <label key={`${message.id}-option-${optionIndex}`} className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background/70 p-3 hover:bg-muted/60">
+                      <label key={`${message.id}-option-${optionIndex}`} className="flex cursor-pointer items-start gap-3 rounded-xl bg-background/70 p-3 hover:bg-muted/60">
                         <input
                           type="checkbox"
                           checked={checked}
@@ -641,7 +641,7 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                       type="button"
                       key={`${message.id}-option-${optionIndex}`}
                       disabled={!pending}
-                      className="rounded-xl border border-border bg-background/70 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-50"
+                      className="rounded-xl bg-background/70 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-50"
                       onClick={() => void run(() => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: index, optionIndex }) ?? Promise.resolve())}
                     >
                       <span className="block text-sm font-medium">{option.label}</span>
