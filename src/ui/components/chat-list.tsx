@@ -1,20 +1,17 @@
 import { Archive, Check, ChevronDown, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import type { Chat, UsageView } from '../../channel/web/protocol.ts'
+import type { Chat } from '../../channel/web/protocol.ts'
 import { formatRelativeTime } from '../presentation.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Input } from './ui/input.tsx'
-import { liveAccounts } from '../usage-format.ts'
-import { AccountUsageStrip, useNow } from './usage-meters.tsx'
 
 type ChatListProps = {
   chats: Chat[]
   activeId: string | null
   status: ConnectionStatus
-  usage: UsageView
   onOpen(chatId: string): void
   onNew(): void
   onSettings(): void
@@ -174,14 +171,12 @@ export function ChatList({
   chats,
   activeId,
   status,
-  usage,
   onOpen,
   onNew,
   onSettings,
   onArchiveSelected,
   onActionError,
 }: ChatListProps) {
-  const now = useNow()
   const [query, setQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<SessionSourceFilter>('all')
   const [selectionMode, setSelectionMode] = useState(false)
@@ -329,10 +324,6 @@ export function ChatList({
           <Plus aria-hidden="true" />
         </Button>
       </header>
-
-      {liveAccounts(usage.accounts, now).length > 0 && (
-        <AccountUsageStrip accounts={usage.accounts} now={now} className="shrink-0 border-b border-border/70 px-4 py-2" />
-      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         <SessionFilterTabs value={sourceFilter} onSelect={selectFilter} />

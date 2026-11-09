@@ -373,7 +373,6 @@ export function App() {
         chats={chats}
         activeId={activeChatId}
         status={status}
-        usage={realtime.usage}
         onOpen={openChat}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
