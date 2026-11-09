@@ -710,7 +710,7 @@ const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])
 async function callBytes(method: string, path: string, bytes: Uint8Array | null, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> {
   const init: RequestInit = { method, headers: { ...headers } }
   if (bytes !== null) {
-    init.body = new Blob([bytes])
+    init.body = bytes.slice().buffer
   }
   const response = await api(new Request(`http://localhost${path}`, init))
   if (response === null) {
