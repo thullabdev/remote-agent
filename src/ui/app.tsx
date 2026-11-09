@@ -469,7 +469,7 @@ export function App() {
               )}
               <div className="chat-glow flex min-h-0 flex-1 flex-col">
                 <MessageFeed
-                  key={activeChat.id}
+                  key={`feed:${activeChat.id}`}
                   chat={activeChat}
                   messages={messages}
                   pendingMessages={pendingItems}
@@ -482,7 +482,7 @@ export function App() {
                   onTogglePin={togglePin}
                 />
                 <ChatComposer
-                  key={activeChat.id}
+                  key={`composer:${activeChat.id}`}
                   drafts={api}
                   chat={activeChat}
                   usage={realtime.usage}
