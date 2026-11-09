@@ -34,11 +34,11 @@ export const COLOR_THEMES: readonly ColorTheme[] = [
     label: 'Remote Agent',
     light: {
       background: '#eef2fb', foreground: '#0d1230', card: '#f8faff', muted: '#e1e7f5', mutedForeground: '#5b6486',
-      border: '#c9d2e9', accent: '#dce4ff', primary: '#0d1230', primaryForeground: '#f4f7ff', glow: '70 110 230',
+      border: '#c9d2e9', accent: '#dce4ff', primary: '#0d1230', primaryForeground: '#f4f7ff', glow: '128 146 190',
     },
     dark: {
       background: '#0b1024', foreground: '#e8ecfa', card: '#141a33', muted: '#1b2243', mutedForeground: '#a0a9c8',
-      border: '#2e3762', accent: '#1f2b5c', primary: '#e8ecfa', primaryForeground: '#0b1024', glow: '120 150 255',
+      border: '#2e3762', accent: '#1f2b5c', primary: '#e8ecfa', primaryForeground: '#0b1024', glow: '84 98 150',
     },
   },
   {
