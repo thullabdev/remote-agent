@@ -417,3 +417,70 @@ test('a custom title wins over the automatic title until it is cleared', () => {
   expect(log.setCustomTitle('c1', null).title).toBe('Claude automatic title')
   expect(new ChatLog(store, () => clock).getChat('c1')?.title).toBe('Claude automatic title')
 })
+
+const askPrompt = (promptId: string, question: string): MessageBody => ({
+  kind: 'prompt',
+  promptId,
+  title: 'app session',
+  body: {
+    kind: 'question',
+    questions: [{ question, header: 'Pick', multiSelect: false, options: [{ label: 'A', description: '' }], answered: null }],
+  },
+  status: 'pending',
+  resolution: null,
+})
+
+test('pendingPrompt is null when nothing waits on the user', () => {
+  log.appendMessage('c1', agent('hello'))
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+  expect(log.getChat('general')?.pendingPrompt).toBeNull()
+})
+
+test('pendingPrompt describes a pending permission request in one plain line', () => {
+  clock = 5_000
+  log.appendMessage('c1', {
+    ...permission,
+    body: { kind: 'permission', tool: 'Bash', summary: '$ bun test\n--watch', reason: null, agentId: null },
+  })
+  expect(log.getChat('c1')?.pendingPrompt).toEqual({ promptId: 'p1', kind: 'permission', summary: 'Bash: bun test --watch', at: 5_000, count: 1 })
+})
+
+test('pendingPrompt uses the first question of a question prompt', () => {
+  log.appendMessage('c1', askPrompt('q1', 'Which **database** should we use?'))
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', kind: 'question', summary: 'Which database should we use?', count: 1 })
+})
+
+test('pendingPrompt counts prompts, not the messages of one multi-question prompt, and points at the oldest', () => {
+  clock = 2_000
+  log.appendMessage('c1', askPrompt('q1', 'First?'))
+  log.appendMessage('c1', askPrompt('q1', 'Second?'))
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', count: 1 })
+  clock = 3_000
+  log.appendMessage('c1', permission)
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', at: 2_000, count: 2 })
+})
+
+test('answering a prompt clears pendingPrompt and emits chat.updated even when it is not the last message', () => {
+  const prompt = log.appendMessage('c1', permission)
+  log.appendMessage('c1', agent('later text'))
+  const after = log.currentSeq()
+
+  log.updateMessage(prompt.id, { ...permission, status: 'answered', resolution: { note: 'Allowed', source: 'remote' } } as MessageBody)
+
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+  const updates = eventsSince(after).filter(event => event.type === 'chat.updated')
+  expect(updates).toHaveLength(1)
+  expect(updates[0]).toMatchObject({ chat: { id: 'c1', pendingPrompt: null } })
+})
+
+test('an ended chat has no pendingPrompt', () => {
+  log.appendMessage('c1', permission)
+  log.updateChat('c1', { status: 'ended' })
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+})
+
+test('a cleared prompt no longer counts as pending', () => {
+  log.appendMessage('c1', permission)
+  log.clearChat('c1')
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+})

@@ -3,6 +3,19 @@ import type { UsageView } from '../../core/usage-types.ts'
 
 // Wire shapes for the web channel: the ChatLog, the HTTP API and the browser UI share them (handoff §4-§5).
 
+/** What a Session is blocked on, for the chat list. Present only while the chat is active and a Prompt waits for an Answer. */
+export type PendingPrompt = {
+  /** The oldest pending Prompt, so the list can open straight to it. */
+  promptId: string
+  kind: 'permission' | 'question'
+  /** One line of plain text: "Bash: bun test" for a Permission Request, the first question for a Question. */
+  summary: string
+  /** When the oldest pending Prompt was raised (ms epoch), for "waiting 4m". */
+  at: number
+  /** How many Prompts wait, counting a multi-question Prompt once. */
+  count: number
+}
+
 export type Chat = {
   id: string
   title: string
@@ -18,6 +31,8 @@ export type Chat = {
   draft: { preview: string } | null
   pinned: boolean
   tmuxName: string | null
+  /** Set while the Session waits for a human Answer. Wins over `busy`, which stays true because the turn is still open. */
+  pendingPrompt: PendingPrompt | null
 }
 
 export type PromptBodyView =

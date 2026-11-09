@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
-import type { Chat, Draft, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import type { Chat, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
 /** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
@@ -118,6 +118,15 @@ function previewOf(body: MessageBody): string {
   const source =
     body.kind === 'agent_text' ? body.markdown : body.kind === 'prompt' ? body.title : body.kind === 'tool_run' ? body.tool : body.text
   return (body.kind === 'agent_text' ? stripMarkdown(source) : source).slice(0, PREVIEW_MAX)
+}
+
+/** One plain line describing what a pending Prompt asks, for the chat list. */
+function promptSummary(body: PromptBodyView): string {
+  if (body.kind === 'question') {
+    return stripMarkdown(body.questions[0]?.question ?? '').slice(0, PREVIEW_MAX)
+  }
+  const text = body.tool === 'Bash' ? body.summary.replace(/^\$ /, '') : (body.summary.split('\n')[0] ?? '')
+  return `${body.tool}: ${text.replace(/\s+/g, ' ').trim()}`.slice(0, PREVIEW_MAX)
 }
 
 /** What the chat list shows for an unsent draft: its text, or how many files it holds. Null when there is no draft. */
@@ -310,7 +319,8 @@ export class ChatLog {
         return { value: message, events: [] }
       }
       const events = [this.emit('message.updated', { message })]
-      if (this.lastVisible(current.chatId)?.seq === current.seq) {
+      const promptStatusChanged = current.kind === 'prompt' && stored.kind === 'prompt' && current.status !== stored.status
+      if (promptStatusChanged || this.lastVisible(current.chatId)?.seq === current.seq) {
         events.push(this.emitChat(current.chatId))
       }
       return { value: message, events }
@@ -658,6 +668,27 @@ export class ChatLog {
       draft: draftPreview(record.draft_text, record.draft_attachments),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
+      pendingPrompt: record.status === 'active' ? this.pendingPrompt(record.id, record.hidden_before_seq) : null,
+    }
+  }
+
+  private pendingPrompt(chatId: string, hiddenBefore: number): PendingPrompt | null {
+    const rows = this.db
+      .query<MessageRecord, [string, number]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'prompt' AND json_extract(body, '$.status') = 'pending' ORDER BY seq`,
+      )
+      .all(chatId, hiddenBefore)
+    const prompts = rows.map(toMessage).filter(message => message.kind === 'prompt')
+    const first = prompts[0]
+    if (first === undefined || first.kind !== 'prompt') {
+      return null
+    }
+    return {
+      promptId: first.promptId,
+      kind: first.body.kind,
+      summary: promptSummary(first.body),
+      at: first.at,
+      count: new Set(prompts.map(message => message.kind === 'prompt' && message.promptId)).size,
     }
   }
 }

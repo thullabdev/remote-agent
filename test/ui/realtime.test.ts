@@ -19,6 +19,7 @@ const general: Chat = {
   lastMessage: null, draft: null,
   pinned: true,
   tmuxName: null,
+  pendingPrompt: null,
 }
 
 const first: Message = { id: 'm_1', chatId: 'general', seq: 1, at: 10, kind: 'agent_text', markdown: 'hello' }
@@ -37,6 +38,15 @@ describe('Web Channel event state', () => {
     expect(afterDuplicate).toBe(afterCreate)
     expect(afterUpdate.eventSeq).toBe(4)
     expect(afterUpdate.messages.general).toEqual([answered])
+  })
+
+  test('a chat from a server that does not send pendingPrompt defaults to null', () => {
+    const { pendingPrompt: _omitted, ...legacy } = general
+    const initial = createRealtimeState({ seq: 1, away: false, chats: [legacy as Chat], usage: noUsage })
+    expect(initial.chats[0]?.pendingPrompt).toBeNull()
+
+    const updated = applyServerEvent(initial, { type: 'chat.updated', seq: 2, chat: { ...legacy, unread: 1 } as Chat })
+    expect(updated.chats[0]).toMatchObject({ unread: 1, pendingPrompt: null })
   })
 
   test('a clear event removes only messages at or before the server cutoff', () => {

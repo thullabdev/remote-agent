@@ -15,6 +15,7 @@ const general: Chat = {
   lastMessage: null, draft: null,
   pinned: true,
   tmuxName: null,
+  pendingPrompt: null,
 }
 
 const laptop: Chat = { ...general, id: 'laptop-chat', title: 'Laptop session', pinned: false }

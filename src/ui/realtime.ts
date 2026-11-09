@@ -12,12 +12,17 @@ export type RealtimeState = {
   hiddenBeforeSeq: Record<string, number>
 }
 
+/** A server older than this UI (or a cached bundle talking to a newer one) may omit fields the UI now reads. */
+function withDefaults(chat: Chat): Chat {
+  return chat.pendingPrompt === undefined ? { ...chat, pendingPrompt: null } : chat
+}
+
 export function createRealtimeState(state: WebState): RealtimeState {
   return {
     eventSeq: state.seq,
     away: state.away,
     usage: state.usage,
-    chats: state.chats,
+    chats: state.chats.map(withDefaults),
     messages: {},
     hasMore: {},
     loadedChats: new Set(),
@@ -85,7 +90,7 @@ export function applyServerEvent(state: RealtimeState, event: ServerEvent): Real
     }
     case 'chat.updated': {
       const chats = next.chats.filter(chat => chat.id !== event.chat.id)
-      next = { ...next, chats: orderChats([...chats, event.chat]) }
+      next = { ...next, chats: orderChats([...chats, withDefaults(event.chat)]) }
       break
     }
     case 'chat.cleared': {
