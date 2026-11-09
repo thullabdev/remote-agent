@@ -1,4 +1,4 @@
-import { Check, Pencil } from 'lucide-react'
+import { Check, Laptop, Terminal } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { avatarHue, formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
@@ -51,6 +51,19 @@ type ChatRowContentProps = {
   selection: { selected: boolean } | null
 }
 
+/** A small mark of where the session runs: the laptop, or a terminal for one spawned from Remote Agent (it lives in tmux). */
+function OriginIcon({ chat }: { chat: Chat }) {
+  if (chat.id === 'general') {
+    return null
+  }
+  const Icon = chat.spawned ? Terminal : Laptop
+  return (
+    <span data-origin={chat.spawned ? 'spawned' : 'laptop'} title={chat.spawned ? 'Spawned from Remote Agent' : 'Started on your laptop'} className="flex shrink-0">
+      <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+    </span>
+  )
+}
+
 export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
   const state = chatState(chat)
   const isGeneral = chat.id === 'general'
@@ -73,7 +86,7 @@ export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
         <span className="flex items-center gap-2">
           <span className={`truncate text-[15px] ${chat.unread > 0 ? 'font-semibold' : 'font-medium'}`}>{chat.title}</span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            {chat.draft !== null && <Pencil aria-hidden="true" className="size-3.5 text-primary" />}
+            <OriginIcon chat={chat} />
             {chat.lastMessage !== null && (
               <time dateTime={new Date(chat.lastMessage.at).toISOString()} className="font-mono text-xs text-muted-foreground">
                 {formatRelativeTime(chat.lastMessage.at)}
@@ -86,6 +99,11 @@ export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
           <span className="mt-0.5 flex items-center gap-2">
             <PreviewLine chat={chat} />
             {unreadDot !== null && <span className="ml-auto flex shrink-0">{unreadDot}</span>}
+          </span>
+        )}
+        {chat.draft !== null && (
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            <span className="font-medium text-primary">Draft</span>: {chat.draft.preview}
           </span>
         )}
       </span>

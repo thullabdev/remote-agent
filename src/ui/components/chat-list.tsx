@@ -1,17 +1,20 @@
-import { Archive, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react'
+import { Archive, Check, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { filterChats, filterCounts, visibleFilters, type ListFilter } from '../chat-filters.ts'
+import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
 import { chatRowLabel } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { ChatRowContent } from './chat-row.tsx'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 
 type ChatListProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
   initialFilter?: ListFilter
+  /** The source the list opens on. All sources, unless a test or a link says otherwise. */
+  initialOrigin?: OriginFilter
   chats: Chat[]
   activeId: string | null
   status: ConnectionStatus
@@ -20,6 +23,56 @@ type ChatListProps = {
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onActionError(error: unknown): void
+}
+
+/** Narrows the list to sessions started on the laptop or spawned from Remote Agent. Sits inside the search field to keep the header light. */
+function SourceFilter({ value, onSelect }: { value: OriginFilter; onSelect(origin: OriginFilter): void }) {
+  const active = value !== 'all'
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Filter by source"
+          data-active={active ? 'true' : undefined}
+          className={`absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full hover:bg-background/60 ${active ? 'text-primary' : 'text-muted-foreground'}`}
+        >
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
+          {active && <span aria-hidden="true" className="absolute right-1 top-1 size-2 rounded-full bg-primary" />}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {ORIGIN_FILTERS.map(([origin, label]) => (
+          <DropdownMenuItem key={origin} onSelect={() => onSelect(origin)}>
+            <span className="flex-1">{label}</span>
+            {value === origin && <Check className="size-4" aria-hidden="true" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** What an empty list says: why it is empty, in the words of what the user asked to see. */
+function emptyMessage(query: string, filter: ListFilter, origin: OriginFilter): string {
+  if (query.trim() !== '') {
+    return 'No chats match that search.'
+  }
+  if (origin !== 'all') {
+    return `No ${origin} sessions here.`
+  }
+  switch (filter) {
+    case 'all':
+      return 'Your chats will appear here.'
+    case 'needs_you':
+      return 'Nothing is waiting on you.'
+    case 'working':
+      return 'No session is working right now.'
+    case 'ended':
+      return 'No ended sessions.'
+    case 'archived':
+      return 'No archived sessions.'
+  }
 }
 
 const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
@@ -122,6 +175,7 @@ export function isSelectableChat(chat: Chat): boolean {
 
 export function ChatList({
   initialFilter = 'all',
+  initialOrigin = 'all',
   chats,
   activeId,
   status,
@@ -133,6 +187,7 @@ export function ChatList({
 }: ChatListProps) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ListFilter>(initialFilter)
+  const [origin, setOrigin] = useState<OriginFilter>(initialOrigin)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [archiving, setArchiving] = useState(false)
@@ -141,11 +196,14 @@ export function ChatList({
   const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClick = useRef<string | null>(null)
   const filteredChats = useMemo(
-    () => filterChats(chats, query, filter),
-    [chats, query, filter],
+    () => filterChats(chats, query, filter, origin),
+    [chats, query, filter, origin],
   )
-  const counts = useMemo(() => filterCounts(chats), [chats])
-  const endedUnread = useMemo(() => chats.some(chat => chat.status === 'ended' && !chat.archived && chat.unread > 0), [chats])
+  const counts = useMemo(() => filterCounts(chats, origin), [chats, origin])
+  const endedUnread = useMemo(
+    () => chats.some(chat => matchesOrigin(chat, origin) && chat.status === 'ended' && !chat.archived && chat.unread > 0),
+    [chats, origin],
+  )
   const selectableIds = useMemo(() => new Set(chats.filter(isSelectableChat).map(chat => chat.id)), [chats])
 
   useEffect(() => {
@@ -269,8 +327,9 @@ export function ChatList({
               placeholder="Search sessions"
               value={query}
               onChange={event => setQuery(event.target.value)}
-              className="h-10 rounded-full border-transparent bg-muted pl-9 shadow-none focus-visible:border-border"
+              className="h-10 rounded-full border-transparent bg-muted pl-9 pr-11 shadow-none focus-visible:border-border"
             />
+            <SourceFilter value={origin} onSelect={setOrigin} />
           </div>
         )}
         <Button variant="ghost" size="icon" aria-label="Settings" title="Settings" onClick={onSettings}>
@@ -346,17 +405,7 @@ export function ChatList({
           ))}
           {filteredChats.length === 0 && (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-              {query.trim()
-                ? 'No chats match that search.'
-                : filter === 'all'
-                  ? 'Your chats will appear here.'
-                  : filter === 'needs_you'
-                    ? 'Nothing is waiting on you.'
-                    : filter === 'working'
-                      ? 'No session is working right now.'
-                      : filter === 'ended'
-                        ? 'No ended sessions.'
-                        : 'No archived sessions.'}
+              {emptyMessage(query, filter, origin)}
             </div>
           )}
         </div>

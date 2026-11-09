@@ -166,14 +166,25 @@ test('a working row keeps the last message visible next to the state', () => {
   expect(markup).toContain('Done with the migration')
 })
 
-test('a row has two lines: the project is not printed on it, and a draft is a pencil that does not hide the preview', () => {
+test('a row shows its draft text on a third line, without a project line or a pencil', () => {
   const markup = row({ ...base, draft: { preview: 'half a reply', at: 1 } })
-  expect(markup).not.toContain('>api<')
-  expect(markup).not.toContain('half a reply')
-  expect(markup).toContain('lucide-pencil')
+  expect(markup).toContain('Draft')
+  expect(markup).toContain('half a reply')
   expect(markup).toContain('Done with the migration')
-  expect(row(base)).not.toContain('lucide-pencil')
+  expect(markup).not.toContain('>api<')
+  expect(markup).not.toContain('lucide-pencil')
   expect(markup).toContain('has a draft')
+  expect(row(base)).not.toContain('Draft')
+})
+
+test('a row says where its session runs: laptop or spawned', () => {
+  const laptopRow = row({ ...base, spawned: false })
+  const spawnedRow = row({ ...base, spawned: true })
+  expect(laptopRow).toContain('data-origin="laptop"')
+  expect(laptopRow).toContain('Started on your laptop')
+  expect(spawnedRow).toContain('data-origin="spawned"')
+  expect(spawnedRow).toContain('Spawned from Remote Agent')
+  expect(spawnedRow).not.toContain('data-origin="laptop"')
 })
 
 test('the tile letter is the project initial, so the letter and the color name the same thing', () => {
@@ -182,13 +193,39 @@ test('the tile letter is the project initial, so the letter and the color name t
   expect(tile({ ...base, project: null })).toBe('B')
 })
 
-test('General is compact: one line, no preview, but its draft and unread still show', () => {
+test('General has no preview or origin, but its draft text and unread still show', () => {
   const general: Chat = { ...base, id: 'general', title: 'General', project: null, pinned: true, lastMessage: { seq: 1, at: Date.now(), preview: 'Bridge started. Away mode is on.' } }
   const markup = row(general)
   expect(markup).toContain('General')
   expect(markup).not.toContain('Bridge started')
-  expect(row({ ...general, draft: { preview: '/new', at: 1 } })).toContain('lucide-pencil')
+  expect(markup).not.toContain('data-origin')
+  const drafting = row({ ...general, draft: { preview: '/new -m sonnet', at: 1 } })
+  expect(drafting).toContain('Draft')
+  expect(drafting).toContain('/new -m sonnet')
   expect(row({ ...general, unread: 1 })).toContain('rounded-full bg-primary')
+})
+
+test('the header offers a source filter that narrows the list and shows when it is on', () => {
+  const spawnedChat: Chat = { ...base, id: 's1', title: 'Spawned one', spawned: true }
+  const laptopChat: Chat = { ...base, id: 'l1', title: 'Laptop one', spawned: false }
+  const render = (origin?: 'all' | 'laptop' | 'spawned'): string =>
+    renderToStaticMarkup(
+      createElement(ChatList, {
+        chats: [spawnedChat, laptopChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        onArchiveSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
+      }),
+    )
+  const everything = render()
+  expect(everything).toContain('aria-label="Filter by source"')
+  expect(everything).toContain('Spawned one')
+  expect(everything).toContain('Laptop one')
+  expect(everything).not.toContain('data-active')
+
+  const onlySpawned = render('spawned')
+  expect(onlySpawned).toContain('Spawned one')
+  expect(onlySpawned).not.toContain('Laptop one')
+  expect(onlySpawned).toContain('data-active="true"')
+  expect(render('laptop')).not.toContain('Spawned one')
 })
 
 test('the Ended tab says how to archive, since selection is a press and hold', () => {
@@ -213,7 +250,7 @@ test('unread is a dot, and the count is spoken in the label instead of shown', (
 
 test('the row has a state-first accessible name and a machine-readable time', () => {
   const markup = row(blocked)
-  expect(markup).toContain('aria-label="Needs you, permission: Bash: bun test, Billing fix, api, just now"')
+  expect(markup).toContain('aria-label="Needs you, permission: Bash: bun test, Billing fix, laptop session, api, just now"')
   expect(markup).toMatch(/<time dateTime="[^"]+"/)
 })
 
@@ -227,7 +264,8 @@ test('the avatar takes its color from the project and carries a state badge', ()
   expect(markup).toContain('--avatar-hue')
   expect(markup).toContain('data-state="needs_you"')
   expect(row({ ...base, busy: true })).toContain('data-state="working"')
-  expect(row(base)).not.toContain('data-state=')
+  expect(row(base)).not.toContain('data-state="needs_you"')
+  expect(row(base)).not.toContain('data-state="working"')
 })
 
 function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' | 'resyncing' | 'error' | 'loading'; activeId?: string | null } = {}): string {

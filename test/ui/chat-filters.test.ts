@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { filterChats, filterCounts, LIST_FILTERS, visibleFilters } from '../../src/ui/chat-filters.ts'
+import { filterChats, filterCounts, LIST_FILTERS, ORIGIN_FILTERS, visibleFilters } from '../../src/ui/chat-filters.ts'
 
 const general: Chat = {
   id: 'general', title: 'General', project: null, cwd: null, status: 'active', spawned: false, archived: false, busy: false, unread: 0,
@@ -69,4 +69,31 @@ test('Needs you and Working are offered only while they hold something, All is a
 test('a tab stays while it is selected, even when it has just emptied, so the user sees it clear', () => {
   const none = { needs_you: 0, working: 0, all: 4, ended: 1, archived: 0 }
   expect(visibleFilters(none, 'needs_you').map(([filter]) => filter)).toEqual(['all', 'needs_you', 'ended', 'archived'])
+})
+
+const spawnedWaiting: Chat = { ...waiting, id: 'spawned-waiting', title: 'Spawned waiting', spawned: true }
+const spawnedIdle: Chat = { ...idle, id: 'spawned-idle', title: 'Spawned idle', spawned: true }
+const spawnedEnded: Chat = { ...ended, id: 'spawned-ended', title: 'Spawned ended', spawned: true }
+const mixed = [general, idle, waiting, ended, spawnedIdle, spawnedWaiting, spawnedEnded]
+
+test('the source filter is named after where a session runs, with every source first', () => {
+  expect(ORIGIN_FILTERS.map(([, label])  => label)).toEqual(['All sources', 'Laptop', 'Spawned'])
+})
+
+test('Laptop shows only sessions started on the laptop and Spawned only those started from Remote Agent, never General', () => {
+  expect(ids(filterChats(mixed, '', 'all', 'laptop'))).toEqual(['idle', 'waiting'])
+  expect(ids(filterChats(mixed, '', 'all', 'spawned'))).toEqual(['spawned-idle', 'spawned-waiting'])
+  expect(ids(filterChats(mixed, '', 'all', 'all'))).toEqual(['general', 'idle', 'waiting', 'spawned-idle', 'spawned-waiting'])
+})
+
+test('the source filter combines with the state tabs and with search', () => {
+  expect(ids(filterChats(mixed, '', 'needs_you', 'spawned'))).toEqual(['spawned-waiting'])
+  expect(ids(filterChats(mixed, '', 'ended', 'laptop'))).toEqual(['ended'])
+  expect(ids(filterChats(mixed, 'ended', 'all', 'spawned'))).toEqual(['spawned-ended'])
+  expect(ids(filterChats(mixed, 'idle', 'all', 'laptop'))).toEqual(['idle'])
+})
+
+test('tab counts follow the source filter, so a tab never promises rows the list will not show', () => {
+  expect(filterCounts(mixed, 'spawned')).toEqual({ all: 2, needs_you: 1, working: 0, ended: 1, archived: 0 })
+  expect(filterCounts(mixed, 'laptop')).toMatchObject({ all: 2, needs_you: 1, ended: 1 })
 })
