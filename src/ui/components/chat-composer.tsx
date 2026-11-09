@@ -4,7 +4,7 @@ import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { filterUploads, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
-import { UPLOAD_ACCEPT, UploadPicker } from './upload-picker.tsx'
+import { UploadPicker } from './upload-picker.tsx'
 import { UsageButton, UsagePanel } from './usage-panel.tsx'
 import { useNow } from './usage-meters.tsx'
 
@@ -45,7 +45,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   const [usageOpen, setUsageOpen] = useState(false)
   const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachOpen, setAttachOpen] = useState(false)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
@@ -90,9 +90,11 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   const [pickerIndex, setPickerIndex] = useState(0)
   const [pickerDismissed, setPickerDismissed] = useState(false)
   const [pickerNote, setPickerNote] = useState<string | null>(null)
+  // The picker opens from an open @ token or from the attach button; both use the same list.
   const mention = mentionQuery(text)
-  const pickerOpen = mention !== null && !pickerDismissed && !disabled
-  const pickerUploads = pickerOpen ? filterUploads(library, mention) : []
+  const pickerQuery = mention ?? ''
+  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled
+  const pickerUploads = pickerOpen ? filterUploads(library, pickerQuery) : []
   const limitReached = attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE
 
   useEffect(() => {
@@ -116,6 +118,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   }
 
   const pick = (upload: UploadRecord) => {
+    setAttachOpen(false)
     setText(current => removeMention(current))
     if (attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE && !attachments.some(item => item.id === upload.id)) {
       setPickerNote(`Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`)
@@ -139,6 +142,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
         }
       }
       setText(current => removeMention(current))
+      setAttachOpen(false)
     } finally {
       setUploading(false)
       inputRef.current?.focus()
@@ -173,6 +177,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
     }
     if (pickerOpen && event.key === 'Escape') {
       setPickerDismissed(true)
+      setAttachOpen(false)
       return
     }
     if (suggestionsOpen) {
@@ -247,7 +252,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
       {pickerOpen && (
         <UploadPicker
           uploads={pickerUploads}
-          query={mention ?? ''}
+          query={pickerQuery}
           selected={pickerIndex}
           note={pickerNote ?? (limitReached ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.` : null)}
           onHover={setPickerIndex}
@@ -296,29 +301,18 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
             disabled={disabled}
             className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={UPLOAD_ACCEPT}
-            multiple
-            tabIndex={-1}
-            className="sr-only"
-            onChange={event => {
-              const files = Array.from(event.target.files ?? [])
-              event.target.value = ''
-              if (files.length > 0) {
-                void uploadFiles(files)
-              }
-            }}
-          />
           <Button
             type="button"
             variant="ghost"
             size="icon"
             aria-label="Attach file"
             title="Attach an image or PDF"
+            aria-pressed={pickerOpen}
             disabled={disabled || uploading || limitReached}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              setPickerDismissed(false)
+              setAttachOpen(open => !open)
+            }}
             className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
           >
             <Paperclip aria-hidden="true" />

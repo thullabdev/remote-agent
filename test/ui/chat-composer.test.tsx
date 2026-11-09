@@ -67,7 +67,7 @@ describe('Enter key preference', () => {
   })
 })
 
-test('the composer has an attach button that opens the file chooser', () => {
+test('the attach button is a toggle for the library picker', () => {
   const markup = renderToStaticMarkup(createElement(ChatComposer, {
     chat,
     usage: { accounts: [], chats: {} } as never,
@@ -81,6 +81,6 @@ test('the composer has an attach button that opens the file chooser', () => {
     onResume: async () => {},
   }))
   expect(markup).toContain('aria-label="Attach file"')
-  expect(markup).toContain('type="file"')
+  expect(markup).toContain('aria-pressed="false"')
 })
 
