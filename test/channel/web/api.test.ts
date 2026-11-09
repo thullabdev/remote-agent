@@ -1,9 +1,11 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import type { QuestionItem } from '../../../mod/remote-agent/hooks/protocol.ts'
 import type { ButtonData, ChannelHandlers, InboundCommand, InboundText } from '../../../src/channel/types.ts'
 import { createApi } from '../../../src/channel/web/api.ts'
+import { UploadLibrary } from '../../../src/channel/web/uploads.ts'
 import { Inbound } from '../../../src/bridge/inbound.ts'
 import { Launcher } from '../../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../../src/bridge/notifier.ts'
@@ -30,6 +32,7 @@ let handlers: ChannelHandlers | null
 let pushDeps: ApiDeps['push']
 let spawnerDep: ApiDeps['spawner']
 let projectsDep: ApiDeps['projects']
+let uploadsLibrary: UploadLibrary | undefined
 let tmux: FakeTmux
 let home: string
 let configPath: string
@@ -79,6 +82,7 @@ function build(): void {
     away,
     spawner: spawnerDep,
     projects: projectsDep,
+    uploads: uploadsLibrary,
     sink: channel,
     usage: () => usageDep,
     log: message => {
@@ -160,6 +164,7 @@ beforeEach(() => {
   handlers = fakeHandlers()
   spawnerDep = stubSpawner()
   projectsDep = undefined
+  uploadsLibrary = new UploadLibrary(store.database, mkdtempSync(`${tmpdir()}/ra-uploads-`), () => clock)
   pushDeps = undefined
   pushCalls.subscribed.length = 0
   pushCalls.unsubscribed.length = 0
@@ -674,3 +679,123 @@ test('renames a session without replacing its automatic title; empty resets and 
   expect((await call('POST', '/api/chats/general/rename', { title: 'Inbox' })).status).toBe(409)
   expect((await call('POST', `/api/chats/${chatId}/rename`, { title: 'x'.repeat(121) })).status).toBe(400)
 })
+
+test('pins and unpins a message; pins list the chat in order with previews; system messages cannot be pinned', async () => {
+  const chatId = seedSession()
+  const first = chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Plan: split the migration' })
+  const second = chatLog.appendMessage(chatId, { kind: 'user_text', text: 'Use the staging database', status: 'delivered', instructionId: null })
+  const notice = chatLog.appendMessage(chatId, { kind: 'system', text: 'Session started' })
+
+  expect(await call('POST', `/api/messages/${second.id}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Pinned.' } })
+  expect(await call('POST', `/api/messages/${first.id}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Pinned.' } })
+  expect(chatLog.findMessage(second.id)?.pinned).toBe(true)
+
+  const pins = (await call('GET', `/api/chats/${chatId}/pins`)).body.pins
+  expect(pins.map((pin: { id: string }) => pin.id)).toEqual([first.id, second.id])
+  expect(pins[0]).toMatchObject({ kind: 'agent_text', preview: 'Plan: split the migration' })
+
+  expect(await call('POST', `/api/messages/${first.id}/pin`, { pinned: false })).toEqual({ status: 200, body: { toast: 'Unpinned.' } })
+  expect((await call('GET', `/api/chats/${chatId}/pins`)).body.pins.map((pin: { id: string }) => pin.id)).toEqual([second.id])
+
+  expect((await call('POST', `/api/messages/${notice.id}/pin`, { pinned: true })).status).toBe(409)
+  expect((await call('POST', '/api/messages/m_missing/pin', { pinned: true })).status).toBe(404)
+  expect((await call('POST', `/api/messages/${second.id}/pin`, { pinned: 'yes' })).status).toBe(400)
+  expect((await call('GET', '/api/chats/nope/pins')).status).toBe(404)
+})
+
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3])
+const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n')
+const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])
+
+function base64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64')
+}
+
+function upload(name: string, bytes: Uint8Array): Promise<{ status: number; body: any }> {
+  return call('POST', '/api/uploads', { name, data: base64(bytes) })
+}
+
+test('uploads an image to the library and lists it', async () => {
+  const { status, body } = await upload('../../screen shot.png', PNG_BYTES)
+  expect(status).toBe(200)
+  expect(body.upload).toMatchObject({ name: 'screen shot.png', mime: 'image/png', size: PNG_BYTES.byteLength, hasThumbnail: false })
+  expect((await call('GET', '/api/uploads')).body.uploads.map((item: { id: string }) => item.id)).toEqual([body.upload.id])
+})
+
+test('refuses uploads of the wrong type, too large, or with bad data', async () => {
+  expect((await upload('a.svg', new TextEncoder().encode('<svg></svg>'))).status).toBe(415)
+  expect((await call('POST', '/api/uploads', { name: 'big.png', data: 'A'.repeat(14_000_000) })).status).toBe(413)
+  expect((await call('POST', '/api/uploads', { name: 'empty.png' })).status).toBe(400)
+  expect((await call('POST', '/api/uploads', { data: base64(PNG_BYTES) })).status).toBe(400)
+})
+
+test('serves a file with its sniffed type, a preview when asked, and refuses a preview for a PDF', async () => {
+  const image = (await upload('a.png', PNG_BYTES)).body.upload
+  const pdf = (await upload('a.pdf', PDF_BYTES)).body.upload
+
+  const file = await api(new Request(`http://localhost/api/uploads/${image.id}`))
+  expect(file?.headers.get('Content-Type')).toBe('image/png')
+  expect(file?.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  expect(new Uint8Array(await file!.arrayBuffer())).toEqual(PNG_BYTES)
+
+  expect((await call('POST', `/api/uploads/${image.id}/thumbnail`, { data: base64(JPEG_BYTES) })).status).toBe(200)
+  const preview = await api(new Request(`http://localhost/api/uploads/${image.id}?thumb=1`))
+  expect(preview?.headers.get('Content-Type')).toBe('image/jpeg')
+  expect((await api(new Request(`http://localhost/api/uploads/${pdf.id}?thumb=1`)))?.status).toBe(404)
+  expect((await call('POST', `/api/uploads/${pdf.id}/thumbnail`, { data: base64(JPEG_BYTES) })).status).toBe(415)
+  expect((await api(new Request('http://localhost/api/uploads/u_missing')))?.status).toBe(404)
+})
+
+test('deletes a file from the library', async () => {
+  const { body } = await upload('gone.png', PNG_BYTES)
+  expect(await call('DELETE', `/api/uploads/${body.upload.id}`)).toEqual({ status: 200, body: { toast: 'Removed from the library.' } })
+  expect((await call('GET', '/api/uploads')).body.uploads).toEqual([])
+  expect((await call('DELETE', `/api/uploads/${body.upload.id}`)).status).toBe(404)
+})
+
+test('a message with attachments shows their names and tells the Session where the files are', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('diagram.png', PNG_BYTES)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-1', text: 'Compare this', attachmentIds: [body.upload.id] })
+
+  expect(sent.status).toBe(200)
+  expect(sent.body.message).toMatchObject({ kind: 'user_text', text: 'Compare this', attachments: [{ id: body.upload.id, name: 'diagram.png', mime: 'image/png' }] })
+  const instruction = store.listPendingInstructions('s1').at(-1)!
+  const path = uploadsLibrary!.filePath(uploadsLibrary!.get(body.upload.id)!)
+  expect(instruction.text).toBe(`Compare this\n\nAttached files (read them with the Read tool):\n- ${path}`)
+})
+
+test('a file-only message is allowed; the Session gets the paths alone', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('only.pdf', PDF_BYTES)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-5', text: '  ', attachmentIds: [body.upload.id] })
+
+  expect(sent.status).toBe(200)
+  expect(sent.body.message).toMatchObject({ text: '', attachments: [{ name: 'only.pdf', mime: 'application/pdf' }] })
+  expect(store.listPendingInstructions('s1').at(-1)!.text.startsWith('Attached files (read them with the Read tool):\n- ')).toBe(true)
+})
+
+test('sending refuses unknown attachments, attachments in General, and a blank message with none', async () => {
+  const chatId = seedSession()
+  expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-2', text: 'hi', attachmentIds: ['u_missing'] })).status).toBe(400)
+  expect((await call('POST', '/api/chats/general/messages', { clientId: 'c-3', text: '/status', attachmentIds: ['u_missing'] })).status).toBe(409)
+  expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-4', text: 'hi', attachmentIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).status).toBe(400)
+  expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-6', text: '   ' })).status).toBe(400)
+})
+
+test('each @reference to an attached file becomes its path in the Session instruction', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('diagram.png', PNG_BYTES)
+  const path = uploadsLibrary!.filePath(uploadsLibrary!.get(body.upload.id)!)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, {
+    clientId: 'c-7',
+    text: 'Compare @diagram.png with the old one (@diagram.png).',
+    attachmentIds: [body.upload.id],
+  })
+
+  expect(sent.body.message.text).toBe('Compare @diagram.png with the old one (@diagram.png).')
+  const instruction = store.listPendingInstructions('s1').at(-1)!.text
+  expect(instruction.startsWith(`Compare ${path} with the old one (${path}).`)).toBe(true)
+  expect(instruction).not.toContain('@diagram.png')
+})
+

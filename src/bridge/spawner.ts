@@ -63,6 +63,8 @@ export type SpawnerDeps = {
   trusted: TrustedFolders
   home: string
   log: Log
+  /** The upload library; Sessions may read it without a permission prompt. */
+  uploadsDir?: string
   schedule?: Schedule
   sleep?: (ms: number) => Promise<void>
   newId?: () => string
@@ -81,6 +83,10 @@ function reasonOf(error: unknown): string {
 
 /** Starts Spawned Sessions from the Channel and watches them until they are ready. */
 export class Spawner {
+  private libraryDirs(): { addDirs?: string[] } {
+    return this.deps.uploadsDir === undefined ? {} : { addDirs: [this.deps.uploadsDir] }
+  }
+
   private readonly timers = new Map<string, () => void>()
   private readonly ending = new Set<string>()
   private readonly resuming = new Set<string>()
@@ -206,7 +212,7 @@ export class Spawner {
       }
 
       try {
-        await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false })
+        await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false, ...this.libraryDirs() })
       } catch (error) {
         const reason = reasonOf(error)
         await channel.sendText(thread, `❌ Could not resume the Session:\n${reason}`, null).catch(sendError => {
@@ -410,7 +416,7 @@ export class Spawner {
       return '❌ Could not create a topic for the session.'
     }
     try {
-      await launcher.launch({ sessionId, cwd, model, resumeFrom })
+      await launcher.launch({ sessionId, cwd, model, resumeFrom, ...this.libraryDirs() })
     } catch (error) {
       const reason = reasonOf(error)
       await channel.sendText(thread, `❌ Could not start the session:\n${reason}`, null).catch(sendError => {

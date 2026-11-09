@@ -1,4 +1,4 @@
-import type { Chat, Message, PushSubscriptionRecord, UsageView } from '../channel/web/protocol.ts'
+import type { Chat, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
 
 export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
@@ -23,7 +23,11 @@ type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 export function createApiClient(fetcher: Fetcher = fetch): {
   getState(): Promise<WebState>
   getMessages(chatId: string, before?: number): Promise<MessagePage>
-  sendMessage(chatId: string, body: { clientId: string; text: string }): Promise<{ message: Message }>
+  sendMessage(chatId: string, body: { clientId: string; text: string; attachmentIds?: string[] }): Promise<{ message: Message }>
+  listUploads(): Promise<{ uploads: UploadRecord[] }>
+  uploadFile(name: string, data: string): Promise<{ upload: UploadRecord }>
+  uploadThumbnail(uploadId: string, data: string): Promise<{ ok: true }>
+  deleteUpload(uploadId: string): Promise<{ toast: string }>
   performAction(chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number } | { pickerId: string; choice: number }): Promise<{ toast: string }>
   replyToPrompt(promptId: string, body: { questionIndex: number; text: string }): Promise<{ toast: string }>
   markRead(chatId: string, seq: number): Promise<{ ok: true }>
@@ -33,6 +37,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
   renameChat(chatId: string, title: string): Promise<{ toast: string }>
+  pinMessage(messageId: string, pinned: boolean): Promise<{ toast: string }>
+  listPins(chatId: string): Promise<{ pins: PinView[] }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
   resumeChat(chatId: string): Promise<{ toast: string }>
@@ -72,6 +78,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     })
   }
 
+  function del<T>(path: string): Promise<T> {
+    return request<T>(path, { method: 'DELETE', headers: { 'Content-Type': 'application/json' } })
+  }
+
   return {
     getState: () => get('/api/state'),
     getMessages: (chatId, before) => {
@@ -79,6 +89,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       return get(`/api/chats/${encodeURIComponent(chatId)}/messages${query}`)
     },
     sendMessage: (chatId, body) => post(`/api/chats/${encodeURIComponent(chatId)}/messages`, body),
+    listUploads: () => get('/api/uploads'),
+    uploadFile: (name, data) => post('/api/uploads', { name, data }),
+    uploadThumbnail: (uploadId, data) => post(`/api/uploads/${encodeURIComponent(uploadId)}/thumbnail`, { data }),
+    deleteUpload: uploadId => del(`/api/uploads/${encodeURIComponent(uploadId)}`),
     performAction: (chatId, body) => post(`/api/chats/${encodeURIComponent(chatId)}/actions`, body),
     replyToPrompt: (promptId, body) => post(`/api/prompts/${encodeURIComponent(promptId)}/reply`, body),
     markRead: (chatId, seq) => post(`/api/chats/${encodeURIComponent(chatId)}/read`, { seq }),
@@ -105,6 +119,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     },
     unarchiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/unarchive`),
     renameChat: (chatId, title) => post(`/api/chats/${encodeURIComponent(chatId)}/rename`, { title }),
+    pinMessage: (messageId, pinned) => post(`/api/messages/${encodeURIComponent(messageId)}/pin`, { pinned }),
+    listPins: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/pins`),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),

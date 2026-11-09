@@ -1,8 +1,10 @@
-import { RotateCcw, Send } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { Chat, UsageView } from '../../channel/web/protocol.ts'
+import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
+import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
+import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
+import { UploadPicker } from './upload-picker.tsx'
 import { UsageButton, UsagePanel } from './usage-panel.tsx'
 import { useNow } from './usage-meters.tsx'
 
@@ -12,7 +14,13 @@ type ChatComposerProps = {
   sending: boolean
   /** true: Enter sends and Shift+Enter adds a line. false: Enter adds a line and Ctrl/Cmd+Enter sends. */
   enterSends: boolean
-  onSend(text: string): Promise<void>
+  /** Library files attached to this message, in the order they were picked. */
+  library: UploadRecord[]
+  onRefreshLibrary(): void
+  /** Uploads a file to the library and resolves to its reference, or null when it was refused. */
+  onUpload(file: File): Promise<UploadRef | null>
+  onDeleteUpload(upload: UploadRecord): void
+  onSend(text: string, attachments: UploadRef[]): Promise<void>
   onResume(): Promise<void>
 }
 
@@ -30,13 +38,14 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResume }: ChatComposerProps) {
+function ChatComposerView({ chat, usage, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume }: ChatComposerProps) {
   const [text, setText] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [attachOpen, setAttachOpen] = useState(false)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
@@ -76,18 +85,106 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
     }
   }, [])
 
+  const [attachments, setAttachments] = useState<UploadRef[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [pickerIndex, setPickerIndex] = useState(0)
+  const [pickerDismissed, setPickerDismissed] = useState(false)
+  const [pickerNote, setPickerNote] = useState<string | null>(null)
+  // The picker opens from an open @ token or from the attach button; both use the same list.
+  const mention = mentionQuery(text)
+  const pickerQuery = mention ?? ''
+  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled
+  const pickerUploads = pickerOpen ? filterUploads(library, pickerQuery) : []
+  const limitReached = attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE
+
+  useEffect(() => {
+    setPickerIndex(0)
+    setPickerNote(null)
+  }, [mention])
+
+  useEffect(() => {
+    if (pickerOpen) {
+      onRefreshLibrary()
+    }
+  }, [pickerOpen, onRefreshLibrary])
+
+  const addAttachment = (ref: UploadRef) => {
+    setAttachments(current => {
+      if (current.some(item => item.id === ref.id)) {
+        return current
+      }
+      return current.length >= MAX_ATTACHMENTS_PER_MESSAGE ? current : [...current, ref]
+    })
+  }
+
+  /** Attaches the file and writes `@name` into the text, so it can be referred to again. */
+  const attachReference = (ref: UploadRef) => {
+    if (attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE && !attachments.some(item => item.id === ref.id)) {
+      setPickerNote(`Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`)
+      return
+    }
+    addAttachment(ref)
+    setText(current => insertReference(current, ref.name))
+  }
+
+  const pick = (upload: UploadRecord) => {
+    setAttachOpen(false)
+    attachReference(toRef(upload))
+    inputRef.current?.focus()
+  }
+
+  const uploadFiles = async (files: File[]) => {
+    setUploading(true)
+    try {
+      for (const file of files) {
+        if (file.size > MAX_UPLOAD_BYTES) {
+          setPickerNote('That file is larger than 10 MB.')
+          continue
+        }
+        const ref = await onUpload(file)
+        if (ref !== null) {
+          attachReference(ref)
+        }
+      }
+      setText(current => removeMention(current))
+      setAttachOpen(false)
+    } finally {
+      setUploading(false)
+      inputRef.current?.focus()
+    }
+  }
+
   const submit = async (event?: FormEvent) => {
     event?.preventDefault()
     const value = text.trim()
-    if (value === '' || disabled || sending) {
+    if ((value === '' && attachments.length === 0) || disabled || sending || uploading) {
       return
     }
+    const sent = attachments
     setText('')
-    await onSend(value)
+    setAttachments([])
+    await onSend(value, sent)
     inputRef.current?.focus()
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (pickerOpen && pickerUploads.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setPickerIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + pickerUploads.length) % pickerUploads.length)
+        return
+      }
+      if (event.key === 'Enter' && !event.nativeEvent.isComposing && pickerUploads[pickerIndex] !== undefined) {
+        event.preventDefault()
+        pick(pickerUploads[pickerIndex]!)
+        return
+      }
+    }
+    if (pickerOpen && event.key === 'Escape') {
+      setPickerDismissed(true)
+      setAttachOpen(false)
+      return
+    }
     if (suggestionsOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -157,6 +254,40 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
         <UsageButton open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
       </div>
       <UsagePanel open={usageOpen} accounts={usage.accounts} session={usage.chats[chat.id]} now={now} />
+      {pickerOpen && (
+        <UploadPicker
+          uploads={pickerUploads}
+          query={pickerQuery}
+          selected={pickerIndex}
+          note={pickerNote ?? (limitReached ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.` : null)}
+          onHover={setPickerIndex}
+          onPick={pick}
+          onDelete={onDeleteUpload}
+          onUploadFiles={files => void uploadFiles(files)}
+        />
+      )}
+      {(attachments.length > 0 || uploading) && (
+        <div className="mx-auto mb-1.5 flex max-w-4xl flex-wrap gap-1.5">
+          {attachments.map(attachment => (
+            <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card py-1 pl-2.5 pr-1 text-xs">
+              {isPdf(attachment.mime) ? <FileText className="size-3.5 shrink-0" aria-hidden="true" /> : <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />}
+              <span className="truncate">{attachment.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${attachment.name}`}
+                onClick={() => {
+                  setAttachments(current => current.filter(item => item.id !== attachment.id))
+                  setText(current => removeReferences(current, attachment.name))
+                }}
+                className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="size-3" aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+          {uploading && <span className="px-2 py-1 text-xs text-muted-foreground">Uploading…</span>}
+        </div>
+      )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
         <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
@@ -165,7 +296,10 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
             id="chat-composer"
             rows={1}
             value={text}
-            onChange={event => setText(event.target.value)}
+            onChange={event => {
+              setText(event.target.value)
+              setPickerDismissed(false)
+            }}
             onKeyDown={onKeyDown}
             aria-autocomplete="list"
             aria-controls={suggestionsOpen ? 'chat-command-suggestions' : undefined}
@@ -175,7 +309,23 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
             disabled={disabled}
             className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
-          <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || text.trim() === ''} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Attach file"
+            title="Attach an image or PDF"
+            aria-pressed={pickerOpen}
+            disabled={disabled || uploading || limitReached}
+            onClick={() => {
+              setPickerDismissed(false)
+              setAttachOpen(open => !open)
+            }}
+            className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
+          >
+            <Paperclip aria-hidden="true" />
+          </Button>
+          <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>
         </div>
@@ -183,3 +333,6 @@ export function ChatComposer({ chat, usage, sending, enterSends, onSend, onResum
     </div>
   )
 }
+
+/** Memoized so opening the chat details does not re-render the message list or the composer. */
+export const ChatComposer = memo(ChatComposerView)

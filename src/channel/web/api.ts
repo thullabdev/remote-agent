@@ -9,7 +9,8 @@ import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushService } from './push.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UsageView } from './protocol.ts'
+import { ActionSchema, AwaySchema, clientSourceId, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
+import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -30,6 +31,8 @@ export type ApiDeps = {
   projects?: () => Promise<Project[]>
   /** Absent when push is not configured; the push routes then answer 404. */
   push?: Pick<PushService, 'publicKey' | 'subscribe' | 'unsubscribe'>
+  /** Absent when uploads are not configured; the upload routes then answer 404. */
+  uploads?: UploadLibrary
   log: Log
 }
 
@@ -61,7 +64,7 @@ function isHttpsUrl(value: string): boolean {
 
 class ApiError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409 | 500 | 503,
+    readonly status: 400 | 404 | 409 | 413 | 415 | 500 | 503,
     message: string,
   ) {
     super(message)
@@ -84,6 +87,13 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
+  { method: 'GET', pattern: ['uploads'], run: ({ deps }) => listUploads(deps) },
+  { method: 'POST', pattern: ['uploads'], run: ({ deps, request }) => addUpload(deps, request) },
+  { method: 'GET', pattern: ['uploads', ':id'], run: ({ deps, url }, id) => uploadFile(deps, id, url) },
+  { method: 'POST', pattern: ['uploads', ':id', 'thumbnail'], run: ({ deps, request }, id) => addThumbnail(deps, request, id) },
+  { method: 'DELETE', pattern: ['uploads', ':id'], run: ({ deps }, id) => removeUpload(deps, id) },
+  { method: 'POST', pattern: ['messages', ':id', 'pin'], run: ({ deps, request }, id) => pinMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
@@ -111,7 +121,8 @@ export function createApi(deps: ApiDeps): (request: Request) => Promise<Response
       for (const route of ROUTES) {
         const id = route.method === request.method ? match(segments, route.pattern) : null
         if (id !== null) {
-          return json(await route.run(ctx, id))
+          const result = await route.run(ctx, id)
+          return result instanceof Response ? result : json(result)
         }
       }
       throw new ApiError(404, 'Not found.')
@@ -228,8 +239,12 @@ function history(deps: ApiDeps, chatId: string, url: URL): unknown {
 
 async function sendMessage(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
   const body = await readBody(request, SendMessageSchema)
+  const attachmentIds = body.attachmentIds ?? []
   requireChat(deps, chatId)
   if (chatId === GENERAL_ID) {
+    if (attachmentIds.length > 0) {
+      throw new ApiError(409, 'General does not take file attachments.')
+    }
     return sendGeneral(deps, body.clientId, body.text)
   }
   const session = requireSession(deps, chatId)
@@ -240,8 +255,126 @@ async function sendMessage(deps: ApiDeps, request: Request, chatId: string): Pro
   if (session.endedAt !== null) {
     throw new ApiError(409, 'This session has ended.')
   }
-  const instruction = deps.store.enqueueInstruction(session.id, body.text)
-  return { message: deps.sink.instructionQueued(instruction, session, body.clientId) }
+  const attachments = resolveAttachments(deps, attachmentIds)
+  const instruction = deps.store.enqueueInstruction(session.id, withAttachmentPaths(body.text, attachments.files))
+  return { message: deps.sink.instructionQueued(instruction, session, body.clientId, { text: body.text.trim(), attachments: attachments.refs }) }
+}
+
+/** Library entries for the ids, each once. The Session gets their paths; the message shows their names. */
+function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; files: { ref: UploadRef; path: string }[] } {
+  const refs: UploadRef[] = []
+  const files: { ref: UploadRef; path: string }[] = []
+  if (ids.length === 0) {
+    return { refs, files }
+  }
+  const library = requireUploads(deps)
+  for (const id of new Set(ids)) {
+    const record = library.get(id)
+    if (record === undefined) {
+      throw new ApiError(400, 'An attached file is no longer in the library.')
+    }
+    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size }
+    refs.push(ref)
+    files.push({ ref, path: library.filePath(record) })
+  }
+  return { refs, files }
+}
+
+/**
+ * The instruction text for the Session. Each `@name` that refers to an attached file becomes its absolute path,
+ * wherever it appears; the attached files are also listed at the end.
+ */
+function withAttachmentPaths(text: string, files: { ref: UploadRef; path: string }[]): string {
+  if (files.length === 0) {
+    return text
+  }
+  let expanded = text
+  for (const { ref, path } of files) {
+    const reference = new RegExp(`(?<=^|[\\s([{'"])@${escapeRegExp(ref.name)}(?=$|[\\s.,;:!?)\\]])`, 'g')
+    expanded = expanded.replace(reference, () => path)
+  }
+  const listing = `Attached files (read them with the Read tool):\n${files.map(({ path }) => `- ${path}`).join('\n')}`
+  return expanded.trim() === '' ? listing : `${expanded}\n\n${listing}`
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function requireUploads(deps: ApiDeps): UploadLibrary {
+  if (deps.uploads === undefined) {
+    throw new ApiError(404, 'Uploads are not configured.')
+  }
+  return deps.uploads
+}
+
+/** Maps the library's refusals to the API's status codes. */
+function withUploadErrors<T>(action: () => T): T {
+  try {
+    return action()
+  } catch (error) {
+    if (error instanceof UploadError) {
+      throw new ApiError(error.status, error.message)
+    }
+    throw error
+  }
+}
+
+function listUploads(deps: ApiDeps): unknown {
+  return { uploads: requireUploads(deps).list() }
+}
+
+/** Uploads travel as JSON with base64 data, so the JSON Content-Type guard applies to them too. */
+const UploadBodySchema = z.object({ name: z.string().min(1).max(500), data: z.string().min(1) })
+const ThumbnailBodySchema = z.object({ data: z.string().min(1) })
+
+/** Decodes base64 data, refusing anything that could not hold a file within the limit. */
+function decodeUpload(data: string): Uint8Array {
+  if (data.length > Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 4) {
+    throw new ApiError(413, 'File is larger than 10 MB.')
+  }
+  return new Uint8Array(Buffer.from(data, 'base64'))
+}
+
+async function addUpload(deps: ApiDeps, request: Request): Promise<unknown> {
+  const library = requireUploads(deps)
+  const body = await readBody(request, UploadBodySchema)
+  const bytes = decodeUpload(body.data)
+  return { upload: withUploadErrors(() => library.add(body.name, bytes)) }
+}
+
+/** Serves the file, or its preview with `?thumb=1`, with the type its bytes show. */
+async function uploadFile(deps: ApiDeps, id: string, url: URL): Promise<Response> {
+  const library = requireUploads(deps)
+  const record = library.get(id)
+  if (record === undefined) {
+    throw new ApiError(404, 'No such file.')
+  }
+  const wantsPreview = url.searchParams.get('thumb') === '1'
+  const preview = wantsPreview ? library.thumbnail(id) : undefined
+  if (wantsPreview && preview === undefined) {
+    throw new ApiError(404, 'No preview for this file.')
+  }
+  const source = preview ?? { mime: record.mime, path: library.filePath(record) }
+  const blob = Bun.file(source.path)
+  if (!(await blob.exists())) {
+    throw new ApiError(404, 'The file is missing from disk.')
+  }
+  return new Response(blob, {
+    headers: { 'Content-Type': source.mime, 'Cache-Control': 'private', 'X-Content-Type-Options': 'nosniff' },
+  })
+}
+
+async function addThumbnail(deps: ApiDeps, request: Request, id: string): Promise<unknown> {
+  const library = requireUploads(deps)
+  const body = await readBody(request, ThumbnailBodySchema)
+  withUploadErrors(() => library.addThumbnail(id, decodeUpload(body.data)))
+  return { ok: true }
+}
+
+function removeUpload(deps: ApiDeps, id: string): unknown {
+  withUploadErrors(() => requireUploads(deps).remove(id))
+  return { toast: 'Removed from the library.' }
 }
 
 async function sendGeneral(deps: ApiDeps, clientId: string, text: string): Promise<unknown> {
@@ -368,6 +501,24 @@ async function renameChat(deps: ApiDeps, request: Request, chatId: string): Prom
   const name = title.trim()
   deps.chatLog.setCustomTitle(chatId, name === '' ? null : name)
   return { toast: name === '' ? 'Session name reset.' : 'Session renamed.' }
+}
+
+function listPins(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  return { pins: deps.chatLog.listPins(chatId) }
+}
+
+async function pinMessage(deps: ApiDeps, request: Request, messageId: string): Promise<unknown> {
+  const { pinned } = await readBody(request, PinSchema)
+  const message = deps.chatLog.findMessage(messageId)
+  if (message === undefined) {
+    throw new ApiError(404, 'No such message.')
+  }
+  if (message.kind !== 'user_text' && message.kind !== 'agent_text') {
+    throw new ApiError(409, 'Only your messages and agent replies can be pinned.')
+  }
+  deps.chatLog.setPinned(messageId, pinned)
+  return { toast: pinned ? 'Pinned.' : 'Unpinned.' }
 }
 
 function clearHistory(deps: ApiDeps, chatId: string): unknown {

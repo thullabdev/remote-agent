@@ -5,6 +5,8 @@ export type LaunchSpec = {
   model?: string | null
   resumeFrom?: string
   fork?: boolean
+  /** Extra folders the Session may read without asking, such as the upload library. */
+  addDirs?: string[]
 }
 
 /**
@@ -29,6 +31,7 @@ export const claudeCodeAdapter: AgentAdapter = {
         : spec.fork === false
           ? ['--resume', spec.resumeFrom]
           : ['--resume', spec.resumeFrom, '--fork-session', '--session-id', spec.sessionId]
-    return ['claude', ...identity, ...(spec.model == null ? [] : ['--model', spec.model])]
+    const dirs = (spec.addDirs ?? []).flatMap(dir => ['--add-dir', dir])
+    return ['claude', ...identity, ...(spec.model == null ? [] : ['--model', spec.model]), ...dirs]
   },
 }

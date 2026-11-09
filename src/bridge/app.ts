@@ -1,5 +1,5 @@
 import { chmod, mkdir, rm } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type { Server } from 'bun'
 import { TelegramChannel } from '../channel/telegram/adapter.ts'
 import type { Channel } from '../channel/types.ts'
@@ -10,6 +10,7 @@ import { Hub } from '../channel/web/hub.ts'
 import { loadOrCreateVapid, PushService } from '../channel/web/push.ts'
 import { startWebServer, type WebServer } from '../channel/web/server.ts'
 import { TranscriptReader } from '../channel/web/transcript/reader.ts'
+import { UploadLibrary } from '../channel/web/uploads.ts'
 import { WebChannel } from '../channel/web/web-channel.ts'
 import { DEFAULT_VAPID_SUBJECT, type Config } from './config.ts'
 import { createHandler } from './http.ts'
@@ -88,7 +89,9 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
     const notifier = new Notifier(store, channel, away, log, webChannel ?? undefined)
     const prompts = new PromptService(store, notifier, { reminderAfterMs: config.reminderAfterMs, log })
     const trusted = new TrustedFolders({ home: config.home, configPath: config.claudeConfigPath, projects: config.projects })
-    const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, home: config.home, log })
+    // Absolute, so a Session in any folder can open the file the path names.
+    const uploadsDir = resolve(dirname(config.dbPath), 'uploads')
+    const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, home: config.home, log, uploadsDir })
     const inbound = new Inbound(store, prompts, notifier, spawner)
 
     if (config.web !== null && chatLog !== null && webChannel !== null) {
@@ -124,6 +127,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         away,
         spawner,
         projects: () => trusted.configuredProjects(),
+        uploads: chatLog === null ? undefined : new UploadLibrary(store.database, uploadsDir),
         sink: webChannel,
         usage: () => store.usageForChats(Date.now()),
         push,

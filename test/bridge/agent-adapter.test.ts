@@ -31,3 +31,11 @@ test('the launcher runs whatever argv the injected adapter returns inside tmux',
   expect(tmux.calls[0]?.slice(-3)).toEqual(['fake-agent', '--id', id])
   expect(tmux.calls[0]).not.toContain('claude')
 })
+
+test('spawned Sessions may read the upload library through --add-dir', () => {
+  expect(claudeCodeAdapter.launchArgv({ sessionId: 's1', cwd: '/w', addDirs: ['/home/u/.local/state/remote-agent/uploads'] })).toEqual([
+    'claude', '--session-id', 's1', '--add-dir', '/home/u/.local/state/remote-agent/uploads',
+  ])
+  expect(claudeCodeAdapter.launchArgv({ sessionId: 's1', cwd: '/w' })).toEqual(['claude', '--session-id', 's1'])
+})
+

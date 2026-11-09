@@ -32,7 +32,7 @@ export type PromptBodyView =
   | { kind: 'permission'; tool: string; summary: string; reason: string | null; agentId: string | null }
 
 export type MessageBody =
-  | { kind: 'user_text'; text: string; status: 'queued' | 'delivered'; instructionId: string | null }
+  | { kind: 'user_text'; text: string; status: 'queued' | 'delivered'; instructionId: string | null; attachments?: UploadRef[] }
   | { kind: 'agent_text'; markdown: string }
   | {
       kind: 'tool_run'
@@ -57,7 +57,16 @@ export type MessageBody =
 
 export type MessageKind = MessageBody['kind']
 
-export type Message = { id: string; chatId: string; seq: number; at: number } & MessageBody
+/** An uploaded file as a message shows it: enough to display it, not where it is stored. */
+export type UploadRef = { id: string; name: string; mime: string; size: number }
+
+/** A library entry as the picker lists it. */
+export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean }
+
+/** A pinned message as the chat details list shows it. */
+export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }
+
+export type Message = { id: string; chatId: string; seq: number; at: number; /** Absent means not pinned; the server always sends it. */ pinned?: boolean } & MessageBody
 
 export type PushSubscriptionRecord = { endpoint: string; keys: { p256dh: string; auth: string } }
 
@@ -95,7 +104,15 @@ export function clientSourceId(clientId: string): string {
 // Request bodies of the HTTP API (handoff §3). Unknown keys are stripped; a bad body answers 400.
 const NonBlankText = z.string().refine(text => text.trim() !== '', 'must not be blank')
 
-export const SendMessageSchema = z.object({ clientId: z.string().min(1), text: NonBlankText })
+export const SendMessageSchema = z
+  .object({
+    clientId: z.string().min(1),
+    /** May be empty when files are attached. */
+    text: z.string(),
+    /** Library uploads to attach; at most five. The Bridge checks they exist. */
+    attachmentIds: z.array(z.string().min(1)).max(5).default([]),
+  })
+  .refine(body => body.text.trim() !== '' || body.attachmentIds.length > 0, { message: 'must not be blank', path: ['text'] })
 
 export const ActionSchema = z.union([
   z.object({ promptId: z.string().min(1), questionIndex: z.number().int().min(0), optionIndex: z.number().int().min(0) }),
@@ -107,3 +124,5 @@ export const PromptReplySchema = z.object({ questionIndex: z.number().int().min(
 export const ReadSchema = z.object({ seq: z.number().int().min(0) })
 
 export const AwaySchema = z.object({ away: z.boolean() })
+
+export const PinSchema = z.object({ pinned: z.boolean() })

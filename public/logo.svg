@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254">
+  <defs>
+    <linearGradient id="frame" x1="262" y1="432" x2="823" y2="898" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0aa7ff"/>
+      <stop offset="0.55" stop-color="#3b6cff"/>
+      <stop offset="1" stop-color="#7a3ffc"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="748" y1="332" x2="995" y2="650" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0aa7ff"/>
+      <stop offset="1" stop-color="#9b51fc"/>
+    </linearGradient>
+    <linearGradient id="nodeCyan" x1="640" y1="280" x2="740" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0aa7ff"/>
+      <stop offset="1" stop-color="#1f7bff"/>
+    </linearGradient>
+    <linearGradient id="nodeBlue" x1="930" y1="440" x2="1010" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f8cfc"/>
+      <stop offset="1" stop-color="#6a7cfc"/>
+    </linearGradient>
+    <linearGradient id="nodeViolet" x1="960" y1="620" x2="1030" y2="690" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8a5cfc"/>
+      <stop offset="1" stop-color="#b04ffc"/>
+    </linearGradient>
+    <linearGradient id="body" x1="620" y1="830" x2="985" y2="975" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.6" stop-color="#f3f7fd"/>
+      <stop offset="1" stop-color="#8fbcfc"/>
+    </linearGradient>
+    <radialGradient id="head" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.7" stop-color="#f4f8fd"/>
+      <stop offset="1" stop-color="#b9d4fc"/>
+    </radialGradient>
+  </defs>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- speech bubble: navy fill, gradient frame, prompt tail at the bottom left -->
+    <path d="M823 640V510Q823 432 745 432H340Q262 432 262 510V735Q262 812 340 812H362V898L480 812H700" fill="#040b22" stroke="url(#frame)" stroke-width="44"/>
+    <!-- terminal prompt -->
+    <path d="M378 548L480 627L378 706" stroke="#fdfdfd" stroke-width="40"/>
+    <path d="M511 708H625" stroke="#fdfdfd" stroke-width="34"/>
+    <!-- headset arc through the three nodes -->
+    <path d="M748 332C870 330 940 390 968 485S990 600 995 650" stroke="url(#arc)" stroke-width="22"/>
+  </g>
+
+  <!-- nodes: gradient fill with a navy ring -->
+  <circle cx="688" cy="332" r="53" fill="url(#nodeCyan)" stroke="#050923" stroke-width="17"/>
+  <circle cx="968" cy="485" r="46" fill="url(#nodeBlue)" stroke="#050923" stroke-width="17"/>
+  <circle cx="995" cy="650" r="39" fill="url(#nodeViolet)" stroke="#050923" stroke-width="16"/>
+
+  <!-- agent figure -->
+  <path d="M640 976C615 976 620 930 640 905C680 850 740 835 812 835C884 835 945 850 965 905C985 930 990 976 960 976Z" fill="url(#body)" stroke="#050923" stroke-width="20" stroke-linejoin="round"/>
+  <circle cx="812" cy="735" r="100" fill="url(#head)" stroke="#050923" stroke-width="20"/>
+</svg>

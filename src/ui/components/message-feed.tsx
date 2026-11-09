@@ -1,8 +1,9 @@
-import { Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message } from '../../channel/web/protocol.ts'
-import { commandToolInput, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, writeToolInput } from '../presentation.ts'
+import { ArrowDown, Bookmark, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
+import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
+import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
+import { isPdf, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
@@ -21,9 +22,20 @@ type MessageFeedProps = {
   onPromptAction(chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }): Promise<void>
   onPromptReply(promptId: string, body: { questionIndex: number; text: string }): Promise<void>
   onPickerAction(chatId: string, body: { pickerId: string; choice: number }): Promise<void>
+  onTogglePin?(message: Message): void
 }
 
-export function MessageFeed({
+/** Scrolls a loaded message into view. False when it is not in the feed (for example an older page not loaded yet). */
+export function scrollToMessage(messageId: string): boolean {
+  const element = document.getElementById(`message-${messageId}`)
+  if (element === null) {
+    return false
+  }
+  element.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  return true
+}
+
+function MessageFeedView({
   chat,
   messages,
   pendingMessages = [],
@@ -33,14 +45,17 @@ export function MessageFeed({
   onPromptAction,
   onPromptReply,
   onPickerAction,
+  onTogglePin,
 }: MessageFeedProps) {
   const grouped = useMemo(() => groupMessages(messages), [messages])
 
   const feedRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
+  const [awayFromLatest, setAwayFromLatest] = useState(false)
 
   useEffect(() => {
     wasNearBottom.current = true
+    setAwayFromLatest(false)
     if (feedRef.current !== null) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight
     }
@@ -52,70 +67,140 @@ export function MessageFeed({
     }
   }, [messages.length, pendingMessages.length, chat.busy])
 
+  // Rows grouped by local calendar day. Each day is its own section, so its date label
+  // sticks only while that day is on screen and scrolls away with it.
+  const dayGroups: { day: string | null; at: number | null; nodes: ReactNode[] }[] = []
+  const addRow = (key: string, at: number | undefined, node: ReactNode) => {
+    const element = <Fragment key={key}>{node}</Fragment>
+    const last = dayGroups.at(-1)
+    if (at === undefined) {
+      if (last === undefined) {
+        dayGroups.push({ day: null, at: null, nodes: [element] })
+      } else {
+        last.nodes.push(element)
+      }
+      return
+    }
+    const day = dayKey(at)
+    if (last !== undefined && last.day === day) {
+      last.nodes.push(element)
+      return
+    }
+    dayGroups.push({ day, at, nodes: [element] })
+  }
+  grouped.forEach((entry, index) => {
+    if (entry.kind === 'tool-group') {
+      addRow(
+        `tools-${entry.messages[0]?.id ?? index}`,
+        entry.messages[0]?.at,
+        <ToolRunGroup
+          messages={entry.messages}
+          interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
+        />,
+      )
+      return
+    }
+    addRow(
+      entry.message.id,
+      entry.message.at,
+      <div id={`message-${entry.message.id}`}>
+        <MessageCard
+          message={entry.message}
+          messages={messages}
+          onPromptAction={onPromptAction}
+          onPromptReply={onPromptReply}
+          onPickerAction={onPickerAction}
+          onTogglePin={onTogglePin}
+        />
+      </div>,
+    )
+  })
+  pendingMessages.forEach(({ message, error, retry }) => {
+    addRow(message.id, message.at, <MessageCard message={message} messages={messages} pendingError={error} onRetry={retry} />)
+  })
+
+  const jumpToLatest = () => {
+    wasNearBottom.current = true
+    setAwayFromLatest(false)
+    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' })
+  }
+
   return (
-    <div
-      ref={feedRef}
-      onScroll={event => {
-        const element = event.currentTarget
-        wasNearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120
-      }}
-      className="chat-message-feed min-h-0 flex-1 overflow-y-auto px-3 pt-5 sm:px-6"
-    >
-      {hasMore && (
-        <div className="mb-5 text-center">
-          <Button variant="outline" size="sm" onClick={() => { wasNearBottom.current = false; onLoadEarlier() }} disabled={loadingEarlier}>
-            {loadingEarlier ? <LoaderCircle className="animate-spin" /> : <ChevronUp />}
-            {loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
-          </Button>
-        </div>
-      )}
-      {messages.length === 0 && pendingMessages.length === 0 && (
-        <div className="mx-auto my-auto max-w-sm rounded-3xl border border-dashed border-border bg-card/60 px-6 py-10 text-center">
-          <div className="mx-auto mb-3 grid size-10 place-items-center rounded-2xl bg-muted text-muted-foreground">
-            <Wrench className="size-4" aria-hidden="true" />
-          </div>
-          <p className="font-display font-medium">{chat.id === 'general' ? 'Start with a command' : 'A fresh conversation'}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {chat.id === 'general' ? 'Try /status, /new, /away, or /back.' : 'Send an instruction to this Session below.'}
-          </p>
-        </div>
-      )}
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-[var(--message-gap,_.75rem)]">
-        {grouped.map((entry, index) =>
-          entry.kind === 'tool-group' ? (
-            <ToolRunGroup
-              key={entry.messages[0]?.id ?? index}
-              messages={entry.messages}
-              interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
-            />
-          ) : (
-            <MessageCard
-              key={entry.message.id}
-              message={entry.message}
-              messages={messages}
-              onPromptAction={onPromptAction}
-              onPromptReply={onPromptReply}
-              onPickerAction={onPickerAction}
-            />
-          ),
-        )}
-        {pendingMessages.map(({ message, error, retry }) => (
-          <MessageCard key={message.id} message={message} messages={messages} pendingError={error} onRetry={retry} />
-        ))}
-        {chat.busy && (
-          <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
-            <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
-              <span className="font-display text-sm">✳</span>
-            </div>
-            <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
-            </div>
-            <span className="text-xs text-muted-foreground">Working…</span>
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={feedRef}
+        onScroll={event => {
+          const element = event.currentTarget
+          const near = element.scrollHeight - element.scrollTop - element.clientHeight < 120
+          wasNearBottom.current = near
+          setAwayFromLatest(!near)
+        }}
+        className="chat-message-feed min-h-0 flex-1 overflow-y-auto px-3 pt-2 sm:px-6"
+      >
+        {hasMore && (
+          <div className="mb-5 text-center">
+            <Button variant="outline" size="sm" onClick={() => { wasNearBottom.current = false; onLoadEarlier() }} disabled={loadingEarlier}>
+              {loadingEarlier ? <LoaderCircle className="animate-spin" /> : <ChevronUp />}
+              {loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
+            </Button>
           </div>
         )}
+        {messages.length === 0 && pendingMessages.length === 0 && (
+          <div className="mx-auto my-auto max-w-sm rounded-3xl border border-dashed border-border bg-card/60 px-6 py-10 text-center">
+            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-2xl bg-muted text-muted-foreground">
+              <Wrench className="size-4" aria-hidden="true" />
+            </div>
+            <p className="font-display font-medium">{chat.id === 'general' ? 'Start with a command' : 'A fresh conversation'}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {chat.id === 'general' ? 'Try /status, /new, /away, or /back.' : 'Send an instruction to this Session below.'}
+            </p>
+          </div>
+        )}
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-[var(--message-gap,_.75rem)]">
+          {dayGroups.map((group, index) => (
+            <section key={group.day ?? `untimed-${index}`} className="flex flex-col gap-[var(--message-gap,_.75rem)]">
+              {group.at !== null && <DateSeparator at={group.at} />}
+              {group.nodes}
+            </section>
+          ))}
+          {chat.busy && (
+            <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
+              <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
+                <span className="font-display text-sm">✳</span>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+                <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
+              </div>
+              <span className="text-xs text-muted-foreground">Working…</span>
+            </div>
+          )}
+        </div>
       </div>
+      {awayFromLatest && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="absolute right-4 z-20 rounded-full bg-card shadow-md bottom-[calc(var(--chat-composer-height,5rem)+0.75rem)] sm:right-6"
+          aria-label="Jump to latest message"
+          title="Jump to latest message"
+          onClick={jumpToLatest}
+        >
+          <ArrowDown aria-hidden="true" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** A day label that stays at the top of the feed while its messages scroll under it. */
+function DateSeparator({ at }: { at: number }) {
+  return (
+    <div className="sticky top-2 z-10 flex justify-center py-1">
+      <span className="rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+        {formatDayLabel(at)}
+      </span>
     </div>
   )
 }
@@ -128,14 +213,37 @@ type MessageCardProps = {
   onPromptAction?: MessageFeedProps['onPromptAction']
   onPromptReply?: MessageFeedProps['onPromptReply']
   onPickerAction?: MessageFeedProps['onPickerAction']
+  onTogglePin?: MessageFeedProps['onTogglePin']
 }
 
-function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction }: MessageCardProps) {
+function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={pinned}
+      aria-label={pinned ? 'Unpin message' : 'Pin message'}
+      title={pinned ? 'Unpin message' : 'Pin message'}
+      className={`rounded-md p-1 text-current transition-opacity hover:bg-black/5 ${pinned ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
+    >
+      <Bookmark className={`size-3.5 ${pinned ? 'fill-current' : ''}`} aria-hidden="true" />
+    </button>
+  )
+}
+
+function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
     return (
       <div className="flex justify-end">
         <div className="max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-[var(--message-pad,_.7rem)] text-primary-foreground shadow-sm sm:max-w-[76%]">
-          <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>
+          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
+          {message.attachments !== undefined && message.attachments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {message.attachments.map(attachment => (
+                <AttachmentView key={attachment.id} attachment={attachment} />
+              ))}
+            </div>
+          )}
           <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
             {message.status === 'queued' ? (
               <>
@@ -149,6 +257,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
               </>
             )}
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
           </div>
           {pendingError && (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
@@ -227,6 +336,11 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
             <span className="font-display font-semibold">{agent.name}</span>
             <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
             <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+            {onTogglePin && (
+              <span className="ml-auto">
+                <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
+              </span>
+            )}
           </div>
           <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
             <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
@@ -239,6 +353,27 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   }
 
   return null
+}
+
+/** An attached library file: the image itself, or a PDF link. A file that was deleted from the library shows as removed. */
+function AttachmentView({ attachment }: { attachment: UploadRef }) {
+  const [missing, setMissing] = useState(false)
+  if (missing) {
+    return <span className="rounded-lg bg-black/10 px-2 py-1 text-xs">{attachment.name} (removed)</span>
+  }
+  if (isPdf(attachment.mime)) {
+    return (
+      <a href={uploadUrl(attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-black/10 px-2 py-1 text-xs">
+        <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{attachment.name}</span>
+      </a>
+    )
+  }
+  return (
+    <a href={uploadUrl(attachment.id)} target="_blank" rel="noreferrer" className="block max-w-full">
+      <img src={uploadUrl(attachment.id)} alt={attachment.name} loading="lazy" onError={() => setMissing(true)} className="max-h-48 max-w-[14rem] rounded-lg object-cover" />
+    </a>
+  )
 }
 
 function MessageTime({ at }: { at: number }) {
@@ -327,6 +462,25 @@ function ToolInput({ input }: { input: unknown }) {
     )
   }
 
+  const editInput = editToolInput(input)
+  if (editInput !== null) {
+    const lines = markChangedRanges(diffLines(editInput.oldString, editInput.newString))
+    const added = lines.filter(line => line.kind === 'add').length
+    const removed = lines.filter(line => line.kind === 'remove').length
+    return (
+      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Edit</span>
+          <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{editInput.filePath}</code>
+          {editInput.replaceAll && <Badge>all occurrences</Badge>}
+          <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300">+{added}</span>
+          <span className="font-mono text-[10px] text-red-700 dark:text-red-300">−{removed}</span>
+        </div>
+        <DiffView lines={lines} />
+      </div>
+    )
+  }
+
   const writeInput = writeToolInput(input)
   if (writeInput !== null) {
     return (
@@ -356,6 +510,50 @@ function ToolInput({ input }: { input: unknown }) {
     <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">
       {toolInputText(input)}
     </CodeBlock>
+  )
+}
+
+function DiffView({ lines }: { lines: DiffLine[] }) {
+  return (
+    <div className="max-h-96 max-w-full overflow-auto overscroll-x-contain font-mono text-[11px] leading-relaxed" role="region" aria-label="Changes">
+      <div className="min-w-max py-1">
+        {lines.map((line, index) => (
+          <div
+            key={index}
+            className={`flex whitespace-pre px-3 ${
+              line.kind === 'add'
+                ? 'bg-emerald-500/10 text-emerald-900 dark:text-emerald-200'
+                : line.kind === 'remove'
+                  ? 'bg-red-500/10 text-red-900 dark:text-red-200'
+                  : 'text-muted-foreground'
+            }`}
+          >
+            <span className="w-4 shrink-0 select-none opacity-70" aria-hidden="true">
+              {line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}
+            </span>
+            <DiffText line={line} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DiffText({ line }: { line: DiffLine }) {
+  if (line.text === '') {
+    return <span>{' '}</span>
+  }
+  if (line.changed === undefined || line.changed.start >= line.changed.end) {
+    return <span>{line.text}</span>
+  }
+  const { start, end } = line.changed
+  const changedClass = line.kind === 'add' ? 'rounded-sm bg-emerald-500/35' : 'rounded-sm bg-red-500/35'
+  return (
+    <span>
+      {line.text.slice(0, start)}
+      <span className={changedClass}>{line.text.slice(start, end)}</span>
+      {line.text.slice(end)}
+    </span>
   )
 }
 
@@ -517,3 +715,6 @@ function ShieldIcon() {
 function MessageCircleIcon() {
   return <span aria-hidden="true" className="text-sm">?</span>
 }
+
+/** Memoized so opening the chat details does not re-render the message list or the composer. */
+export const MessageFeed = memo(MessageFeedView)

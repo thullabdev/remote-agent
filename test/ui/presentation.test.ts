@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '../../src/channel/web/protocol.ts'
-import { commandToolInput, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import { commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -92,5 +92,71 @@ describe('chat message presentation', () => {
 
     expect(promptQuestionIndex(messages, 'p_1')).toBe(0)
     expect(promptQuestionIndex(messages, 'p_2')).toBe(1)
+  })
+})
+
+describe('day labels', () => {
+  const now = new Date(2026, 10, 7, 12).getTime()
+
+  test('labels the current day as Today and the previous day as Yesterday', () => {
+    expect(formatDayLabel(new Date(2026, 10, 7, 9).getTime(), now)).toBe('Today')
+    expect(formatDayLabel(new Date(2026, 10, 6, 23).getTime(), now)).toBe('Yesterday')
+  })
+
+  test('uses a short date for older days and groups by local calendar day', () => {
+    expect(formatDayLabel(new Date(2026, 10, 2, 9).getTime(), now)).not.toMatch(/Today|Yesterday/)
+    expect(dayKey(new Date(2026, 10, 6, 0, 5).getTime())).toBe(dayKey(new Date(2026, 10, 6, 23, 55).getTime()))
+  })
+})
+
+describe('edit tool input', () => {
+  test('reads file path, old and new strings, and replace_all', () => {
+    expect(editToolInput({ file_path: 'a.ts', old_string: 'x', new_string: 'y', replace_all: true })).toEqual({
+      filePath: 'a.ts', oldString: 'x', newString: 'y', replaceAll: true,
+    })
+    expect(editToolInput({ file_path: 'a.ts', old_string: 'x', new_string: 'y' })?.replaceAll).toBe(false)
+  })
+
+  test('rejects inputs with unexpected keys or types', () => {
+    expect(editToolInput({ file_path: 'a.ts', old_string: 'x' })).toBeNull()
+    expect(editToolInput({ file_path: 'a.ts', old_string: 'x', new_string: 'y', extra: 1 })).toBeNull()
+    expect(editToolInput({ file_path: 'a.ts', old_string: 'x', new_string: 'y', replace_all: 'yes' })).toBeNull()
+  })
+})
+
+describe('line diff', () => {
+  test('marks changed lines and keeps unchanged ones as context', () => {
+    expect(diffLines('one\ntwo\nthree', 'one\n2\nthree')).toEqual([
+      { kind: 'same', text: 'one' },
+      { kind: 'remove', text: 'two' },
+      { kind: 'add', text: '2' },
+      { kind: 'same', text: 'three' },
+    ])
+  })
+
+  test('treats an empty old string as pure insertion', () => {
+    expect(diffLines('', 'a\nb')).toEqual([
+      { kind: 'add', text: 'a' },
+      { kind: 'add', text: 'b' },
+    ])
+  })
+
+  test('treats an empty new string as pure deletion', () => {
+    expect(diffLines('a', '')).toEqual([{ kind: 'remove', text: 'a' }])
+  })
+})
+
+describe('changed ranges', () => {
+  test('highlights only the characters that differ in a paired line', () => {
+    const lines = markChangedRanges(diffLines('const total = price * 2', 'const total = price * 3'))
+    expect(lines).toEqual([
+      { kind: 'remove', text: 'const total = price * 2', changed: { start: 22, end: 23 } },
+      { kind: 'add', text: 'const total = price * 3', changed: { start: 22, end: 23 } },
+    ])
+  })
+
+  test('leaves unpaired lines without a highlight', () => {
+    const lines = markChangedRanges(diffLines('a', 'b\nc'))
+    expect(lines.map(line => line.changed)).toEqual([{ start: 0, end: 1 }, { start: 0, end: 1 }, undefined])
   })
 })

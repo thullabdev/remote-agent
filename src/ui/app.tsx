@@ -1,17 +1,18 @@
 import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message } from '../channel/web/protocol.ts'
+import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { ChatList } from './components/chat-list.tsx'
-import { MessageFeed } from './components/message-feed.tsx'
+import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
+import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
 
@@ -29,6 +30,9 @@ export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('chat'))
   const [infoOpen, setInfoOpen] = useState(false)
+  const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
+  const [pinsVersion, setPinsVersion] = useState(0)
+  const [library, setLibrary] = useState<UploadRecord[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
@@ -132,12 +136,12 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string) => {
+  const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string, attachmentIds: string[]) => {
     setBusyChatIds(current => new Set(current).add(chat.id))
     try {
       let result: Awaited<ReturnType<typeof api.sendMessage>>
       try {
-        result = await api.sendMessage(chat.id, { clientId, text })
+        result = await api.sendMessage(chat.id, { clientId, text, attachmentIds })
       } catch (reason) {
         if (reason instanceof RequestError) {
           throw reason
@@ -149,7 +153,7 @@ export function App() {
           ),
         }))
         await new Promise(resolve => setTimeout(resolve, 800))
-        result = await api.sendMessage(chat.id, { clientId, text })
+        result = await api.sendMessage(chat.id, { clientId, text, attachmentIds })
       }
       mergeMessage(result.message)
       setPendingMessages(current => ({
@@ -171,31 +175,37 @@ export function App() {
     }
   }, [api, handleError, mergeMessage])
 
-  const sendMessage = useCallback(async (chat: Chat, text: string, clientId = crypto.randomUUID()) => {
+  const sendMessage = useCallback(async (chat: Chat, text: string, attachments: UploadRef[], clientId = crypto.randomUUID()) => {
     const optimistic: Message = {
       id: `local:${clientId}`,
       chatId: chat.id,
       seq: Number.MAX_SAFE_INTEGER,
       at: Date.now(),
       kind: 'user_text',
-      text,
+      text: text.trim(),
       status: chat.id === 'general' ? 'delivered' : 'queued',
       instructionId: null,
+      ...(attachments.length > 0 ? { attachments } : {}),
     }
     setPendingMessages(current => ({
       ...current,
       [chat.id]: [...(current[chat.id] ?? []), { clientId, message: optimistic, error: null }],
     }))
-    await submitMessage(chat, clientId, text)
+    await submitMessage(chat, clientId, text, attachments.map(item => item.id))
   }, [submitMessage])
 
-  const retryMessage = (chat: Chat, item: PendingMessage) => {
+  const retryMessage = useCallback((chat: Chat, item: PendingMessage) => {
     setPendingMessages(current => ({
       ...current,
       [chat.id]: (current[chat.id] ?? []).map(message => message.clientId === item.clientId ? { ...message, error: null } : message),
     }))
-    void submitMessage(chat, item.clientId, item.message.kind === 'user_text' ? item.message.text : '')
-  }
+    void submitMessage(
+      chat,
+      item.clientId,
+      item.message.kind === 'user_text' ? item.message.text : '',
+      item.message.kind === 'user_text' ? (item.message.attachments ?? []).map(attachment => attachment.id) : [],
+    )
+  }, [submitMessage])
 
   const runChatAction = useCallback(async (action: () => Promise<{ toast?: string }>) => {
     try {
@@ -222,26 +232,106 @@ export function App() {
       .catch(handleError)
   }
 
-  const handlePromptAction = async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
+  const handlePromptAction = useCallback(async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
     await runChatAction(() => api.performAction(chatId, body))
-  }
+  }, [api, runChatAction])
 
-  const handlePromptReply = async (promptId: string, body: { questionIndex: number; text: string }) => {
+  const handlePromptReply = useCallback(async (promptId: string, body: { questionIndex: number; text: string }) => {
     await runChatAction(() => api.replyToPrompt(promptId, body))
-  }
+  }, [api, runChatAction])
 
-  const handlePickerAction = async (chatId: string, body: { pickerId: string; choice: number }) => {
+  const handlePickerAction = useCallback(async (chatId: string, body: { pickerId: string; choice: number }) => {
     await runChatAction(() => api.performAction(chatId, body))
-  }
+  }, [api, runChatAction])
 
-  const runInfoAction = async (action: () => Promise<{ toast: string }>) => {
+  const runInfoAction = useCallback(async (action: () => Promise<{ toast: string }>) => {
     try {
       const result = await action()
       notify(result.toast)
     } catch (reason) {
       handleError(reason)
     }
-  }
+  }, [handleError, notify])
+
+  const refreshLibrary = useCallback(() => {
+    api.listUploads().then(result => setLibrary(result.uploads)).catch(handleError)
+  }, [api, handleError])
+
+  const uploadFromComposer = useCallback(async (file: File): Promise<UploadRef | null> => {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      notify('That file is larger than 10 MB.')
+      return null
+    }
+    try {
+      const { upload } = await api.uploadFile(file.name, await toBase64(file))
+      let record = upload
+      const thumbnail = file.type.startsWith('image/') && !upload.hasThumbnail ? await makeThumbnail(file) : null
+      if (thumbnail !== null) {
+        try {
+          await api.uploadThumbnail(upload.id, await toBase64(thumbnail))
+          record = { ...upload, hasThumbnail: true }
+        } catch {
+          // The original still works without a preview.
+        }
+      }
+      setLibrary(current => [record, ...current.filter(item => item.id !== record.id)])
+      return toRef(record)
+    } catch (reason) {
+      handleError(reason)
+      return null
+    }
+  }, [api, handleError, notify])
+
+  const deleteFromLibrary = useCallback(async (upload: UploadRecord) => {
+    if (!window.confirm(`Delete ${upload.name} from the library? Messages that already use it will show it as removed.`)) {
+      return
+    }
+    try {
+      const result = await api.deleteUpload(upload.id)
+      setLibrary(current => current.filter(item => item.id !== upload.id))
+      notify(result.toast)
+    } catch (reason) {
+      handleError(reason)
+    }
+  }, [api, handleError, notify])
+
+  const loadEarlier = useCallback(() => {
+    if (activeChatId === null) {
+      return
+    }
+    const before = messages[0]?.seq
+    if (before === undefined) {
+      return
+    }
+    setBusyChatIds(current => new Set(current).add(`history:${activeChatId}`))
+    void loadMessages(activeChatId, before).catch(handleError).finally(() => {
+      setBusyChatIds(current => {
+        const next = new Set(current)
+        next.delete(`history:${activeChatId}`)
+        return next
+      })
+    })
+  }, [activeChatId, handleError, loadMessages, messages])
+
+  const togglePin = useCallback((message: Message) => {
+    void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
+  }, [api, runInfoAction])
+
+  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text, attachments)), [activeChat, sendMessage])
+
+  const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
+
+  const pendingItems = useMemo(() => {
+    if (activeChat === null) {
+      return []
+    }
+    const chat = activeChat
+    return pendingForChat.map(item => ({
+      message: item.message,
+      error: item.error,
+      retry: () => retryMessage(chat, item),
+    }))
+  }, [activeChat, pendingForChat, retryMessage])
 
   const openLinkedChat = () => {
     const chatId = new URLSearchParams(window.location.search).get('chat')
@@ -251,6 +341,51 @@ export function App() {
   }
 
   useEffect(openLinkedChat, [chats])
+
+  /** Shows a pinned message: loads older pages until its seq is covered, then scrolls to it. */
+  const jumpToPin = async (pin: PinView) => {
+    const chatId = activeChatId
+    if (chatId === null) {
+      return
+    }
+    const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    let before = messages[0]?.seq
+    let hasMore = realtime?.hasMore[chatId] ?? false
+    if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
+      setBusyChatIds(current => new Set(current).add(`history:${chatId}`))
+      try {
+        while (before !== undefined && pin.seq < before && hasMore) {
+          const page = await loadMessages(chatId, before)
+          hasMore = page.hasMore
+          before = page.messages[0]?.seq ?? before
+        }
+      } finally {
+        setBusyChatIds(current => {
+          const next = new Set(current)
+          next.delete(`history:${chatId}`)
+          return next
+        })
+      }
+    }
+    // The feed renders the loaded page on a later frame, so retry the scroll for a few frames.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (scrollToMessage(pin.id)) {
+        return
+      }
+      await nextFrame()
+    }
+    notify('That message could not be found in this chat.')
+  }
+
+  // The chat's pins load when the chat is opened, and again after a pin change or a manual refresh. Opening the details does not fetch.
+  useEffect(() => {
+    if (activeChatId === null) {
+      return
+    }
+    api.listPins(activeChatId).then(result => {
+      setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
+    }).catch(handleError)
+  }, [activeChatId, pinsVersion, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -288,7 +423,6 @@ export function App() {
         chats={chats}
         activeId={activeChatId}
         status={status}
-        usage={realtime.usage}
         onOpen={openChat}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
@@ -338,38 +472,26 @@ export function App() {
                   key={activeChat.id}
                   chat={activeChat}
                   messages={messages}
-                  pendingMessages={pendingForChat.map(item => ({
-                    message: item.message,
-                    error: item.error,
-                    retry: () => retryMessage(activeChat, item),
-                  }))}
+                  pendingMessages={pendingItems}
                   hasMore={realtime.hasMore[activeChat.id] ?? false}
                   loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
-                  onLoadEarlier={() => {
-                    const before = messages[0]?.seq
-                    if (before === undefined) {
-                      return
-                    }
-                    setBusyChatIds(current => new Set(current).add(`history:${activeChat.id}`))
-                    void loadMessages(activeChat.id, before).catch(handleError).finally(() => {
-                      setBusyChatIds(current => {
-                        const next = new Set(current)
-                        next.delete(`history:${activeChat.id}`)
-                        return next
-                      })
-                    })
-                  }}
+                  onLoadEarlier={loadEarlier}
                   onPromptAction={handlePromptAction}
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
+                  onTogglePin={togglePin}
                 />
                 <ChatComposer
                   chat={activeChat}
                   usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
-                  onSend={text => sendMessage(activeChat, text)}
-                  onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                  library={library}
+                  onRefreshLibrary={refreshLibrary}
+                  onUpload={uploadFromComposer}
+                  onDeleteUpload={deleteFromLibrary}
+                  onSend={sendFromComposer}
+                  onResume={resumeActive}
                 />
               </div>
             </section>
@@ -386,6 +508,13 @@ export function App() {
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                pins={pinsByChat[activeChat.id] ?? []}
+                onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
+                onRefreshPins={() => setPinsVersion(version => version + 1)}
+                onJump={pin => {
+                  setInfoOpen(false)
+                  void jumpToPin(pin).catch(handleError)
+                }}
               />
             )}
           </>

@@ -1,6 +1,6 @@
-import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
-import type { Chat, UsageView } from '../../channel/web/protocol.ts'
+import type { Chat, PinView, UsageView } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
@@ -8,6 +8,7 @@ import { Input } from './ui/input.tsx'
 import { Separator } from './ui/separator.tsx'
 import { AccountLimitsSection, useNow } from './usage-meters.tsx'
 import { formatContextText } from '../usage-format.ts'
+import { formatTime } from '../presentation.ts'
 
 type ChatInfoProps = {
   chat: Chat
@@ -21,11 +22,16 @@ type ChatInfoProps = {
   onClear(): Promise<void>
   onFork(): Promise<void>
   onResume(): Promise<void>
+  pins: PinView[]
+  onUnpin(messageId: string): Promise<void>
+  onRefreshPins(): void
+  /** Closes the details and shows the pinned message in the chat, loading older history if needed. */
+  onJump(pin: PinView): void
 }
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
   const now = useNow()
   const sessionUsage = usage.chats[chat.id]
   const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
@@ -126,6 +132,33 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
               </div>
             </div>
             <InfoRow label="Messages" value={String(messageCount)} />
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Pinned messages · {pins.length}</p>
+                <Button variant="ghost" size="icon-sm" aria-label="Refresh pinned messages" onClick={onRefreshPins}>
+                  <RefreshCw aria-hidden="true" />
+                </Button>
+              </div>
+              {pins.length === 0 ? (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Pin a message in the chat to keep it here.</p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {pins.map(pin => (
+                    <li key={pin.id} className="rounded-xl border border-border bg-card p-2.5">
+                      <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                        <span>{pin.kind === 'user_text' ? 'You' : 'Agent'}</span>
+                        <time dateTime={new Date(pin.at).toISOString()}>{formatTime(pin.at)}</time>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-sm leading-snug">{pin.preview}</p>
+                      <div className="mt-1.5 flex gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => onJump(pin)}>Show in chat</Button>
+                        <Button variant="ghost" size="sm" onClick={() => void onUnpin(pin.id)}>Unpin</Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             {sessionUsage !== undefined && (contextText !== null || sessionUsage.costUsd !== null) && (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Usage</p>

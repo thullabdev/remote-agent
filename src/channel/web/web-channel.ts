@@ -6,7 +6,7 @@ import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRe
 import type { ChatSink } from '../chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushEvent } from './push.ts'
-import { clientSourceId, type Message, type PromptBodyView, type ServerEvent, type UsageView } from './protocol.ts'
+import { clientSourceId, type Message, type PromptBodyView, type ServerEvent, type UploadRef, type UsageView } from './protocol.ts'
 
 const GENERAL_ID = 'general'
 
@@ -250,11 +250,18 @@ export class WebChannel implements Channel, ChatSink {
     }
   }
 
-  instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null): Message {
+  instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null, display?: { text: string; attachments: UploadRef[] }): Message {
     const sourceId = clientId === undefined || clientId === null ? instruction.id : clientSourceId(clientId)
+    const attachments = display?.attachments ?? []
     return this.chatLog.appendMessage(
       this.chatFor(session),
-      { kind: 'user_text', text: instruction.text, status: 'queued', instructionId: instruction.id },
+      {
+        kind: 'user_text',
+        text: display?.text ?? instruction.text,
+        status: 'queued',
+        instructionId: instruction.id,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      },
       { sourceId },
     )
   }
