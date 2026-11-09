@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { UploadRecord } from '../../src/channel/web/protocol.ts'
 import { UploadPicker } from '../../src/ui/components/upload-picker.tsx'
-import { filterUploads, formatSize, mentionQuery, removeMention, uploadUrl } from '../../src/ui/uploads.ts'
+import { filterUploads, formatSize, insertReference, mentionQuery, removeMention, removeReferences, uploadUrl } from '../../src/ui/uploads.ts'
 
 const image: UploadRecord = { id: 'u_1', name: 'diagram.png', mime: 'image/png', size: 2048, createdAt: 1, hasThumbnail: true }
 const pdf: UploadRecord = { id: 'u_2', name: 'spec.pdf', mime: 'application/pdf', size: 4 * 1024 * 1024, createdAt: 2, hasThumbnail: false }
@@ -52,3 +52,16 @@ test('the picker shows an image preview and a PDF icon without a preview', () =>
   expect(markup).toContain('aria-label="Delete spec.pdf from the library"')
   expect(markup).toContain('Upload new')
 })
+
+test('picking writes a reference in place of the open token, or at the end', () => {
+  expect(insertReference('look @dia', 'diagram.png')).toBe('look @diagram.png ')
+  expect(insertReference('@', 'spec.pdf')).toBe('@spec.pdf ')
+  expect(insertReference('compare', 'diagram.png')).toBe('compare @diagram.png ')
+  expect(insertReference('compare ', 'diagram.png')).toBe('compare @diagram.png ')
+})
+
+test('detaching a file removes all its references and leaves other text alone', () => {
+  expect(removeReferences('see @diagram.png and @diagram.png.bak, then @diagram.png', 'diagram.png')).toBe('see and @diagram.png.bak, then ')
+  expect(removeReferences('plain text', 'diagram.png')).toBe('plain text')
+})
+

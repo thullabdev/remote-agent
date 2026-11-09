@@ -16,6 +16,25 @@ export function removeMention(text: string): string {
   return text.replace(/(^|\s)@[^\s@]*$/, '$1')
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Replaces the open `@` token with a reference to the file, or appends one at the end. */
+export function insertReference(text: string, name: string): string {
+  const token = `@${name} `
+  const open = /(^|\s)@[^\s@]*$/.exec(text)
+  if (open !== null) {
+    return text.slice(0, open.index) + (open[1] ?? '') + token
+  }
+  return text === '' || /\s$/.test(text) ? `${text}${token}` : `${text} ${token}`
+}
+
+/** Removes every reference to the file, for when it is detached from the message. */
+export function removeReferences(text: string, name: string): string {
+  return text.replace(new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=\\s|$)\\s?`, 'g'), '$1')
+}
+
 /** Library entries whose name contains the query, case-insensitively. */
 export function filterUploads(uploads: UploadRecord[], query: string): UploadRecord[] {
   const needle = query.toLowerCase()

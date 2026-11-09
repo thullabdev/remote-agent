@@ -2,7 +2,7 @@ import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'luc
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
-import { filterUploads, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, toRef } from '../uploads.ts'
+import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
 import { UploadPicker } from './upload-picker.tsx'
 import { UsageButton, UsagePanel } from './usage-panel.tsx'
@@ -117,14 +117,19 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
     })
   }
 
-  const pick = (upload: UploadRecord) => {
-    setAttachOpen(false)
-    setText(current => removeMention(current))
-    if (attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE && !attachments.some(item => item.id === upload.id)) {
+  /** Attaches the file and writes `@name` into the text, so it can be referred to again. */
+  const attachReference = (ref: UploadRef) => {
+    if (attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE && !attachments.some(item => item.id === ref.id)) {
       setPickerNote(`Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`)
       return
     }
-    addAttachment(toRef(upload))
+    addAttachment(ref)
+    setText(current => insertReference(current, ref.name))
+  }
+
+  const pick = (upload: UploadRecord) => {
+    setAttachOpen(false)
+    attachReference(toRef(upload))
     inputRef.current?.focus()
   }
 
@@ -138,7 +143,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
         }
         const ref = await onUpload(file)
         if (ref !== null) {
-          addAttachment(ref)
+          attachReference(ref)
         }
       }
       setText(current => removeMention(current))
@@ -270,7 +275,10 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
               <button
                 type="button"
                 aria-label={`Remove ${attachment.name}`}
-                onClick={() => setAttachments(current => current.filter(item => item.id !== attachment.id))}
+                onClick={() => {
+                  setAttachments(current => current.filter(item => item.id !== attachment.id))
+                  setText(current => removeReferences(current, attachment.name))
+                }}
                 className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="size-3" aria-hidden="true" />

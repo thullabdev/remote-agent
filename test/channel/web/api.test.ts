@@ -782,3 +782,20 @@ test('sending refuses unknown attachments, attachments in General, and a blank m
   expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-4', text: 'hi', attachmentIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).status).toBe(400)
   expect((await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-6', text: '   ' })).status).toBe(400)
 })
+
+test('each @reference to an attached file becomes its path in the Session instruction', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('diagram.png', PNG_BYTES)
+  const path = uploadsLibrary!.filePath(uploadsLibrary!.get(body.upload.id)!)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, {
+    clientId: 'c-7',
+    text: 'Compare @diagram.png with the old one (@diagram.png).',
+    attachmentIds: [body.upload.id],
+  })
+
+  expect(sent.body.message.text).toBe('Compare @diagram.png with the old one (@diagram.png).')
+  const instruction = store.listPendingInstructions('s1').at(-1)!.text
+  expect(instruction.startsWith(`Compare ${path} with the old one (${path}).`)).toBe(true)
+  expect(instruction).not.toContain('@diagram.png')
+})
+

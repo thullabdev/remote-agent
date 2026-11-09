@@ -256,16 +256,16 @@ async function sendMessage(deps: ApiDeps, request: Request, chatId: string): Pro
     throw new ApiError(409, 'This session has ended.')
   }
   const attachments = resolveAttachments(deps, attachmentIds)
-  const instruction = deps.store.enqueueInstruction(session.id, withAttachmentPaths(body.text, attachments.paths))
+  const instruction = deps.store.enqueueInstruction(session.id, withAttachmentPaths(body.text, attachments.files))
   return { message: deps.sink.instructionQueued(instruction, session, body.clientId, { text: body.text.trim(), attachments: attachments.refs }) }
 }
 
 /** Library entries for the ids, each once. The Session gets their paths; the message shows their names. */
-function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; paths: string[] } {
+function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; files: { ref: UploadRef; path: string }[] } {
   const refs: UploadRef[] = []
-  const paths: string[] = []
+  const files: { ref: UploadRef; path: string }[] = []
   if (ids.length === 0) {
-    return { refs, paths }
+    return { refs, files }
   }
   const library = requireUploads(deps)
   for (const id of new Set(ids)) {
@@ -273,19 +273,32 @@ function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; 
     if (record === undefined) {
       throw new ApiError(400, 'An attached file is no longer in the library.')
     }
-    refs.push({ id: record.id, name: record.name, mime: record.mime, size: record.size })
-    paths.push(library.filePath(record))
+    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size }
+    refs.push(ref)
+    files.push({ ref, path: library.filePath(record) })
   }
-  return { refs, paths }
+  return { refs, files }
 }
 
-/** The instruction text for the Session: the typed text, then the absolute paths to read. */
-function withAttachmentPaths(text: string, paths: string[]): string {
-  if (paths.length === 0) {
+/**
+ * The instruction text for the Session. Each `@name` that refers to an attached file becomes its absolute path,
+ * wherever it appears; the attached files are also listed at the end.
+ */
+function withAttachmentPaths(text: string, files: { ref: UploadRef; path: string }[]): string {
+  if (files.length === 0) {
     return text
   }
-  const listing = `Attached files (read them with the Read tool):\n${paths.map(path => `- ${path}`).join('\n')}`
-  return text.trim() === '' ? listing : `${text}\n\n${listing}`
+  let expanded = text
+  for (const { ref, path } of files) {
+    const reference = new RegExp(`(?<=^|[\\s([{'"])@${escapeRegExp(ref.name)}(?=$|[\\s.,;:!?)\\]])`, 'g')
+    expanded = expanded.replace(reference, () => path)
+  }
+  const listing = `Attached files (read them with the Read tool):\n${files.map(({ path }) => `- ${path}`).join('\n')}`
+  return expanded.trim() === '' ? listing : `${expanded}\n\n${listing}`
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function requireUploads(deps: ApiDeps): UploadLibrary {
