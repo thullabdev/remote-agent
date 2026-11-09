@@ -289,9 +289,7 @@ export function ChatList({
       aria-label="Chats"
     >
       <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/70 px-4">
-        <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-          <BrandMark className="size-6" />
-        </div>
+        <BrandMark className="size-11 shrink-0 text-foreground" />
         {selectionMode ? (
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
             <div className="min-w-0 flex-1 truncate text-sm font-medium">
