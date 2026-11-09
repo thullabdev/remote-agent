@@ -166,12 +166,43 @@ test('a working row keeps the last message visible next to the state', () => {
   expect(markup).toContain('Done with the migration')
 })
 
-test('the project shows on its own line, and a draft stays a marker that does not hide the preview', () => {
+test('a row has two lines: the project is not printed on it, and a draft is a pencil that does not hide the preview', () => {
   const markup = row({ ...base, draft: { preview: 'half a reply' } })
-  expect(markup).toContain('>api<')
-  expect(markup).toContain('Draft')
-  expect(markup).toContain('half a reply')
+  expect(markup).not.toContain('>api<')
+  expect(markup).not.toContain('half a reply')
+  expect(markup).toContain('lucide-pencil')
   expect(markup).toContain('Done with the migration')
+  expect(row(base)).not.toContain('lucide-pencil')
+  expect(markup).toContain('has a draft')
+})
+
+test('the tile letter is the project initial, so the letter and the color name the same thing', () => {
+  const tile = (chat: Chat): string => renderToStaticMarkup(createElement(ChatRowContent, { chat, selection: null })).match(/aria-hidden="true">([^<]+)<\/span>/)?.[1] ?? ''
+  expect(tile({ ...base, project: 'api' })).toBe('A')
+  expect(tile({ ...base, project: null })).toBe('B')
+})
+
+test('General is compact: one line, no preview, but its draft and unread still show', () => {
+  const general: Chat = { ...base, id: 'general', title: 'General', project: null, pinned: true, lastMessage: { seq: 1, at: Date.now(), preview: 'Bridge started. Away mode is on.' } }
+  const markup = row(general)
+  expect(markup).toContain('General')
+  expect(markup).not.toContain('Bridge started')
+  expect(row({ ...general, draft: { preview: '/new' } })).toContain('lucide-pencil')
+  expect(row({ ...general, unread: 1 })).toContain('rounded-full bg-primary')
+})
+
+test('the Ended tab says how to archive, since selection is a press and hold', () => {
+  const ended = { ...base, status: 'ended' as const }
+  const render = (filter: 'all' | 'ended', chats: Chat[]): string =>
+    renderToStaticMarkup(
+      createElement(ChatList, {
+        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        onArchiveSelected: async () => {}, onActionError: () => {}, initialFilter: filter,
+      }),
+    )
+  expect(render('ended', [ended])).toContain('Press and hold a session to select it')
+  expect(render('ended', [])).not.toContain('Press and hold')
+  expect(render('all', [base, ended])).not.toContain('Press and hold')
 })
 
 test('unread is a dot, and the count is spoken in the label instead of shown', () => {

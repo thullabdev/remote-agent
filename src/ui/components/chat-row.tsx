@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check, Pencil } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { avatarHue, formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
@@ -12,7 +12,7 @@ function ChatAvatar({ chat }: { chat: Chat }) {
   const hue = chat.id === 'general' ? undefined : avatarHue(chat.project ?? chat.title)
   return (
     <span className="relative shrink-0">
-      <Avatar fallback={chat.id === 'general' ? '⌘' : chat.title} hue={hue} className="size-11 rounded-2xl text-sm" />
+      <Avatar fallback={chat.id === 'general' ? '⌘' : (chat.project ?? chat.title)} hue={hue} className="size-11 rounded-2xl text-sm" />
       {(state === 'needs_you' || state === 'working') && (
         <span
           data-state={state}
@@ -53,7 +53,8 @@ type ChatRowContentProps = {
 
 export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
   const state = chatState(chat)
-  const showMeta = chat.project !== null || chat.draft !== null
+  const isGeneral = chat.id === 'general'
+  const unreadDot = chat.unread > 0 ? <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full bg-primary" /> : null
   return (
     <>
       {selection !== null ? (
@@ -71,24 +72,20 @@ export function ChatRowContent({ chat, selection }: ChatRowContentProps) {
       <span className={`min-w-0 flex-1 ${state === 'ended' ? 'opacity-70' : ''}`}>
         <span className="flex items-center gap-2">
           <span className={`truncate text-[15px] ${chat.unread > 0 ? 'font-semibold' : 'font-medium'}`}>{chat.title}</span>
-          {chat.lastMessage !== null && (
-            <time dateTime={new Date(chat.lastMessage.at).toISOString()} className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
-              {formatRelativeTime(chat.lastMessage.at)}
-            </time>
-          )}
-        </span>
-        <span className="mt-0.5 flex items-center gap-2">
-          <PreviewLine chat={chat} />
-          {chat.unread > 0 && <span aria-hidden="true" className="ml-auto size-2.5 shrink-0 rounded-full bg-primary" />}
-        </span>
-        {showMeta && (
-          <span className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-            {chat.project !== null && <span className="shrink-0">{chat.project}</span>}
-            {chat.draft !== null && (
-              <span className="truncate">
-                <span className="font-medium text-primary">Draft</span>: {chat.draft.preview}
-              </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {chat.draft !== null && <Pencil aria-hidden="true" className="size-3.5 text-primary" />}
+            {chat.lastMessage !== null && (
+              <time dateTime={new Date(chat.lastMessage.at).toISOString()} className="font-mono text-xs text-muted-foreground">
+                {formatRelativeTime(chat.lastMessage.at)}
+              </time>
             )}
+            {isGeneral && unreadDot}
+          </span>
+        </span>
+        {!isGeneral && (
+          <span className="mt-0.5 flex items-center gap-2">
+            <PreviewLine chat={chat} />
+            {unreadDot !== null && <span className="ml-auto flex shrink-0">{unreadDot}</span>}
           </span>
         )}
       </span>

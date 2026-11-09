@@ -10,6 +10,8 @@ import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 
 type ChatListProps = {
+  /** The tab the list opens on. All, unless a test or a link says otherwise. */
+  initialFilter?: ListFilter
   chats: Chat[]
   activeId: string | null
   status: ConnectionStatus
@@ -119,6 +121,7 @@ export function isSelectableChat(chat: Chat): boolean {
 }
 
 export function ChatList({
+  initialFilter = 'all',
   chats,
   activeId,
   status,
@@ -129,7 +132,7 @@ export function ChatList({
   onActionError,
 }: ChatListProps) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<ListFilter>('all')
+  const [filter, setFilter] = useState<ListFilter>(initialFilter)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [archiving, setArchiving] = useState(false)
@@ -281,6 +284,9 @@ export function ChatList({
       <ConnectionNotice status={status} />
       <ChatFilterBar value={filter} counts={counts} endedUnread={endedUnread} onSelect={selectFilter} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
+        {filter === 'ended' && filteredChats.length > 0 && !selectionMode && (
+          <p className="px-3 pb-2 text-xs text-muted-foreground">Press and hold a session to select it, then archive.</p>
+        )}
         <div className="space-y-1">
           {filteredChats.map(chat => (
             <button
