@@ -92,3 +92,23 @@ describe('status colors', () => {
     expect(failures).toEqual([])
   })
 })
+
+describe('text contrast', () => {
+  test('body text and secondary text read at 4.5:1 or better on the background, card and muted fill of every theme and mode', () => {
+    const failures: string[] = []
+    for (const theme of COLOR_THEMES) {
+      for (const mode of ['light', 'dark'] as const) {
+        const palette = theme[mode]
+        for (const text of ['foreground', 'mutedForeground'] as const) {
+          for (const surface of ['background', 'card', 'muted'] as const) {
+            const ratio = contrast(palette[text], palette[surface])
+            if (ratio < 4.5) {
+              failures.push(`${theme.id}/${mode} ${text} on ${surface}: ${ratio.toFixed(2)}`)
+            }
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([])
+  })
+})

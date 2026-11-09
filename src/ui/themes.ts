@@ -69,11 +69,11 @@ export const COLOR_THEMES: readonly ColorTheme[] = [
     id: 'solarized',
     label: 'Solarized',
     light: {
-      background: '#fdf6e3', foreground: '#586e75', card: '#fdf6e4', muted: '#eee8d5', mutedForeground: '#566c73',
+      background: '#fdf6e3', foreground: '#536970', card: '#fdf6e4', muted: '#eee8d5', mutedForeground: '#566c73',
       border: '#d8d2bd', accent: '#e6dfca', primary: '#268bd2', primaryForeground: '#fdf6e3', glow: '38 139 210',
     },
     dark: {
-      background: '#002b36', foreground: '#839496', card: '#0d3640', muted: '#073642', mutedForeground: '#8d9d9e',
+      background: '#002b36', foreground: '#8c9ea0', card: '#0d3640', muted: '#073642', mutedForeground: '#8d9d9e',
       border: '#114b57', accent: '#094654', primary: '#268bd2', primaryForeground: '#fdf6e3', glow: '38 139 210',
     },
   },
@@ -129,7 +129,7 @@ export const COLOR_THEMES: readonly ColorTheme[] = [
     id: 'tokyo-night',
     label: 'Tokyo Night',
     light: {
-      background: '#e1e2e7', foreground: '#3760bf', card: '#e2e3e8', muted: '#c4c8da', mutedForeground: '#2e51a0',
+      background: '#e1e2e7', foreground: '#2c4e9f', card: '#e2e3e8', muted: '#c4c8da', mutedForeground: '#2e51a0',
       border: '#a8aecb', accent: '#c4c8da', primary: '#2e7de9', primaryForeground: '#e1e2e7', glow: '46 125 233',
     },
     dark: {
