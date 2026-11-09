@@ -291,7 +291,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
         </div>
       )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
-        <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
+        <div className={`flex items-end gap-2 rounded-3xl bg-card pl-4 pr-1.5 py-1.5 shadow-[0_-4px_18px_-6px_rgb(0_0_0/.22),0_10px_28px_-12px_rgb(0_0_0/.35)] ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
           <textarea
             ref={inputRef}
@@ -309,7 +309,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
             aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
             placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : `Message ${chat.title}…`}
             disabled={disabled}
-            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
+            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
           <Button
             type="button"

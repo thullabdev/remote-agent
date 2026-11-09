@@ -1,4 +1,4 @@
-import { ArrowDown, Bookmark, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDown, Bookmark, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
@@ -216,6 +216,16 @@ type MessageCardProps = {
   onTogglePin?: MessageFeedProps['onTogglePin']
 }
 
+const PIN_HOLD_MS = 500
+
+/** Shows that a message is pinned. Pinning itself is done by holding the message (see PressToPin). */
+function PinMark({ pinned }: { pinned: boolean }) {
+  if (!pinned) {
+    return null
+  }
+  return <Bookmark className="size-3 fill-current" aria-label="Pinned" role="img" />
+}
+
 function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) {
   return (
     <button
@@ -231,12 +241,63 @@ function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) 
   )
 }
 
+/**
+ * Holding a message for a moment toggles its pin, so the feed carries no per-message buttons. Taps on controls
+ * inside the message (links, buttons) do not start a hold. A hold also suppresses the long-press context menu.
+ */
+function PressToPin({ onToggle, children, className }: { onToggle(): void; children: ReactNode; className?: string }) {
+  const timer = useRef<number | null>(null)
+  const fired = useRef(false)
+
+  const cancel = () => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+
+  useEffect(() => cancel, [])
+
+  return (
+    <div
+      className={className}
+      onPointerDown={event => {
+        if ((event.target as HTMLElement).closest('a, button, input, label, textarea, select, summary') !== null) {
+          return
+        }
+        fired.current = false
+        cancel()
+        timer.current = window.setTimeout(() => {
+          timer.current = null
+          fired.current = true
+          navigator.vibrate?.(12)
+          onToggle()
+        }, PIN_HOLD_MS)
+      }}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onPointerMove={cancel}
+      onContextMenu={event => {
+        if (fired.current) {
+          event.preventDefault()
+        }
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-[var(--message-pad,_.7rem)] text-primary-foreground shadow-sm sm:max-w-[76%]">
-          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
+        <PressToPin
+          className="max-w-[88%] rounded-2xl rounded-br-md bg-accent px-4 py-[var(--message-pad,_.7rem)] text-foreground shadow-sm sm:max-w-[76%]"
+          onToggle={() => onTogglePin?.(message)}
+        >
+          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
           {message.attachments !== undefined && message.attachments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {message.attachments.map(attachment => (
@@ -244,20 +305,10 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
               ))}
             </div>
           )}
-          <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
-            {message.status === 'queued' ? (
-              <>
-                <span>Queued</span>
-                <Check className="size-3" aria-hidden="true" />
-              </>
-            ) : (
-              <>
-                <span>Delivered</span>
-                <CheckCheck className="size-3" aria-hidden="true" />
-              </>
-            )}
+          <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+            {message.status === 'queued' && <span>Sending…</span>}
+            <PinMark pinned={message.pinned === true} />
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
-            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
           </div>
           {pendingError && (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
@@ -265,7 +316,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
               {onRetry && <button className="font-semibold underline" onClick={onRetry}>Retry</button>}
             </div>
           )}
-        </div>
+        </PressToPin>
       </div>
     )
   }
@@ -327,22 +378,19 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
     // agent_text messages do not carry an agent id yet, so they show the default agent.
     const agent = agentInfo(undefined)
     return (
-      <article className="flex w-full gap-3">
-        <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-muted">
-          <Sparkles className="size-4" aria-hidden="true" />
+      <article className="min-w-0 w-full max-w-2xl px-4 py-[var(--message-pad,_.7rem)]">
+        <div className="mb-2 flex items-center gap-2 text-sm">
+          <span className="font-display font-semibold">{agent.name}</span>
+          <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
+          <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+          {onTogglePin && (
+            <span className="ml-auto">
+              <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
+            </span>
+          )}
         </div>
-        <div className="min-w-0 max-w-2xl flex-1">
-          <div className="mb-2 flex items-center gap-2 text-sm">
-            <span className="font-display font-semibold">{agent.name}</span>
-            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
-            <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
-            {onTogglePin && (
-              <span className="ml-auto">
-                <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
-              </span>
-            )}
-          </div>
-          <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+        <div className="min-w-0">
+          <div className="prose max-w-none break-words text-[length:var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
             <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
               <MarkdownBody markdown={message.markdown} />
             </Suspense>
@@ -385,7 +433,7 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
   const running = messages.some(message => message.status === 'running') && !interrupted
   const failed = messages.some(message => message.status === 'error')
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card/75 shadow-sm">
+    <section className={`overflow-hidden rounded-2xl bg-card/75 shadow-sm ${expanded || running ? 'border border-foreground/8' : ''}`}>
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/60"
