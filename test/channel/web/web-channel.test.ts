@@ -291,6 +291,21 @@ test('turn_complete appends agent_text when no transcript probe says active, and
   expect(chatLog.listMessages(chatId, { limit: 10 }).messages).toHaveLength(1)
 })
 
+// Phase 0 baseline for CL-18(b) (docs/ui-critique-chat-list-review.md): documents today's behaviour. Flip it when lifecycle messages stop counting as unread.
+test('the Session started and Session ended messages count as unread', () => {
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+  channel.sessionSeen(session)
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+  const before = chatLog.getChat(chatId)?.unread ?? 0
+
+  channel.report(session, { kind: 'session_started' })
+  expect(chatLog.getChat(chatId)?.unread).toBe(before + 1)
+
+  channel.report(session, { kind: 'session_ended', reason: 'exit' })
+  expect(chatLog.getChat(chatId)?.unread).toBe(before + 2)
+})
+
 test('first mod request for an unseen session creates exactly one chat', () => {
   store.upsertSession(webSession)
   const session = store.getSession(webSession.sessionId)!

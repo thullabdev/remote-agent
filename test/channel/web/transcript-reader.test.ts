@@ -227,6 +227,27 @@ test('busy turns true on a user entry and false on turn_end', async () => {
   expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
 })
 
+// Phase 0 baseline for CL-15 (docs/ui-critique-chat-list-review.md): documents today's behaviour. Flip the expectation when the list learns a "needs you" state.
+test('a chat waiting on a pending permission prompt is still reported busy', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'run it', 1) + toolUse('a-1', 'tool-1', 2))
+  await h.reader.ingestOnce(SID)
+
+  h.chatLog.appendMessage(chatId, {
+    kind: 'prompt',
+    promptId: 'perm-1',
+    title: 'Allow Bash?',
+    body: { kind: 'permission', tool: 'Bash', summary: 'ls', reason: null, agentId: null },
+    status: 'pending',
+    resolution: null,
+  })
+
+  const chat = h.chatLog.getChat(chatId)
+  expect(chat?.busy).toBe(true)
+  expect(messagesOf(h, chatId).some(message => message.kind === 'prompt' && message.status === 'pending')).toBe(true)
+})
+
 test('an old finished transcript backfills to idle', async () => {
   const h = setup()
   const chatId = startSession(h)
