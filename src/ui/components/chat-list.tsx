@@ -20,6 +20,27 @@ type ChatListProps = {
   onActionError(error: unknown): void
 }
 
+const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
+  loading: 'Connecting to your computer…',
+  reconnecting: "Can't reach your computer. Reconnecting…",
+  resyncing: 'Syncing recent activity…',
+  error: "Can't reach your computer.",
+}
+
+/** Says nothing while all is well. A line that is always on becomes invisible, so it only shows when the connection is not fine. */
+function ConnectionNotice({ status }: { status: ConnectionStatus }) {
+  const text = CONNECTION_NOTICE[status]
+  if (text === undefined) {
+    return null
+  }
+  return (
+    <div role="status" className="mx-4 mb-1 flex shrink-0 items-center gap-2 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+      <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
+      {text}
+    </div>
+  )
+}
+
 /** Horizontally scrolling filter chips. Every chip stays reachable by scrolling, so "Needs you" is never hidden behind a "More" menu. */
 function ChatFilterBar({ value, counts, onSelect }: { value: ListFilter; counts: Record<ListFilter, number>; onSelect(filter: ListFilter): void }) {
   return (
@@ -200,14 +221,14 @@ export function ChatList({
 
   return (
     <aside
-      className={`absolute inset-0 z-10 flex min-w-0 flex-col bg-background transition-transform duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
-        activeId === null ? 'translate-x-0' : '-translate-x-full'
+      className={`absolute inset-0 z-10 flex min-w-0 flex-col bg-background transition-[transform,visibility] duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
+        activeId === null ? 'translate-x-0' : '-translate-x-full max-md:invisible'
       }`}
       style={{ '--chat-list-width': `${width}px` } as CSSProperties}
       aria-label="Chats"
     >
       <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
-        <BrandMark className="size-11 shrink-0 text-foreground" />
+        <BrandMark className="hidden size-11 shrink-0 text-foreground md:block" />
         {selectionMode ? (
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
             <div className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -234,16 +255,27 @@ export function ChatList({
             />
           </div>
         )}
-        <Button variant="ghost" size="icon-sm" aria-label="Settings" title="Settings" onClick={onSettings}>
+        <Button variant="ghost" size="icon" aria-label="Settings" title="Settings" onClick={onSettings}>
           <Settings aria-hidden="true" />
         </Button>
-        <Button size="icon" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
+        <Button size="icon" className="hidden md:inline-flex" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
           <Plus aria-hidden="true" />
         </Button>
       </header>
 
+      <ConnectionNotice status={status} />
       <ChatFilterBar value={filter} counts={counts} onSelect={selectFilter} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      {counts.needs_you > 0 && filter !== 'needs_you' && (
+        <button
+          type="button"
+          onClick={() => selectFilter('needs_you')}
+          className="mx-4 mb-1 flex h-11 shrink-0 items-center justify-between rounded-xl border border-status-needs/30 bg-status-needs/10 px-3 text-sm font-medium text-status-needs"
+        >
+          {counts.needs_you === 1 ? '1 session needs you' : `${counts.needs_you} sessions need you`}
+          <span>Show</span>
+        </button>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
         <div className="space-y-1">
           {filteredChats.map(chat => (
             <button
@@ -318,12 +350,17 @@ export function ChatList({
           )}
         </div>
       </div>
-      <footer className="px-4 py-3 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-2">
-          <span className={`size-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-600 dark:bg-emerald-400' : status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} />
-          {status === 'connected' ? 'Connected to your Bridge' : status === 'reconnecting' ? 'Reconnecting to Bridge…' : status === 'resyncing' ? 'Syncing recent activity…' : status === 'error' ? 'Bridge connection unavailable' : 'Connecting to your Bridge…'}
-        </span>
-      </footer>
+      {!selectionMode && (
+        <Button
+          size="icon"
+          className="absolute bottom-4 right-4 z-20 size-14 rounded-2xl shadow-lg md:hidden"
+          aria-label="Start a new session"
+          title="Start a new session"
+          onClick={onNew}
+        >
+          <Plus aria-hidden="true" className="size-6" />
+        </Button>
+      )}
       <div
         role="separator"
         aria-orientation="vertical"

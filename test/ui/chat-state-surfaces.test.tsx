@@ -179,3 +179,53 @@ test('the avatar takes its color from the project and carries a state badge', ()
   expect(row({ ...base, busy: true })).toContain('data-state="working"')
   expect(row(base)).not.toContain('data-state=')
 })
+
+function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' | 'resyncing' | 'error' | 'loading'; activeId?: string | null } = {}): string {
+  return renderToStaticMarkup(
+    createElement(ChatList, {
+      chats, activeId: props.activeId ?? null, status: props.status ?? 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+      onArchiveSelected: async () => {}, onActionError: () => {},
+    }),
+  )
+}
+
+test('a strip says how many sessions need you and filters to them', () => {
+  const two = [blocked, { ...blocked, id: 'c2', title: 'Second' }]
+  const markup = listWith(two)
+  expect(markup).toContain('2 sessions need you')
+  expect(markup).toMatch(/<button[^>]*>[^<]*Show<\/button>|Show<\/span><\/button>/)
+  expect(listWith([blocked])).toContain('1 session needs you')
+})
+
+test('there is no strip when nothing needs you', () => {
+  const markup = listWith([base, { ...base, id: 'w', busy: true }])
+  expect(markup).not.toContain('needs you<')
+  expect(markup).not.toContain('need you<')
+})
+
+test('the footer is silent while connected, and plain-spoken when the connection is not fine', () => {
+  expect(listWith([base])).not.toContain('Connected to your Bridge')
+  expect(listWith([base])).not.toContain('role="status"')
+  expect(listWith([base], { status: 'reconnecting' })).toContain('Can&#x27;t reach your computer. Reconnecting')
+  expect(listWith([base], { status: 'error' })).toContain('Can&#x27;t reach your computer')
+  expect(listWith([base], { status: 'resyncing' })).toContain('Syncing recent activity')
+  expect(listWith([base], { status: 'loading' })).toContain('Connecting')
+  expect(listWith([base], { status: 'error' })).toContain('role="status"')
+})
+
+test('the list is hidden from keyboard and screen readers while a chat covers it on a phone', () => {
+  expect(listWith([base], { activeId: 'c1' })).toContain('max-md:invisible')
+  expect(listWith([base], { activeId: null })).not.toContain('max-md:invisible')
+})
+
+test('on a phone the new-session button sits at the bottom right, and the header keeps one for larger screens', () => {
+  const markup = listWith([base])
+  expect(markup.match(/aria-label="Start a new session"/g)).toHaveLength(2)
+  expect(markup).toContain('md:hidden')
+  expect(markup).toMatch(/fixed|absolute bottom-/)
+})
+
+test('the list uses no text smaller than 12px', () => {
+  const markup = listWith([{ ...base, unread: 3, draft: { preview: 'x' }, status: 'ended' }, blocked], { status: 'error' })
+  expect(markup).not.toMatch(/text-\[(?:9|10|11)px\]/)
+})
