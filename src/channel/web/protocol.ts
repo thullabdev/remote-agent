@@ -14,6 +14,8 @@ export type Chat = {
   busy: boolean
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null
+  /** The unsent draft for this chat, shown in the chat list in place of the last message. */
+  draft: { preview: string } | null
   pinned: boolean
   tmuxName: string | null
 }

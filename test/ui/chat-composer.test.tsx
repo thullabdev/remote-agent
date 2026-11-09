@@ -14,7 +14,7 @@ const chat: Chat = {
   archived: false,
   busy: false,
   unread: 0,
-  lastMessage: null,
+  lastMessage: null, draft: null,
   pinned: false,
   tmuxName: null,
 }

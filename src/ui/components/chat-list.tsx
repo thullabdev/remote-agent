@@ -412,9 +412,16 @@ export function ChatList({
                   </span>
                 </span>
                 <span className="mt-1 flex items-center gap-2">
-                  <span className="truncate text-xs text-muted-foreground">
-                    {chat.busy ? 'Working…' : chat.lastMessage?.preview ?? chat.project ?? 'No messages yet'}
-                  </span>
+                  {chat.draft !== null ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      <span className="font-medium text-primary">Draft: </span>
+                      {chat.draft.preview}
+                    </span>
+                  ) : (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {chat.busy ? 'Working…' : chat.lastMessage?.preview ?? chat.project ?? 'No messages yet'}
+                    </span>
+                  )}
                   {chat.unread > 0 && (
                     <span className="ml-auto grid min-h-5 min-w-5 shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
                       {chat.unread > 99 ? '99+' : chat.unread}

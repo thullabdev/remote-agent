@@ -78,6 +78,33 @@ test('createChat fills project, cwd and spawned from the session row', () => {
   expect(log.listChats().map(chat => chat.id)).toEqual(['general', 'c1'])
 })
 
+test('a draft shows in the chat list, and a change to what the list shows is announced once', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+  log.appendMessage('c1', agent('Plan ready'))
+  expect(log.getChat('c1')?.draft).toBeNull()
+
+  const updates = () => events.filter(event => event.type === 'chat.updated' && event.chat.id === 'c1').length
+  const before = updates()
+  log.setDraft('c1', { text: '  Continue   with the\nmigration  ', attachments: [] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration' })
+  expect(updates()).toBe(before + 1)
+
+  log.setDraft('c1', { text: 'Continue   with the migration', attachments: [] })
+  expect(updates()).toBe(before + 1)
+
+  log.setDraft('c1', { text: 'Continue with the migration, then', attachments: [] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration, then' })
+  expect(updates()).toBe(before + 2)
+
+  log.setDraft('c1', { text: '', attachments: [{ id: 'u_1', name: 'a.png', mime: 'image/png', size: 9 }, { id: 'u_2', name: 'b.pdf', mime: 'application/pdf', size: 9 }] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: '2 attached files' })
+
+  log.setDraft('c1', { text: '   ', attachments: [] })
+  expect(log.getChat('c1')?.draft).toBeNull()
+  expect(log.getChat('c1')?.lastMessage?.preview).toBe('Plan ready')
+})
+
 test('archiving a chat is persisted and emits updated chat state', () => {
   const events: ServerEvent[] = []
   log.subscribe(event => events.push(event))

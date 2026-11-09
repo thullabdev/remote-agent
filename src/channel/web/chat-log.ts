@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS drafts (
 
 const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.pinned, c.hidden_before_seq,
   c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
-  COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor
+  COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
+  (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
+  (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
 const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned'
@@ -73,6 +75,8 @@ type ChatRecord = {
   spawned: number | null
   tmux_name: string | null
   cursor: number
+  draft_text: string | null
+  draft_attachments: string | null
 }
 
 type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number }
@@ -114,6 +118,22 @@ function previewOf(body: MessageBody): string {
   const source =
     body.kind === 'agent_text' ? body.markdown : body.kind === 'prompt' ? body.title : body.kind === 'tool_run' ? body.tool : body.text
   return source.slice(0, PREVIEW_MAX)
+}
+
+/** What the chat list shows for an unsent draft: its text, or how many files it holds. Null when there is no draft. */
+function draftPreview(text: string | null, attachments: string | null): { preview: string } | null {
+  if (text === null) {
+    return null
+  }
+  const words = text.replace(/\s+/g, ' ').trim()
+  const files = attachments === null ? 0 : (JSON.parse(attachments) as unknown[]).length
+  if (words === '' && files === 0) {
+    return null
+  }
+  if (words !== '') {
+    return { preview: words.slice(0, PREVIEW_MAX) }
+  }
+  return { preview: files === 1 ? '1 attached file' : `${files} attached files` }
 }
 
 function toMessage(record: MessageRecord): Message {
@@ -384,16 +404,22 @@ export class ChatLog {
 
   /** Saves the draft; an empty one removes it. */
   setDraft(chatId: string, draft: Draft): void {
-    this.chatOrThrow(chatId)
-    if (draft.text === '' && draft.attachments.length === 0) {
-      this.db.query('DELETE FROM drafts WHERE chat_id = ?').run(chatId)
-      return
-    }
-    this.db
-      .query(
-        'INSERT INTO drafts (chat_id, text, attachments) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments',
-      )
-      .run(chatId, draft.text, JSON.stringify(draft.attachments))
+    this.write(() => {
+      const previous = this.chatOrThrow(chatId).draft
+      if (draft.text === '' && draft.attachments.length === 0) {
+        this.db.query('DELETE FROM drafts WHERE chat_id = ?').run(chatId)
+      } else {
+        this.db
+          .query(
+            'INSERT INTO drafts (chat_id, text, attachments) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments',
+          )
+          .run(chatId, draft.text, JSON.stringify(draft.attachments))
+      }
+      // The chat list shows the draft, so other devices hear about it. Only a change to what the list shows is sent.
+      const current = this.chatOrThrow(chatId).draft
+      const changed = JSON.stringify(previous) !== JSON.stringify(current)
+      return { value: undefined, events: changed ? [this.emitChat(chatId)] : [] }
+    })
   }
 
   listPins(chatId: string): { id: string; seq: number; at: number; kind: MessageKind; preview: string }[] {
@@ -629,6 +655,7 @@ export class ChatLog {
       busy: record.busy === 1,
       unread: unread?.count ?? 0,
       lastMessage: last === undefined ? null : { seq: last.seq, at: last.at, preview: previewOf(last) },
+      draft: draftPreview(record.draft_text, record.draft_attachments),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
     }
