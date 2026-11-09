@@ -28,7 +28,7 @@ When a message is updated (a prompt gets answered, an instruction is delivered) 
 
 **Away mode.** A server-side flag. Prompts always push; reports (turn finished, session started or ended) push only while Away mode is on. It is on when the Bridge starts.
 
-**Unread.** One global read position per chat, shared by all your devices. Messages of kind `agent_text`, `prompt` and `system` after the position count as unread; `tool_run`, `user_text`, `command_reply` and `picker` do not. History that was backfilled from an existing transcript never counts as unread.
+**Unread.** One global read position per chat, shared by all your devices. Messages of kind `agent_text`, `prompt` and `system` after the position count as unread; `tool_run`, `user_text`, `command_reply` and `picker` do not. History that was backfilled from an existing transcript never counts as unread, and neither do the "Session started" and "Session ended" messages (they stay in the log).
 
 ## Part 1: Building a client
 
@@ -144,7 +144,8 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 - `agent_text.markdown` is Markdown. Everything else is plain text.
 - Group consecutive `tool_run` messages between two other messages into one "agent run" in the UI. The server does not group them. A `tool_run` with `status: "running"` that never completes (the user interrupted) stays `running`; consider showing it as interrupted once a later message exists.
 - `chat.busy` drives the "typing…" indicator. It is best-effort: derived from the Session transcript and cleared when a turn finishes, is interrupted, or the Session ends.
-- `chat.lastMessage.preview` is plain text, at most 140 characters, for the chat list only. Never use it for anything else.
+- `chat.lastMessage.preview` is plain text, at most 140 characters, for the chat list only. Never use it for anything else. Markdown is stripped; a prompt previews what it asks (`Bash: bun test`, or the first question), a tool run what it did (`Ran Bash: ls`, `Running Bash: ls`, `Bash failed: ls`), and a message you sent starts with `You: `.
+- `chat.pendingPrompt` is set while the Session waits for an Answer: `{ promptId, kind, summary, at, count }` for the oldest pending Prompt (`count` counts a multi-question Prompt once). It is `null` when nothing waits and for ended chats. While it is set `chat.busy` is still `true` (the turn is open), so show "needs you" in preference to "working". A `chat.updated` event is sent when it changes.
 - A chat with `status: "ended"` is read-only: sending text to it returns 409.
 - `chat.spawned` is `true` for Sessions the Bridge started: only those can be ended from the UI, and `chat.tmuxName` lets you show a `tmux attach -t <name>` hint.
 
@@ -251,6 +252,7 @@ type Chat = {
   lastMessage: { seq: number; at: number; preview: string } | null   // at: ms since epoch
   pinned: boolean               // true for General
   tmuxName: string | null
+  pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null
 }
 
 type Message = { id: string; chatId: string; seq: number; at: number } & (   // at: ms since epoch

@@ -308,9 +308,10 @@ export class ChatLog {
 
   /**
    * `at` is the message's time (default: now); it is what lastMessage.at and the list order use. `history` marks backfilled
-   * transcript messages, which are stored as read. Seq stays creation order either way.
+   * transcript messages, which are stored as read. `quiet` does the same for a message that is bookkeeping, not news (session
+   * started or ended): it stays in the log but never adds to the unread count. Seq stays creation order either way.
    */
-  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string; at?: number; history?: boolean } = {}): Message {
+  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string; at?: number; history?: boolean; quiet?: boolean } = {}): Message {
     const stored = normalizeBody(body)
     const sourceId = options.sourceId ?? null
     return this.write(() => {
@@ -323,7 +324,7 @@ export class ChatLog {
           `INSERT INTO messages (id, chat_id, seq, kind, body, source_id, created_at, counts_unread) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(chat_id, source_id) DO NOTHING`,
         )
-        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at, options.history === true ? 0 : 1)
+        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at, options.history === true || options.quiet === true ? 0 : 1)
       if (sourceId !== null && inserted.changes === 0) {
         return { value: this.messageBySource(chatId, sourceId), events: [] }
       }

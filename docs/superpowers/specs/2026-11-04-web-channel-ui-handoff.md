@@ -59,6 +59,7 @@ type Chat = {
   lastMessage: { seq: number; at: number; preview: string } | null  // preview is plain text, for the list only
   pinned: boolean             // true for General
   tmuxName: string | null     // for an "attach" hint, spawned only
+  pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null  // set while the Session waits for an Answer; wins over busy
 }
 
 type Message = {

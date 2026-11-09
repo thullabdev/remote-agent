@@ -290,12 +290,12 @@ export class WebChannel implements Channel, ChatSink {
     this.transcriptAttach(session.id)
     const chatId = this.chatFor(session)
     if (report.kind === 'session_started') {
-      this.appendSystem(session, `Session started in ${session.cwd}`)
+      this.appendSystem(session, `Session started in ${session.cwd}`, true)
       this.push(chatId, 'report', 'Session started')
       return
     }
     if (report.kind === 'session_ended') {
-      this.appendSystem(session, `Session ended (${report.reason})`)
+      this.appendSystem(session, `Session ended (${report.reason})`, true)
       this.push(chatId, 'report', 'Session ended')
       return
     }
@@ -317,8 +317,9 @@ export class WebChannel implements Channel, ChatSink {
 
   /**
    * The single place that flips a chat's busy flag. A value that is already set emits nothing, and an ended chat never becomes busy.
-   * Busy is a stand-in driven by instruction delivery and turn_complete; the transcript reader (a later task) becomes the real source.
-   * Until then a delivered instruction with no turn_complete (e.g. an Esc interrupt) leaves the chat busy until the session ends.
+   * Busy means a turn is open. The transcript reader is the main source (it ends the turn on turn_end and on an Esc interrupt);
+   * a delivered instruction also sets it at once, and turn_complete clears it. A Session waiting on a Prompt is still busy:
+   * the list uses Chat.pendingPrompt, not busy, to show that it needs the user.
    */
   busyChanged(sessionId: string, busy: boolean): void {
     const chatId = this.chatIdOf(sessionId)
@@ -347,8 +348,9 @@ export class WebChannel implements Channel, ChatSink {
     this.appendSystem(session, text)
   }
 
-  private appendSystem(session: SessionRow, text: string): void {
-    this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text })
+  /** `quiet` marks lifecycle bookkeeping that should not raise the unread count. */
+  private appendSystem(session: SessionRow, text: string, quiet = false): void {
+    this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text }, { quiet })
   }
 
   /** Hands a push to the notifier without waiting for it. A push problem is logged and never reaches the chat or the Bridge. */

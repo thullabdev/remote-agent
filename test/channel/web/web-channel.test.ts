@@ -291,19 +291,29 @@ test('turn_complete appends agent_text when no transcript probe says active, and
   expect(chatLog.listMessages(chatId, { limit: 10 }).messages).toHaveLength(1)
 })
 
-// Phase 0 baseline for CL-18(b) (docs/ui-critique-chat-list-review.md): documents today's behaviour. Flip it when lifecycle messages stop counting as unread.
-test('the Session started and Session ended messages count as unread', () => {
+// CL-18(b) (docs/ui-critique-chat-list-review.md): lifecycle messages are history for the list, not something to read.
+test('the Session started and Session ended messages do not count as unread, but stay in the log', () => {
   store.upsertSession(webSession)
   const session = store.getSession(webSession.sessionId)!
   channel.sessionSeen(session)
   const chatId = store.getSession(webSession.sessionId)!.chatId!
-  const before = chatLog.getChat(chatId)?.unread ?? 0
 
   channel.report(session, { kind: 'session_started' })
-  expect(chatLog.getChat(chatId)?.unread).toBe(before + 1)
-
   channel.report(session, { kind: 'session_ended', reason: 'exit' })
-  expect(chatLog.getChat(chatId)?.unread).toBe(before + 2)
+
+  expect(chatLog.getChat(chatId)?.unread).toBe(0)
+  const texts = chatLog.listMessages(chatId, { limit: 50 }).messages.flatMap(message => (message.kind === 'system' ? [message.text] : []))
+  expect(texts).toEqual([`Session started in ${webSession.cwd}`, 'Session ended (exit)'])
+})
+
+test('a reminder that a prompt is still waiting still counts as unread', async () => {
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+  const prompt = insertPrompt('p9', { kind: 'permission', tool: 'Bash', input: { command: 'ls' } })
+
+  channel.promptReminder(prompt, session)
+
+  expect(chatLog.getChat(store.getSession(webSession.sessionId)!.chatId!)?.unread).toBe(1)
 })
 
 test('first mod request for an unseen session creates exactly one chat', () => {
