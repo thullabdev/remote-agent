@@ -68,7 +68,7 @@ test('the list still says Working for a session that is working, and the last me
 })
 
 test('a pending prompt is shown even when the chat has an unsent draft', () => {
-  const markup = list({ ...blocked, draft: { preview: 'half a reply' } })
+  const markup = list({ ...blocked, draft: { preview: 'half a reply', at: 1 } })
   expect(markup).toContain('Needs you')
   expect(markup).toContain('Bash: bun test')
 })
@@ -167,7 +167,7 @@ test('a working row keeps the last message visible next to the state', () => {
 })
 
 test('a row has two lines: the project is not printed on it, and a draft is a pencil that does not hide the preview', () => {
-  const markup = row({ ...base, draft: { preview: 'half a reply' } })
+  const markup = row({ ...base, draft: { preview: 'half a reply', at: 1 } })
   expect(markup).not.toContain('>api<')
   expect(markup).not.toContain('half a reply')
   expect(markup).toContain('lucide-pencil')
@@ -187,7 +187,7 @@ test('General is compact: one line, no preview, but its draft and unread still s
   const markup = row(general)
   expect(markup).toContain('General')
   expect(markup).not.toContain('Bridge started')
-  expect(row({ ...general, draft: { preview: '/new' } })).toContain('lucide-pencil')
+  expect(row({ ...general, draft: { preview: '/new', at: 1 } })).toContain('lucide-pencil')
   expect(row({ ...general, unread: 1 })).toContain('rounded-full bg-primary')
 })
 
@@ -269,6 +269,6 @@ test('on a phone the new-session button sits at the bottom right, and the header
 })
 
 test('the list uses no text smaller than 12px', () => {
-  const markup = listWith([{ ...base, unread: 3, draft: { preview: 'x' }, status: 'ended' }, blocked], { status: 'error' })
+  const markup = listWith([{ ...base, unread: 3, draft: { preview: 'x', at: 1 }, status: 'ended' }, blocked], { status: 'error' })
   expect(markup).not.toMatch(/text-\[(?:9|10|11)px\]/)
 })

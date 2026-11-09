@@ -87,18 +87,18 @@ test('a draft shows in the chat list, and a change to what the list shows is ann
   const updates = () => events.filter(event => event.type === 'chat.updated' && event.chat.id === 'c1').length
   const before = updates()
   log.setDraft('c1', { text: '  Continue   with the\nmigration  ', attachments: [] })
-  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration' })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration', at: 1_000 })
   expect(updates()).toBe(before + 1)
 
   log.setDraft('c1', { text: 'Continue   with the migration', attachments: [] })
   expect(updates()).toBe(before + 1)
 
   log.setDraft('c1', { text: 'Continue with the migration, then', attachments: [] })
-  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration, then' })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration, then', at: 1_000 })
   expect(updates()).toBe(before + 2)
 
   log.setDraft('c1', { text: '', attachments: [{ id: 'u_1', name: 'a.png', mime: 'image/png', size: 9 }, { id: 'u_2', name: 'b.pdf', mime: 'application/pdf', size: 9 }] })
-  expect(log.getChat('c1')?.draft).toEqual({ preview: '2 attached files' })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: '2 attached files', at: 1_000 })
 
   log.setDraft('c1', { text: '   ', attachments: [] })
   expect(log.getChat('c1')?.draft).toBeNull()
@@ -251,6 +251,33 @@ test('opening a database created without counts_unread migrates it, and old rows
   const reopened = new ChatLog(store, () => clock)
 
   expect(reopened.getChat('general')?.unread).toBe(1)
+})
+
+test('a draft carries the time it was last edited, so the list can put the newest draft first', () => {
+  clock = 2_000
+  log.setDraft('c1', { text: 'first', attachments: [] })
+  expect(log.getChat('c1')?.draft?.at).toBe(2_000)
+
+  clock = 3_000
+  log.setDraft('c1', { text: 'first, then more', attachments: [] })
+  expect(log.getChat('c1')?.draft?.at).toBe(3_000)
+
+  clock = 4_000
+  log.setDraft('c1', { text: '', attachments: [] })
+  expect(log.getChat('c1')?.draft).toBeNull()
+})
+
+test('opening a database created without a draft time keeps its drafts, with the oldest possible time', () => {
+  const store = new Store(':memory:', () => clock)
+  store.upsertSession({ sessionId: 's2', cwd: '/home/u/Sites/other' })
+  const first = new ChatLog(store, () => clock)
+  first.createChat({ id: 'c2', sessionId: 's2', title: 'other' })
+  first.setDraft('c2', { text: 'kept across the upgrade', attachments: [] })
+  store.database.exec('ALTER TABLE drafts DROP COLUMN updated_at')
+
+  const reopened = new ChatLog(store, () => clock)
+
+  expect(reopened.getChat('c2')?.draft).toEqual({ preview: 'kept across the upgrade', at: 0 })
 })
 
 test('opening a database created without archived migrates existing chats as unarchived', () => {

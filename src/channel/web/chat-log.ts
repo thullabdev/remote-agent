@@ -17,6 +17,7 @@ const MESSAGE_ADDED_COLUMNS: [string, string][] = [
   ['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1'],
   ['pinned', 'pinned INTEGER NOT NULL DEFAULT 0'],
 ]
+const DRAFT_ADDED_COLUMNS: [string, string][] = [['updated_at', 'updated_at INTEGER NOT NULL DEFAULT 0']]
 const CHAT_ADDED_COLUMNS: [string, string][] = [
   ['archived', 'archived INTEGER NOT NULL DEFAULT 0'],
   ['custom_title', 'custom_title TEXT'],
@@ -56,7 +57,8 @@ const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.p
   c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
   (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
-  (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments
+  (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments,
+  (SELECT d.updated_at FROM drafts d WHERE d.chat_id = c.id) AS draft_at
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
 const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned'
@@ -77,6 +79,7 @@ type ChatRecord = {
   cursor: number
   draft_text: string | null
   draft_attachments: string | null
+  draft_at: number | null
 }
 
 type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number }
@@ -159,7 +162,7 @@ function promptSummary(body: PromptBodyView): string {
 }
 
 /** What the chat list shows for an unsent draft: its text, or how many files it holds. Null when there is no draft. */
-function draftPreview(text: string | null, attachments: string | null): { preview: string } | null {
+function draftPreview(text: string | null, attachments: string | null, at: number | null): { preview: string; at: number } | null {
   if (text === null) {
     return null
   }
@@ -169,9 +172,9 @@ function draftPreview(text: string | null, attachments: string | null): { previe
     return null
   }
   if (words !== '') {
-    return { preview: words.slice(0, PREVIEW_MAX) }
+    return { preview: words.slice(0, PREVIEW_MAX), at: at ?? 0 }
   }
-  return { preview: files === 1 ? '1 attached file' : `${files} attached files` }
+  return { preview: files === 1 ? '1 attached file' : `${files} attached files`, at: at ?? 0 }
 }
 
 function toMessage(record: MessageRecord): Message {
@@ -211,6 +214,12 @@ export class ChatLog {
     for (const [name, definition] of MESSAGE_ADDED_COLUMNS) {
       if (!columns.has(name)) {
         this.db.exec(`ALTER TABLE messages ADD COLUMN ${definition}`)
+      }
+    }
+    const draftColumns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(drafts)').all().map(column => column.name))
+    for (const [name, definition] of DRAFT_ADDED_COLUMNS) {
+      if (!draftColumns.has(name)) {
+        this.db.exec(`ALTER TABLE drafts ADD COLUMN ${definition}`)
       }
     }
     const chatColumns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(chats)').all().map(column => column.name))
@@ -451,9 +460,10 @@ export class ChatLog {
       } else {
         this.db
           .query(
-            'INSERT INTO drafts (chat_id, text, attachments) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments',
+            `INSERT INTO drafts (chat_id, text, attachments, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments, updated_at = excluded.updated_at`,
           )
-          .run(chatId, draft.text, JSON.stringify(draft.attachments))
+          .run(chatId, draft.text, JSON.stringify(draft.attachments), this.now())
       }
       // The chat list shows the draft, so other devices hear about it. Only a change to what the list shows is sent.
       const current = this.chatOrThrow(chatId).draft
@@ -695,7 +705,7 @@ export class ChatLog {
       busy: record.busy === 1,
       unread: unread?.count ?? 0,
       lastMessage: last === undefined ? null : { seq: last.seq, at: last.at, preview: previewOf(last) },
-      draft: draftPreview(record.draft_text, record.draft_attachments),
+      draft: draftPreview(record.draft_text, record.draft_attachments, record.draft_at),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
       pendingPrompt: record.status === 'active' ? this.pendingPrompt(record.id, record.hidden_before_seq) : null,

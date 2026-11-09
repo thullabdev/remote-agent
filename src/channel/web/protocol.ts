@@ -27,8 +27,8 @@ export type Chat = {
   busy: boolean
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null
-  /** The unsent draft for this chat, shown in the chat list in place of the last message. */
-  draft: { preview: string } | null
+  /** The unsent draft for this chat. `at` is when it was last edited: chats with a draft are listed first, newest edit on top. */
+  draft: { preview: string; at: number } | null
   pinned: boolean
   tmuxName: string | null
   /** Set while the Session waits for a human Answer. Wins over `busy`, which stays true because the turn is still open. */

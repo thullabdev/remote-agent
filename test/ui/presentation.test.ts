@@ -194,6 +194,6 @@ describe('chat row helpers', () => {
     expect(
       chatRowLabel({ ...chat, busy: true, pendingPrompt: { promptId: 'p', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 } }, now),
     ).toBe('Needs you, permission: Bash: ls, Billing fix, api, 12 minutes ago')
-    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x' } }, now)).toBe('Billing fix, api, 12 minutes ago, 3 unread, has a draft')
+    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x', at: 1 } }, now)).toBe('Billing fix, api, 12 minutes ago, 3 unread, has a draft')
   })
 })
