@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, PinView, UsageView } from '../../channel/web/protocol.ts'
@@ -20,6 +20,8 @@ type ChatInfoProps = {
   onArchive(): Promise<void>
   onUnarchive(): Promise<void>
   onRename(title: string): Promise<void>
+  /** Pins the session to the top of the list, or unpins it. */
+  onPin(pinned: boolean): Promise<void>
   onClear(): Promise<void>
   onFork(): Promise<void>
   onResume(): Promise<void>
@@ -32,7 +34,7 @@ type ChatInfoProps = {
 
 type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
 
-export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
+export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
   const now = useNow()
   const state = chatState(chat)
   const sessionUsage = usage.chats[chat.id]
@@ -190,6 +192,12 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                 <Button variant="outline" className="justify-start" onClick={openRename}>
                   <Pencil aria-hidden="true" />
                   Rename Session
+                </Button>
+              )}
+              {chat.id !== 'general' && !chat.archived && (
+                <Button variant="outline" className="justify-start" onClick={() => void onPin(!chat.pinned)}>
+                  {chat.pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+                  {chat.pinned ? 'Unpin Session' : 'Pin to top'}
                 </Button>
               )}
               {chat.spawned && chat.status === 'active' && (

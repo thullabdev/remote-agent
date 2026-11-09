@@ -296,6 +296,9 @@ export function chatRowLabel(chat: Chat, now = Date.now()): string {
     parts.push('Ended')
   }
   parts.push(chat.title)
+  if (chat.pinned && chat.id !== 'general') {
+    parts.push('pinned')
+  }
   if (chat.id !== 'general') {
     parts.push(chat.spawned ? 'spawned session' : 'computer session')
   }

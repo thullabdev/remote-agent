@@ -26,7 +26,7 @@ All responses are JSON. Errors: `{ "error": string }` with 4xx/5xx. 400: `Invali
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/state` | Initial load: `{ seq, away, chats: Chat[] }`. General first, then chats that need the user, then chats with an unsent draft (newest edit first), then working chats, then the rest by `lastMessage.at`, newest first (see Rendering notes). |
+| `GET /api/state` | Initial load: `{ seq, away, chats: Chat[] }`. General first, then chats that need the user, then pinned chats, then chats with an unsent draft (newest edit first), then working chats, then the rest by `lastMessage.at`, newest first (see Rendering notes). |
 | `GET /api/chats/:id/messages?before=<seq>&limit=<n>` | History page, newest last. Omit `before` for the latest page. `limit` defaults to 50 and is clamped to 1–200; `before` must be a non-negative integer (400 otherwise). Returns `{ messages: Message[], hasMore }`. 404 for an unknown chat. |
 | `POST /api/chats/:id/messages` `{ clientId, text }` | Send text. In a Session chat it becomes an Instruction (queued; delivered when the Session is idle). In General it is a command (`/new`, `/end`, `/status`, `/away`, `/back`). Returns `{ message }` (the user message: status `queued` in a Session chat, `delivered` in General); replies arrive as normal events. `clientId` makes retries idempotent: a repeat returns the stored message. 400 for blank text; 409 `This session has ended.` for an ended Session. |
 | `POST /api/chats/:id/actions` `{ promptId, questionIndex, optionIndex }` | Tap an option on a Question, or Allow/Deny (option 0 = allow, 1 = deny) on a Permission Request. Returns `{ toast: string }` (short text to show). 404 for an unknown chat. |
@@ -57,7 +57,7 @@ type Chat = {
   busy: boolean               // agent is working: show "typing…"
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null  // preview is plain text, for the list only
-  pinned: boolean             // true for General
+  pinned: boolean             // true for General (always), and for a Session the user pinned (`POST /api/chats/:id/pin`, at most 5)
   tmuxName: string | null     // for an "attach" hint, spawned only
   draft: { preview: string; at: number } | null  // an unsent message; `at` is the last edit (ms epoch)
   pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null  // set while the Session waits for an Answer; wins over busy
@@ -87,7 +87,7 @@ Rendering notes from the prototype mapping:
 - Prototype inline `choices` = a `prompt` message of kind `question`; "or type your own answer" = `POST /api/prompts/:id/reply`.
 - A `prompt` that is `answered` shows what was decided (`resolution.note`: "Allowed", "Denied: <feedback>", "Answered: <answer>", "Answered in the terminal") with the chosen option marked, and no buttons. Each question of a multi-question Prompt is its own message and flips to answered when that question is answered, before the Prompt as a whole is complete. While an answer is being sent, mark the pressed choice (sending, then sent) and show a failure next to it.
 - `user_text.status` drives a sent/delivered tick. While `queued` the Session is busy; it will be delivered when idle.
-- Chat list ordering: `GET /api/state` already sorts: General first, then chats with a pending Prompt (the one waiting longest first), then chats with a `draft` (`draft.at` newest first; ended chats do not count), then working chats (`busy`), then the rest; within each group newest `lastMessage.at` first. Ended chats count as the rest. The same function (`src/channel/web/order.ts`) orders the browser's list after a `chat.updated`. Keep that order when a `chat.updated` moves a chat. `pinned` is true for General only.
+- Chat list ordering: `GET /api/state` already sorts: General first, then chats with a pending Prompt (the one waiting longest first), then `pinned` chats, then chats with a `draft` (`draft.at` newest first; ended chats do not count), then working chats (`busy`), then the rest; within each group newest `lastMessage.at` first. Ended chats count as the rest. The same function (`src/channel/web/order.ts`) orders the browser's list after a `chat.updated`. Keep that order when a `chat.updated` moves a chat. A pinned chat that ends or is archived is not ranked as pinned.
 - Per-chat "info" panel fields available now: `title`, `project`, `cwd`, `status`, `spawned`, `tmuxName`, message count (client), and nothing editable yet.
 
 ## 5. WebSocket `/ws?after=<seq>`

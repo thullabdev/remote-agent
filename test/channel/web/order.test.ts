@@ -114,3 +114,26 @@ test('a draft from an older server without a time sorts last among drafts', () =
   const ordered = orderChats([chat('legacy', { draft: legacy }), chat('dated', { draft: drafted(5) })])
   expect(ids(ordered)).toEqual(['dated', 'legacy'])
 })
+
+test('pinned sessions come after the ones that need you and before drafts, working and the rest, newest message first', () => {
+  const ordered = orderChats([
+    chat('plain', { lastMessage: said(900) }),
+    chat('working', { busy: true, lastMessage: said(800) }),
+    chat('draft', { draft: drafted(300), lastMessage: said(700) }),
+    chat('pinned-old', { pinned: true, lastMessage: said(10) }),
+    chat('blocked', { pendingPrompt: waiting(5), lastMessage: said(1) }),
+    chat('general', { pinned: true }),
+    chat('pinned-new', { pinned: true, lastMessage: said(50) }),
+  ])
+  expect(ids(ordered)).toEqual(['general', 'blocked', 'pinned-new', 'pinned-old', 'draft', 'working', 'plain'])
+})
+
+test('a pinned session that needs you is ranked as needing you, and a pinned one that ended is not ranked as pinned', () => {
+  const ordered = orderChats([
+    chat('pinned', { pinned: true, lastMessage: said(10) }),
+    chat('pinned-blocked', { pinned: true, pendingPrompt: waiting(5), lastMessage: said(1) }),
+    chat('pinned-ended', { pinned: true, status: 'ended', lastMessage: said(999) }),
+    chat('general', { pinned: true }),
+  ])
+  expect(ids(ordered)).toEqual(['general', 'pinned-blocked', 'pinned', 'pinned-ended'])
+})

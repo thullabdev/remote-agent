@@ -1,4 +1,4 @@
-import { Check, Monitor, Terminal } from 'lucide-react'
+import { Check, Monitor, Pin, Terminal } from 'lucide-react'
 import { Fragment } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
@@ -111,6 +111,11 @@ export function ChatRowContent({ chat, selection, now = Date.now(), terms = [] }
         <span className="flex items-center gap-2">
           <span className={`truncate text-[15px] ${chat.unread > 0 ? 'font-semibold' : 'font-medium'}`}><Highlight text={chat.title} terms={terms} /></span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {chat.pinned && !isGeneral && (
+              <span data-pinned="true" title="Pinned" className="flex shrink-0">
+                <Pin aria-hidden="true" className="size-3.5 text-muted-foreground" />
+              </span>
+            )}
             <OriginIcon chat={chat} />
             {chat.lastMessage !== null && (
               <time dateTime={new Date(chat.lastMessage.at).toISOString()} className="font-mono text-xs text-muted-foreground">

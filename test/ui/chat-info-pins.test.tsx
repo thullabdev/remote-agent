@@ -9,9 +9,9 @@ const chat: Chat = {
   busy: false, unread: 0, lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
 }
 
-function render(pins: PinView[]): string {
+function render(pins: PinView[], shown: Chat = chat): string {
   return renderToStaticMarkup(createElement(ChatInfo, {
-    chat,
+    chat: shown,
     messageCount: 4,
     usage: { accounts: [], chats: {} } as never,
     onClose: () => {},
@@ -19,6 +19,7 @@ function render(pins: PinView[]): string {
     onArchive: async () => {},
     onUnarchive: async () => {},
     onRename: async () => {},
+    onPin: async () => {},
     onClear: async () => {},
     onFork: async () => {},
     onResume: async () => {},
@@ -47,4 +48,17 @@ test('the details list shows each pin with its author, preview and actions', () 
   expect(markup).toContain('Show in chat')
   expect(markup).toContain('Unpin')
   expect(markup).toContain('aria-label="Refresh pinned messages"')
+})
+
+test('the details offer to pin a session to the top, and to unpin a pinned one', () => {
+  expect(render([])).toContain('Pin to top')
+  expect(render([])).not.toContain('Unpin Session')
+  const pinned = render([], { ...chat, pinned: true })
+  expect(pinned).toContain('Unpin Session')
+  expect(pinned).not.toContain('Pin to top')
+})
+
+test('General and archived sessions have no pin action', () => {
+  expect(render([], { ...chat, id: 'general', title: 'General', project: null, pinned: true })).not.toMatch(/Pin to top|Unpin Session/)
+  expect(render([], { ...chat, status: 'ended', archived: true })).not.toMatch(/Pin to top|Unpin Session/)
 })

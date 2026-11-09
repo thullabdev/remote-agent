@@ -4,6 +4,8 @@ import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/te
 import type { Chat, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
+/** How many sessions the user can pin (General is always at the top and does not count), so pinning cannot recreate a crowded list. */
+export const MAX_PINNED_CHATS = 5
 /** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
 export const MAX_REPLAY_EVENTS = 5_000
 export const MAX_REPLAY_BYTES = 4 * 1024 * 1024
@@ -289,13 +291,30 @@ export class ChatLog {
     })
   }
 
+  /** Pins a session to the top of the list (below sessions that need the user), or unpins it. General is always pinned and is left alone. */
+  setChatPinned(id: string, pinned: boolean): Chat {
+    return this.write(() => {
+      const current = this.chatOrThrow(id)
+      if (current.pinned === pinned) {
+        return { value: current, events: [] }
+      }
+      this.db.query('UPDATE chats SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+      return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
+    })
+  }
+
+  pinnedChatCount(): number {
+    return this.db.query<{ n: number }, [string]>('SELECT count(*) AS n FROM chats WHERE pinned = 1 AND id != ?').get(GENERAL_ID)?.n ?? 0
+  }
+
+  /** Archiving unpins: a pin on a session that is hidden from the list would come back unseen when it is restored. */
   setArchived(id: string, archived: boolean): Chat {
     return this.write(() => {
       const current = this.chatOrThrow(id)
       if (current.archived === archived) {
         return { value: current, events: [] }
       }
-      this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+      this.db.query(`UPDATE chats SET archived = ?, pinned = CASE WHEN ? = 1 AND id != ? THEN 0 ELSE pinned END WHERE id = ?`).run(archived ? 1 : 0, archived ? 1 : 0, GENERAL_ID, id)
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -308,7 +327,7 @@ export class ChatLog {
         if (current.archived === archived) {
           continue
         }
-        this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+        this.db.query(`UPDATE chats SET archived = ?, pinned = CASE WHEN ? = 1 AND id != ? THEN 0 ELSE pinned END WHERE id = ?`).run(archived ? 1 : 0, archived ? 1 : 0, GENERAL_ID, id)
         events.push(this.emitChat(id))
       }
       return { value: ids.map(id => this.chatOrThrow(id)), events }

@@ -7,7 +7,7 @@ import type { SessionRow, Store } from '../../bridge/store.ts'
 import type { Project } from '../../bridge/trusted.ts'
 import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
-import type { ChatLog } from './chat-log.ts'
+import { MAX_PINNED_CHATS, type ChatLog } from './chat-log.ts'
 import { orderChats } from './order.ts'
 import type { PushService } from './push.ts'
 import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
@@ -87,6 +87,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'pin'], run: ({ deps, request }, id) => pinChat(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
   { method: 'GET', pattern: ['chats', ':id', 'draft'], run: ({ deps }, id) => getDraft(deps, id) },
@@ -483,6 +484,22 @@ function unarchiveChat(deps: ApiDeps, chatId: string): unknown {
   }
   deps.chatLog.setArchived(chatId, false)
   return { toast: 'Session restored.' }
+}
+
+async function pinChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const { pinned } = await readBody(request, PinSchema)
+  const chat = requireChat(deps, chatId)
+  if (chat.id === GENERAL_ID) {
+    throw new ApiError(409, 'General is always at the top.')
+  }
+  if (pinned && chat.archived) {
+    throw new ApiError(409, 'An archived Session cannot be pinned.')
+  }
+  if (pinned && !chat.pinned && deps.chatLog.pinnedChatCount() >= MAX_PINNED_CHATS) {
+    throw new ApiError(409, `You can pin up to ${MAX_PINNED_CHATS} Sessions. Unpin one first.`)
+  }
+  deps.chatLog.setChatPinned(chatId, pinned)
+  return { toast: pinned ? 'Session pinned.' : 'Session unpinned.' }
 }
 
 async function renameChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {

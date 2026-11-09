@@ -36,7 +36,7 @@ function info(chat: Chat): string {
   return renderToStaticMarkup(
     createElement(ChatInfo, {
       chat, messageCount: 2, usage: { accounts: [], chats: {} } as never, onClose: () => {}, onEnd: async () => {}, onArchive: async () => {},
-      onUnarchive: async () => {}, onRename: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
+      onUnarchive: async () => {}, onRename: async () => {}, onPin: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
       pins: [], onUnpin: async () => {}, onJump: () => {}, onRefreshPins: () => {},
     }),
   )
@@ -372,4 +372,13 @@ test('the list counts its results while a search is on', () => {
   expect(render([searched], 'upload')).toContain('1 result<')
   expect(render([searched], 'nothing like it')).toContain('No sessions match that search.')
   expect(render([searched], '')).not.toContain('result')
+})
+
+test('a pinned session carries a pin mark, and General (always pinned) does not', () => {
+  const pinnedRow = row({ ...base, pinned: true })
+  expect(pinnedRow).toContain('lucide-pin')
+  expect(pinnedRow).toContain('data-pinned="true"')
+  expect(pinnedRow).toContain('Pinned')
+  expect(row(base)).not.toContain('lucide-pin')
+  expect(row({ ...base, id: 'general', title: 'General', project: null, pinned: true })).not.toContain('lucide-pin')
 })

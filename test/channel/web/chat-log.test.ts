@@ -564,3 +564,41 @@ test('a preview never splits an emoji and stays cheap for a huge message', () =>
   log.appendMessage('c1', agent(`**${'x'.repeat(500_000)}`))
   expect(previewOf()?.length).toBe(140)
 })
+
+test('setChatPinned pins a session and announces it once, and General stays pinned', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+  const updates = () => events.filter(event => event.type === 'chat.updated' && event.chat.id === 'c1').length
+  expect(log.getChat('c1')?.pinned).toBe(false)
+
+  const pinned = log.setChatPinned('c1', true)
+  expect(pinned.pinned).toBe(true)
+  expect(log.getChat('c1')?.pinned).toBe(true)
+  expect(updates()).toBe(1)
+
+  log.setChatPinned('c1', true)
+  expect(updates()).toBe(1)
+
+  log.setChatPinned('c1', false)
+  expect(log.getChat('c1')?.pinned).toBe(false)
+  expect(updates()).toBe(2)
+  expect(log.getChat('general')?.pinned).toBe(true)
+})
+
+test('pinnedChatCount counts pinned sessions and leaves General out', () => {
+  expect(log.pinnedChatCount()).toBe(0)
+  log.setChatPinned('c1', true)
+  expect(log.pinnedChatCount()).toBe(1)
+})
+
+test('archiving a session unpins it, so restoring it does not bring a forgotten pin back', () => {
+  log.setChatPinned('c1', true)
+  log.setArchived('c1', true)
+  expect(log.getChat('c1')).toMatchObject({ archived: true, pinned: false })
+  log.setArchived('c1', false)
+  expect(log.getChat('c1')?.pinned).toBe(false)
+
+  log.setChatPinned('c1', true)
+  log.setArchivedMany(['c1'], true)
+  expect(log.getChat('c1')).toMatchObject({ archived: true, pinned: false })
+})

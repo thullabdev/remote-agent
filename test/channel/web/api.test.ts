@@ -821,3 +821,44 @@ test('each @reference to an attached file becomes its path in the Session instru
   expect(instruction).not.toContain('@diagram.png')
 })
 
+
+test('pins and unpins a session, and the change reaches the chat list', async () => {
+  const chatId = seedSession()
+
+  expect(await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Session pinned.' } })
+  expect(chatLog.getChat(chatId)?.pinned).toBe(true)
+  expect((await call('GET', '/api/state')).body.chats.find((chat: { id: string }) => chat.id === chatId).pinned).toBe(true)
+
+  expect(await call('POST', `/api/chats/${chatId}/pin`, { pinned: false })).toEqual({ status: 200, body: { toast: 'Session unpinned.' } })
+  expect(chatLog.getChat(chatId)?.pinned).toBe(false)
+})
+
+test('General cannot be pinned or unpinned, an unknown session is 404, an archived one cannot be pinned, and a bad body is 400', async () => {
+  expect((await call('POST', '/api/chats/general/pin', { pinned: false })).status).toBe(409)
+  expect((await call('POST', '/api/chats/general/pin', { pinned: true })).status).toBe(409)
+  expect(chatLog.getChat('general')?.pinned).toBe(true)
+  expect((await call('POST', '/api/chats/nope/pin', { pinned: true })).status).toBe(404)
+
+  const chatId = seedSession()
+  expect((await call('POST', `/api/chats/${chatId}/pin`, { pinned: 'yes' })).status).toBe(400)
+  chatLog.setArchived(chatId, true)
+  const archived = await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })
+  expect(archived.status).toBe(409)
+  expect(archived.body.error).toBe('An archived Session cannot be pinned.')
+})
+
+test('at most five sessions can be pinned, and unpinning one makes room', async () => {
+  const chatIds = ['s1', 's2', 's3', 's4', 's5', 's6'].map(id => seedSession(id))
+  for (const chatId of chatIds.slice(0, 5)) {
+    expect((await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })).status).toBe(200)
+  }
+
+  const sixth = await call('POST', `/api/chats/${chatIds[5]}/pin`, { pinned: true })
+  expect(sixth.status).toBe(409)
+  expect(sixth.body.error).toBe('You can pin up to 5 Sessions. Unpin one first.')
+  expect(chatLog.getChat(chatIds[5]!)?.pinned).toBe(false)
+
+  expect((await call('POST', `/api/chats/${chatIds[0]}/pin`, { pinned: false })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatIds[5]}/pin`, { pinned: true })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatIds[1]}/pin`, { pinned: true })).status).toBe(200)
+})

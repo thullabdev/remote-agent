@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remote-agent-shell-v22'
+const CACHE_NAME = 'remote-agent-shell-v23'
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {

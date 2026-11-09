@@ -77,6 +77,7 @@ describe('Web Channel API client', () => {
     await client.archiveChat('c/1')
     await client.archiveChats(['c/1', 'c2'])
     await client.unarchiveChat('c/1')
+    await client.pinChat('c/1', true)
     await client.clearChat('c/1')
     await client.forkChat('c/1')
     await client.resumeChat('c/1')
@@ -98,6 +99,7 @@ describe('Web Channel API client', () => {
       'POST /api/chats/c%2F1/archive',
       'POST /api/chats/archive',
       'POST /api/chats/c%2F1/unarchive',
+      'POST /api/chats/c%2F1/pin',
       'POST /api/chats/c%2F1/clear',
       'POST /api/chats/c%2F1/fork',
       'POST /api/chats/c%2F1/resume',

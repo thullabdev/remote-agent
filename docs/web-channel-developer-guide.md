@@ -110,7 +110,7 @@ A client has no login screen. Treat a 401 or 403 from steps 1 and 2 as "access d
 
 This is the order a client should do things in. Everything after step 2 is driven by events.
 
-1. **`GET /api/state`** → `{ seq, away, chats }`. Keep `seq` (an *event* seq). `chats` is General first, then chats waiting on you, then chats with an unsent draft (newest edit first), then working chats, then the rest by latest message time. Render the chat list from it.
+1. **`GET /api/state`** → `{ seq, away, chats }`. Keep `seq` (an *event* seq). `chats` is General first, then chats waiting on you, then pinned chats, then chats with an unsent draft (newest edit first), then working chats, then the rest by latest message time. Render the chat list from it.
 2. **Open the WebSocket** `/ws?after=<seq from step 1>`. The first frame is `hello`. Because you pass `after`, anything that happened between step 1 and the connection is replayed, and nothing is missed.
 3. **Send your presence** as soon as the socket opens, and again whenever it changes (see 3.3). This is what stops pushes while you are looking at the page.
 4. **When the user opens a chat:** `GET /api/chats/:id/messages` (latest 50). Render ascending. For older history call again with `before=<smallest message seq you have>` until `hasMore` is `false`.
@@ -166,6 +166,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/end` | End a Session the Bridge started. |
 | `POST /chats/:id/clear` | Hide a chat's history on all devices. |
 | `POST /chats/:id/fork` | Resume a Session into a new one. |
+| `POST /chats/:id/pin` `{ pinned }` | Pin a Session to the top of the list (below ones that need you), or unpin it. At most 5 can be pinned; General is always first and cannot be pinned or unpinned; an archived Session cannot be pinned, and archiving unpins. `{ toast }`. |
 | `GET /projects` | Folders a Session may start in. |
 | `POST /projects/start` | Start a Session in a project. |
 | `PUT /away` | Set Away mode. |
@@ -175,7 +176,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 
 ### GET /state
 
-`200 { seq: number, away: boolean, chats: Chat[] }`. `seq` is an event seq. `chats` has General first, then chats with a `pendingPrompt` (waiting longest first), then chats with a `draft` (`draft.at` descending; ended chats do not count), then `busy` chats, then the rest, each group by `lastMessage.at` descending (chats without messages last). Ended chats count as the rest. `src/channel/web/order.ts` is the ordering the server uses; reuse it in a client so a `chat.updated` lands in the same place.
+`200 { seq: number, away: boolean, chats: Chat[] }`. `seq` is an event seq. `chats` has General first, then chats with a `pendingPrompt` (waiting longest first), then `pinned` chats, then chats with a `draft` (`draft.at` descending; ended chats do not count), then `busy` chats, then the rest, each group by `lastMessage.at` descending (chats without messages last). Ended chats count as the rest. `src/channel/web/order.ts` is the ordering the server uses; reuse it in a client so a `chat.updated` lands in the same place.
 
 ### GET /chats/:id/messages
 
@@ -250,7 +251,7 @@ type Chat = {
   busy: boolean                 // the agent is working
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null   // at: ms since epoch
-  pinned: boolean               // true for General
+  pinned: boolean               // true for General (always), and for a Session the user pinned
   tmuxName: string | null
   draft: { preview: string; at: number } | null   // the unsent message; at: last edit, ms since epoch
   pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null

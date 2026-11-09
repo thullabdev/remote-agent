@@ -37,6 +37,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
   renameChat(chatId: string, title: string): Promise<{ toast: string }>
+  pinChat(chatId: string, pinned: boolean): Promise<{ toast: string }>
   pinMessage(messageId: string, pinned: boolean): Promise<{ toast: string }>
   listPins(chatId: string): Promise<{ pins: PinView[] }>
   getDraft(chatId: string): Promise<{ draft: Draft | null }>
@@ -125,6 +126,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     },
     unarchiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/unarchive`),
     renameChat: (chatId, title) => post(`/api/chats/${encodeURIComponent(chatId)}/rename`, { title }),
+    pinChat: (chatId, pinned) => post(`/api/chats/${encodeURIComponent(chatId)}/pin`, { pinned }),
     pinMessage: (messageId, pinned) => post(`/api/messages/${encodeURIComponent(messageId)}/pin`, { pinned }),
     listPins: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/pins`),
     getDraft: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/draft`),
