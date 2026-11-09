@@ -61,7 +61,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Start a Session</DialogTitle>
-          <DialogDescription>Choose a trusted project folder. The Bridge will start a new Spawned Session there.</DialogDescription>
+          <DialogDescription>Choose a trusted project folder. Remote Agent will start a new spawned session there, on your computer.</DialogDescription>
         </DialogHeader>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />

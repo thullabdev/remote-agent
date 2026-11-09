@@ -1,8 +1,8 @@
 import { Archive, Check, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
-import { chatRowLabel, rowOpenTarget } from '../presentation.ts'
+import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, searchTerms, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
+import { chatRowLabel, connectionNoticeText, rowOpenTarget } from '../presentation.ts'
 import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { ChatRowContent } from './chat-row.tsx'
@@ -14,6 +14,8 @@ import { Input } from './ui/input.tsx'
 type ChatListProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
   initialFilter?: ListFilter
+  /** The search the list opens with. Empty, unless a test says otherwise. */
+  initialQuery?: string
   /** The source the list opens on. All sources, unless a test or a link says otherwise. */
   initialOrigin?: OriginFilter
   chats: Chat[]
@@ -60,14 +62,14 @@ function SourceFilter({ value, onSelect }: { value: OriginFilter; onSelect(origi
 /** What an empty list says: why it is empty, in the words of what the user asked to see. */
 function emptyMessage(query: string, filter: ListFilter, origin: OriginFilter): string {
   if (query.trim() !== '') {
-    return 'No chats match that search.'
+    return 'No sessions match that search.'
   }
   if (origin !== 'all') {
     return `No ${origin} sessions here.`
   }
   switch (filter) {
     case 'all':
-      return 'Your chats will appear here.'
+      return 'Your sessions will appear here.'
     case 'needs_you':
       return 'Nothing is waiting on you.'
     case 'working':
@@ -79,16 +81,9 @@ function emptyMessage(query: string, filter: ListFilter, origin: OriginFilter): 
   }
 }
 
-const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
-  loading: 'Connecting to your computer…',
-  reconnecting: "Can't reach your computer. Reconnecting…",
-  resyncing: 'Syncing recent activity…',
-  error: "Can't reach your computer.",
-}
-
 /** Says nothing while all is well. A line that is always on becomes invisible, so it only shows when the connection is not fine. */
 function ConnectionNotice({ status, onRetry }: { status: ConnectionStatus; onRetry?: () => void }) {
-  const text = CONNECTION_NOTICE[status]
+  const text = connectionNoticeText(status)
   if (text === undefined) {
     return null
   }
@@ -184,6 +179,7 @@ export function isSelectableChat(chat: Chat): boolean {
 
 export function ChatList({
   initialFilter = 'all',
+  initialQuery = '',
   initialOrigin = 'all',
   chats,
   activeId,
@@ -195,7 +191,7 @@ export function ChatList({
   onArchiveSelected,
   onActionError,
 }: ChatListProps) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
   const [filter, setFilter] = useState<ListFilter>(initialFilter)
   const [origin, setOrigin] = useState<OriginFilter>(initialOrigin)
   const [selectionMode, setSelectionMode] = useState(false)
@@ -205,6 +201,7 @@ export function ChatList({
   const resizeStart = useRef<{ x: number; width: number } | null>(null)
   const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClick = useRef<string | null>(null)
+  const terms = useMemo(() => searchTerms(query), [query])
   const filteredChats = useMemo(
     () => filterChats(chats, query, filter, origin),
     [chats, query, filter, origin],
@@ -313,7 +310,7 @@ export function ChatList({
         activeId === null ? 'translate-x-0' : '-translate-x-full max-md:invisible'
       }`}
       style={{ '--chat-list-width': `${width}px` } as CSSProperties}
-      aria-label="Chats"
+      aria-label="Sessions"
     >
       <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
         <BrandMark className="hidden size-11 shrink-0 text-foreground md:block" />
@@ -335,7 +332,7 @@ export function ChatList({
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
-              aria-label="Search chats"
+              aria-label="Search sessions"
               placeholder="Search sessions"
               value={query}
               onChange={event => setQuery(event.target.value)}
@@ -357,6 +354,9 @@ export function ChatList({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
         {filter === 'ended' && filteredChats.length > 0 && !selectionMode && (
           <p className="px-3 pb-2 text-xs text-muted-foreground">Press and hold a session to select it, then archive.</p>
+        )}
+        {terms.length > 0 && filteredChats.length > 0 && (
+          <p className="px-3 pb-2 text-xs text-muted-foreground">{filteredChats.length === 1 ? '1 result' : `${filteredChats.length} results`}</p>
         )}
         <div className="space-y-1">
           {filteredChats.map(chat => (
@@ -412,7 +412,7 @@ export function ChatList({
                 activeId === chat.id ? 'bg-muted' : 'hover:bg-muted/70'
               }`}
             >
-              <ChatRowContent chat={chat} now={now} selection={selectionMode && selectableIds.has(chat.id) ? { selected: selectedIds.has(chat.id) } : null} />
+              <ChatRowContent chat={chat} now={now} terms={terms} selection={selectionMode && selectableIds.has(chat.id) ? { selected: selectedIds.has(chat.id) } : null} />
             </button>
           ))}
           {filteredChats.length === 0 && (

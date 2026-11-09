@@ -12,7 +12,7 @@ import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
-import { deepLink, pendingPromptMessage } from './presentation.ts'
+import { connectionNoticeText, deepLink, pendingPromptMessage } from './presentation.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
@@ -468,12 +468,12 @@ export function App() {
     return (
       <FullPageState
         icon={<AlertCircle className="size-5" />}
-        title="Could not connect to the Bridge"
+        title="Could not reach your computer"
         detail={
           !navigator.onLine
-            ? 'You are offline. The app shell is available, but Chats and actions need a connection to the Bridge.'
+            ? 'You are offline. The app is available, but your sessions and actions need a connection to your computer.'
             : error === null
-              ? 'Check that the Bridge is running and try again.'
+              ? 'Check that Remote Agent is running on your computer and try again.'
               : errorText(error)
         }
         action={<Button onClick={reload}><RefreshCw />Try again</Button>}
@@ -481,7 +481,7 @@ export function App() {
     )
   }
   if (realtime === null) {
-    return <FullPageState icon={<LoaderCircle className="size-5 animate-spin" />} title="Connecting to the Bridge…" detail="Loading your Chats and Sessions." />
+    return <FullPageState icon={<LoaderCircle className="size-5 animate-spin" />} title="Connecting to your computer…" detail="Loading your sessions." />
   }
 
   return (
@@ -529,10 +529,15 @@ export function App() {
                 infoOpen={infoOpen}
                 usage={realtime.usage.chats[activeChat.id]}
               />
-              {status !== 'connected' && (
-                <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-center text-xs text-amber-900 dark:text-amber-200" role="status">
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  {status === 'resyncing' ? 'Syncing missed activity…' : status === 'loading' ? 'Connecting to the Bridge…' : 'Connection lost. Reconnecting automatically…'}
+              {connectionNoticeText(status) !== undefined && (
+                <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
+                  <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
+                  {connectionNoticeText(status)}
+                  {(status === 'reconnecting' || status === 'error') && (
+                    <button type="button" onClick={retry} className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground hover:bg-background/60">
+                      Retry
+                    </button>
+                  )}
                 </div>
               )}
               <div className="chat-glow flex min-h-0 flex-1 flex-col">

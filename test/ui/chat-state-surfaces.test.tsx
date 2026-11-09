@@ -333,3 +333,43 @@ test('rows tell the age against the clock they are given, so the list can keep i
   expect(at(Date.UTC(2026, 10, 10, 12, 30))).toContain('>30m<')
   expect(at(Date.UTC(2026, 10, 10, 15, 0))).toContain('>3h<')
 })
+
+const searched: Chat = {
+  ...base,
+  title: 'Upload files', project: 'remote-agent', cwd: '/home/u/Sites/remote-agent',
+  lastMessage: { seq: 1, at: Date.now(), preview: 'Merged the migration into main' },
+}
+const searchRow = (chat: Chat, terms: string[]): string => renderToStaticMarkup(createElement(ChatRowContent, { chat, selection: null, terms }))
+
+test('a search marks its matches in the title and the preview', () => {
+  const markup = searchRow(searched, ['upload', 'migration'])
+  expect(markup).toMatch(/<mark[^>]*>Upload<\/mark> files/)
+  expect(markup).toMatch(/Merged the <mark[^>]*>migration<\/mark> into main/)
+})
+
+test('a row found only by its project or folder says so, since the row does not print them otherwise', () => {
+  const markup = searchRow(searched, ['remote'])
+  expect(markup).toMatch(/<mark[^>]*>remote<\/mark>-agent/)
+  expect(markup).toContain('/home/u/Sites/')
+  expect(searchRow(searched, ['upload'])).not.toContain('/home/u/Sites/')
+})
+
+test('without a search the row has no marks and no project line', () => {
+  const markup = searchRow(searched, [])
+  expect(markup).not.toContain('<mark')
+  expect(markup).not.toContain('/home/u/Sites/')
+})
+
+test('the list counts its results while a search is on', () => {
+  const render = (chats: Chat[], query: string): string =>
+    renderToStaticMarkup(
+      createElement(ChatList, {
+        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        onArchiveSelected: async () => {}, onActionError: () => {}, initialQuery: query,
+      }),
+    )
+  expect(render([searched, { ...searched, id: 'c2' }], 'upload')).toContain('2 results')
+  expect(render([searched], 'upload')).toContain('1 result<')
+  expect(render([searched], 'nothing like it')).toContain('No sessions match that search.')
+  expect(render([searched], '')).not.toContain('result')
+})

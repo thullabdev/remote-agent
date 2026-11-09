@@ -50,10 +50,29 @@ function matchesFilter(chat: Chat, filter: ListFilter, searching: boolean): bool
   }
 }
 
+/** The words of a search: lowercase, split on spaces, empty ones dropped. */
+export function searchTerms(query: string): string[] {
+  return query.toLocaleLowerCase().split(/\s+/).filter(term => term !== '')
+}
+
+/**
+ * Whether a session matches a search. Every word has to be found somewhere in the session's title, project, folder, last message
+ * or draft, in any order. No words matches everything.
+ */
+export function chatMatchesSearch(chat: Chat, terms: string[]): boolean {
+  if (terms.length === 0) {
+    return true
+  }
+  const haystack = [chat.title, chat.project, chat.cwd, chat.lastMessage?.preview, chat.draft?.preview]
+    .filter((part): part is string => part !== null && part !== undefined)
+    .join('\n')
+    .toLocaleLowerCase()
+  return terms.every(term => haystack.includes(term))
+}
+
 export function filterChats(chats: Chat[], query: string, filter: ListFilter, origin: OriginFilter = 'all'): Chat[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  const searching = normalizedQuery !== ''
-  return chats.filter(chat => matchesOrigin(chat, origin) && matchesFilter(chat, filter, searching) && chat.title.toLocaleLowerCase().includes(normalizedQuery))
+  const terms = searchTerms(query)
+  return chats.filter(chat => matchesOrigin(chat, origin) && matchesFilter(chat, filter, terms.length > 0) && chatMatchesSearch(chat, terms))
 }
 
 /** How many chats each filter holds, for the chosen source. Search is ignored, so a chip's number does not change while typing. */

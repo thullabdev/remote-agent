@@ -83,16 +83,16 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
   }
 
   const description = confirm === 'end'
-    ? 'The Bridge will end this Spawned Session. Its history will remain available.'
+    ? 'Remote Agent will end this spawned session. Its history will remain available.'
     : confirm === 'archive'
-      ? 'This removes the ended Session from the regular chat filters. You can find it and restore it from Archived.'
+      ? 'This moves the ended session out of the main list. You can find it and restore it from Archived.'
       : confirm === 'unarchive'
-        ? 'This returns the Session to the regular chat filters.'
+        ? 'This returns the session to the main list.'
         : confirm === 'clear'
           ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
           : confirm === 'resume'
-            ? 'The Bridge will restart this Claude Session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new Session ID.'
-            : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
+            ? 'Remote Agent will restart this Claude session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new session ID.'
+            : 'Remote Agent will start a new spawned session from this session’s transcript. The original stays unchanged.'
 
   return (
     <>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, Message } from '../../src/channel/web/protocol.ts'
-import { avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import { connectionNoticeText, highlightSegments, avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -237,5 +237,42 @@ describe('opening a chat at the prompt that needs you', () => {
     expect(deepLink('')).toEqual({ chatId: null, promptId: null })
     expect(deepLink('?prompt=p9')).toEqual({ chatId: null, promptId: null })
     expect(deepLink('?chat=&prompt=p9')).toEqual({ chatId: null, promptId: null })
+  })
+})
+
+describe('search highlighting', () => {
+  test('highlightSegments marks each match and keeps the original case', () => {
+    expect(highlightSegments('Billing fix for API', ['fix', 'api'])).toEqual([
+      { text: 'Billing ', match: false },
+      { text: 'fix', match: true },
+      { text: ' for ', match: false },
+      { text: 'API', match: true },
+    ])
+  })
+
+  test('overlapping and repeated matches merge into one marked run', () => {
+    expect(highlightSegments('Billing', ['bill', 'ill'])).toEqual([{ text: 'Bill', match: true }, { text: 'ing', match: false }])
+    expect(highlightSegments('aaa', ['a'])).toEqual([{ text: 'aaa', match: true }])
+  })
+
+  test('no terms, no text, or no match gives plain text', () => {
+    expect(highlightSegments('Billing', [])).toEqual([{ text: 'Billing', match: false }])
+    expect(highlightSegments('', ['x'])).toEqual([])
+    expect(highlightSegments('Billing', ['zzz'])).toEqual([{ text: 'Billing', match: false }])
+  })
+
+  test('a term is matched literally, so punctuation in a search is not a pattern', () => {
+    expect(highlightSegments('a.b and axb', ['a.b'])).toEqual([{ text: 'a.b', match: true }, { text: ' and axb', match: false }])
+    expect(highlightSegments('f(x) [y]', ['(x)', '[y]'])).toEqual([{ text: 'f', match: false }, { text: '(x)', match: true }, { text: ' ', match: false }, { text: '[y]', match: true }])
+  })
+})
+
+describe('connection wording', () => {
+  test('connectionNoticeText says nothing while connected and speaks plainly otherwise', () => {
+    expect(connectionNoticeText('connected')).toBeUndefined()
+    expect(connectionNoticeText('reconnecting')).toBe("Can't reach your computer. Reconnecting…")
+    expect(connectionNoticeText('error')).toBe("Can't reach your computer.")
+    expect(connectionNoticeText('loading')).toBe('Connecting to your computer…')
+    expect(connectionNoticeText('resyncing')).toBe('Syncing recent activity…')
   })
 })

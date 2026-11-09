@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { filterChats, filterCounts, LIST_FILTERS, ORIGIN_FILTERS, visibleFilters } from '../../src/ui/chat-filters.ts'
+import { chatMatchesSearch, filterChats, filterCounts, LIST_FILTERS, ORIGIN_FILTERS, searchTerms, visibleFilters } from '../../src/ui/chat-filters.ts'
 
 const general: Chat = {
   id: 'general', title: 'General', project: null, cwd: null, status: 'active', spawned: false, archived: false, busy: false, unread: 0,
@@ -96,4 +96,40 @@ test('the source filter combines with the state tabs and with search', () => {
 test('tab counts follow the source filter, so a tab never promises rows the list will not show', () => {
   expect(filterCounts(mixed, 'spawned')).toEqual({ all: 2, needs_you: 1, working: 0, ended: 1, archived: 0 })
   expect(filterCounts(mixed, 'computer')).toMatchObject({ all: 2, needs_you: 1, ended: 1 })
+})
+
+const found: Chat = {
+  ...idle,
+  id: 'found', title: 'Upload files', project: 'remote-agent', cwd: '/home/u/Sites/remote-agent',
+  lastMessage: { seq: 1, at: 1, preview: 'Merged the migration into main' }, draft: { preview: 'ask about staging', at: 1 },
+}
+
+test('searchTerms splits on spaces, lowercases and ignores empty words', () => {
+  expect(searchTerms('  Remote   AGENT ')).toEqual(['remote', 'agent'])
+  expect(searchTerms('')).toEqual([])
+  expect(searchTerms('   ')).toEqual([])
+})
+
+test('search finds a session by its project, its folder, its last message or its draft, not only its title', () => {
+  for (const query of ['upload', 'remote-agent', 'sites/remote', 'migration', 'staging']) {
+    expect(chatMatchesSearch(found, searchTerms(query))).toBe(true)
+  }
+  expect(chatMatchesSearch(found, searchTerms('kubernetes'))).toBe(false)
+})
+
+test('every word of the search has to match somewhere in the session, in any order', () => {
+  expect(chatMatchesSearch(found, searchTerms('migration upload'))).toBe(true)
+  expect(chatMatchesSearch(found, searchTerms('migration kubernetes'))).toBe(false)
+})
+
+test('no search matches everything, and General is searchable by its title', () => {
+  expect(chatMatchesSearch(found, [])).toBe(true)
+  expect(chatMatchesSearch(general, searchTerms('gen'))).toBe(true)
+})
+
+test('the list search uses all of that, and still respects the tab and the source', () => {
+  const chats = [general, found, { ...found, id: 'spawned-found', spawned: true }, { ...found, id: 'ended-found', status: 'ended' as const }]
+  expect(ids(filterChats(chats, 'migration', 'all'))).toEqual(['found', 'spawned-found', 'ended-found'])
+  expect(ids(filterChats(chats, 'migration', 'all', 'spawned'))).toEqual(['spawned-found'])
+  expect(ids(filterChats(chats, 'migration', 'ended'))).toEqual(['ended-found'])
 })

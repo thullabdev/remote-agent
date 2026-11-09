@@ -470,7 +470,7 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
                 {message.result !== null && (
                   <div className="min-w-0">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Result {message.resultTruncated && <span className="normal-case">(truncated by Bridge)</span>}
+                      Result {message.resultTruncated && <span className="normal-case">(shortened)</span>}
                     </div>
                     <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">{message.result}</CodeBlock>
                   </div>

@@ -1,5 +1,6 @@
 import { chatState } from '../channel/web/chat-state.ts'
 import type { Chat, Message, PendingPrompt } from '../channel/web/protocol.ts'
+import type { ConnectionStatus } from './use-web-channel.ts'
 
 export type MessageGroup = { kind: 'message'; message: Message } | { kind: 'tool-group'; messages: Extract<Message, { kind: 'tool_run' }>[] }
 
@@ -328,4 +329,68 @@ export function deepLink(search: string): { chatId: string | null; promptId: str
   const params = new URLSearchParams(search)
   const chatId = params.get('chat') || null
   return { chatId, promptId: chatId === null ? null : params.get('prompt') || null }
+}
+
+export type Segment = { text: string; match: boolean }
+
+/**
+ * Splits `text` into runs that match a search word and runs that do not, so the match can be marked. Matching ignores case and is
+ * literal (a "." in a search is a dot, not a pattern); overlapping and touching matches become one run.
+ */
+export function highlightSegments(text: string, terms: string[]): Segment[] {
+  if (text === '') {
+    return []
+  }
+  const lower = text.toLowerCase()
+  // A few characters change length when lowercased; marking by position would then be wrong, so show the text plain.
+  if (lower.length !== text.length) {
+    return [{ text, match: false }]
+  }
+  const ranges: [number, number][] = []
+  for (const term of terms) {
+    const needle = term.toLowerCase()
+    for (let from = needle === '' ? lower.length : 0; ; ) {
+      const at = lower.indexOf(needle, from)
+      if (at < 0) {
+        break
+      }
+      ranges.push([at, at + needle.length])
+      from = at + 1
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0])
+  const merged: [number, number][] = []
+  for (const range of ranges) {
+    const last = merged.at(-1)
+    if (last !== undefined && range[0] <= last[1]) {
+      last[1] = Math.max(last[1], range[1])
+    } else {
+      merged.push([range[0], range[1]])
+    }
+  }
+  const segments: Segment[] = []
+  let cursor = 0
+  for (const [start, end] of merged) {
+    if (start > cursor) {
+      segments.push({ text: text.slice(cursor, start), match: false })
+    }
+    segments.push({ text: text.slice(start, end), match: true })
+    cursor = end
+  }
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), match: false })
+  }
+  return segments
+}
+
+const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
+  loading: 'Connecting to your computer…',
+  reconnecting: "Can't reach your computer. Reconnecting…",
+  resyncing: 'Syncing recent activity…',
+  error: "Can't reach your computer.",
+}
+
+/** What to tell the user about the connection, or undefined while it is fine. One wording for the list and for an open chat. */
+export function connectionNoticeText(status: ConnectionStatus): string | undefined {
+  return CONNECTION_NOTICE[status]
 }

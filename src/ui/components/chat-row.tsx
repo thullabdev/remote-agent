@@ -1,7 +1,8 @@
 import { Check, Monitor, Terminal } from 'lucide-react'
+import { Fragment } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { avatarHue, formatRelativeTime, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
+import { avatarHue, formatRelativeTime, highlightSegments, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
 import { Avatar } from './ui/avatar.tsx'
 
 const STATE_BADGE_CLASS = { needs_you: 'bg-status-needs', working: 'bg-status-working motion-safe:animate-pulse' } as const
@@ -24,14 +25,32 @@ function ChatAvatar({ chat }: { chat: Chat }) {
   )
 }
 
+/** Text with the words of the current search marked. Plain text when there is no search. */
+function Highlight({ text, terms }: { text: string; terms: string[] }) {
+  if (terms.length === 0) {
+    return <>{text}</>
+  }
+  return (
+    <>
+      {highlightSegments(text, terms).map((segment, index) =>
+        segment.match ? (
+          <mark key={index} className="rounded bg-primary/25 px-0.5 text-inherit">{segment.text}</mark>
+        ) : (
+          <Fragment key={index}>{segment.text}</Fragment>
+        ),
+      )}
+    </>
+  )
+}
+
 /** The preview line: what the session is doing first, then what it last said. A draft never replaces it. */
-function PreviewLine({ chat }: { chat: Chat }) {
+function PreviewLine({ chat, terms }: { chat: Chat; terms: string[] }) {
   const state = chatState(chat)
   if (state === 'needs_you' && chat.pendingPrompt !== null) {
     return (
       <span className="truncate text-xs text-muted-foreground">
         <span className={`font-medium ${NEEDS_YOU_TEXT_CLASS}`}>Needs you · {pendingPromptLabel(chat.pendingPrompt)}: </span>
-        {chat.pendingPrompt.summary}
+        <Highlight text={chat.pendingPrompt.summary} terms={terms} />
       </span>
     )
   }
@@ -40,7 +59,7 @@ function PreviewLine({ chat }: { chat: Chat }) {
   return (
     <span className="truncate text-xs text-muted-foreground">
       {prefix !== '' && <span className={state === 'working' ? 'font-medium text-status-working' : 'font-medium'}>{prefix}</span>}
-      {text}
+      <Highlight text={text} terms={terms} />
     </span>
   )
 }
@@ -51,6 +70,8 @@ type ChatRowContentProps = {
   selection: { selected: boolean } | null
   /** The clock the age is told against. The list passes a ticking one; it defaults to the current time. */
   now?: number
+  /** The words of the current search, to mark in the row. */
+  terms?: string[]
 }
 
 /** A small mark of where the session runs: the computer, or a terminal for one spawned from Remote Agent (it lives in tmux). */
@@ -66,9 +87,11 @@ function OriginIcon({ chat }: { chat: Chat }) {
   )
 }
 
-export function ChatRowContent({ chat, selection, now = Date.now() }: ChatRowContentProps) {
+export function ChatRowContent({ chat, selection, now = Date.now(), terms = [] }: ChatRowContentProps) {
   const state = chatState(chat)
   const isGeneral = chat.id === 'general'
+  // The row does not print the project or folder, so a search that found the session by them says where.
+  const foundInPlace = terms.some(term => [chat.project, chat.cwd].some(part => part !== null && part.toLowerCase().includes(term)))
   const unreadDot = chat.unread > 0 ? <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full bg-primary" /> : null
   return (
     <>
@@ -86,7 +109,7 @@ export function ChatRowContent({ chat, selection, now = Date.now() }: ChatRowCon
       )}
       <span className={`min-w-0 flex-1 ${state === 'ended' ? 'opacity-70' : ''}`}>
         <span className="flex items-center gap-2">
-          <span className={`truncate text-[15px] ${chat.unread > 0 ? 'font-semibold' : 'font-medium'}`}>{chat.title}</span>
+          <span className={`truncate text-[15px] ${chat.unread > 0 ? 'font-semibold' : 'font-medium'}`}><Highlight text={chat.title} terms={terms} /></span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             <OriginIcon chat={chat} />
             {chat.lastMessage !== null && (
@@ -99,8 +122,13 @@ export function ChatRowContent({ chat, selection, now = Date.now() }: ChatRowCon
         </span>
         {!isGeneral && (
           <span className="mt-0.5 flex items-center gap-2">
-            <PreviewLine chat={chat} />
+            <PreviewLine chat={chat} terms={terms} />
             {unreadDot !== null && <span className="ml-auto flex shrink-0">{unreadDot}</span>}
+          </span>
+        )}
+        {foundInPlace && (
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            <Highlight text={[chat.project, chat.cwd].filter(part => part !== null).join(' · ')} terms={terms} />
           </span>
         )}
         {chat.draft !== null && (
