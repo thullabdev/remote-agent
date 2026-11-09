@@ -1,7 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="18" fill="#171715"/>
-  <path d="M17 20.5A7.5 7.5 0 0 1 24.5 13h20A7.5 7.5 0 0 1 52 20.5v13a7.5 7.5 0 0 1-7.5 7.5H30l-11 9v-9.6a7.5 7.5 0 0 1-2-5.1z" fill="#f7f6f2"/>
-  <circle cx="27" cy="27" r="2" fill="#3f4a3c"/>
-  <circle cx="37" cy="27" r="2" fill="#3f4a3c"/>
-  <circle cx="47" cy="27" r="2" fill="#3f4a3c"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1240">
+  <rect width="1240" height="1240" rx="290" fill="#171715"/>
+  <g transform="translate(620 620) scale(0.8) translate(-647.5 -636)" fill="none" stroke="#f7f6f2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M884 662V534Q884 406 756 406H290Q181 406 181 534V796Q181 912 300 912V1030L462 912H720" stroke-width="52"/>
+    <path d="M335 555L455 660L335 765" stroke-width="52"/>
+    <path d="M495 778H635" stroke-width="46"/>
+    <path d="M712 262C880 262 980 340 1050 470" stroke-width="42"/>
+    <path d="M1050 530C1085 580 1080 620 1075 660" stroke-width="40"/>
+  </g>
+  <g transform="translate(620 620) scale(0.8) translate(-647.5 -636)" fill="#f7f6f2">
+    <circle cx="855" cy="812" r="130"/>
+    <path d="M650 1085C650 1000 720 955 856 945C1000 955 1062 1010 1062 1085Z"/>
+    <circle cx="712" cy="262" r="78"/>
+    <circle cx="1050" cy="470" r="68"/>
+    <circle cx="1072" cy="700" r="66"/>
+  </g>
 </svg>

@@ -11,3 +11,6 @@ mod/remote-agent/tsconfig.json
 
 # VAPID push keys (local secret material)
 vapid.json
+
+# Files uploaded to the web chat library (local data, not source)
+uploads/

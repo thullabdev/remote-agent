@@ -1,7 +1,8 @@
-import { Archive, Check, ChevronDown, LoaderCircle, MessageCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
+import { Archive, Check, ChevronDown, LoaderCircle, Pin, Plus, Search, Settings, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { formatRelativeTime } from '../presentation.ts'
+import { BrandMark } from './brand-mark.tsx'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
@@ -289,7 +290,7 @@ export function ChatList({
     >
       <header className="flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-border/70 px-4">
         <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-          <MessageCircle className="size-4" aria-hidden="true" />
+          <BrandMark className="size-6" />
         </div>
         {selectionMode ? (
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
