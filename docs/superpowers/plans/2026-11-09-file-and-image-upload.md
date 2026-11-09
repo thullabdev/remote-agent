@@ -1,6 +1,6 @@
 # File and Image Upload — Plan
 
-**Status:** plan only, not implemented. Decisions from review are recorded below.
+**Status:** implemented on `main` (uploads, the library picker and `@` references). The API matches the plan, plus `POST /api/uploads/:id/thumbnail`, which lets the client store the preview it generates. The decisions below still hold. The web channel developer guide documents the shipped API.
 
 ## Goal
 

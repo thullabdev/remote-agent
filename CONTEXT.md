@@ -56,6 +56,13 @@ _Avoid_: topic, room, conversation
 **Away mode**:
 User-toggled state deciding whether Reports are pushed to the Channel. Prompts are always pushed. On when the Bridge starts. In the web Channel it gates Web Push of Reports in the same way.
 
+**Upload**:
+A PNG, JPEG, GIF, WebP or PDF file in the shared library, kept until deleted and not tied to any one Chat. A message refers to uploads as **Attachments**, and the Session receives their paths.
+_Avoid_: file (unqualified), asset
+
+**Pin**:
+A mark the user puts on one of their own messages or an agent reply, so it is listed in the chat details. Pins belong to the message, not to a Session.
+
 ## Relationships
 
 - A **Session** raises zero or more **Prompts**; each **Prompt** gets at most one **Answer**
