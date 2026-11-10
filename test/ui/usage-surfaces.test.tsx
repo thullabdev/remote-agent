@@ -127,3 +127,9 @@ test('source heading appears only with two live sources', () => {
   expect(lone).not.toContain('codex')
   expect(lone).not.toContain('>claude-code<')
 })
+
+test('each meter keeps its bar, percent and detail on one line so the panel stays short', () => {
+  const html = renderToStaticMarkup(createElement(UsagePanel, { open: true, accounts: [{ ...account, measuredAt: now }], session, now, timeZone: 'UTC' }))
+  expect(html).not.toContain('pl-16')
+  expect(html.match(/<div class="flex min-w-0 items-center gap-2">/g)?.length).toBe(3)
+})

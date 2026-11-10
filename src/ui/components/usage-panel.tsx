@@ -34,26 +34,18 @@ function agoText(ms: number): string {
   return `${formatDuration(ms)} ago`
 }
 
-function Meter({ percent }: { percent: number }) {
-  return (
-    <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" role="presentation">
-      <div
-        className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${BAR[limitTone(percent)]}`}
-        style={{ width: `${barWidth(percent)}%` }}
-      />
-    </div>
-  )
-}
-
 function MeterRow({ label, mono, percent, detail }: { label: string; mono?: boolean; percent: number; detail: string }) {
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
-        <span className={`w-14 shrink-0 text-xs text-muted-foreground ${mono ? 'font-mono' : ''}`}>{label}</span>
-        <Meter percent={percent} />
-        <span className={`w-10 shrink-0 text-right font-mono text-xs tabular-nums ${TEXT[limitTone(percent)]}`}>{Math.round(percent)}%</span>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className={`w-9 shrink-0 text-xs text-muted-foreground ${mono ? 'font-mono' : ''}`}>{label}</span>
+      <div className="h-2 w-16 shrink-0 overflow-hidden rounded-full bg-muted" role="presentation">
+        <div
+          className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${BAR[limitTone(percent)]}`}
+          style={{ width: `${barWidth(percent)}%` }}
+        />
       </div>
-      <p className="mt-0.5 min-w-0 break-words pl-16 text-[11px] text-muted-foreground">{detail}</p>
+      <span className={`w-9 shrink-0 text-right font-mono text-xs tabular-nums ${TEXT[limitTone(percent)]}`}>{Math.round(percent)}%</span>
+      <span className="min-w-0 flex-1 break-words text-[11px] leading-tight text-muted-foreground">{detail}</span>
     </div>
   )
 }
@@ -91,9 +83,9 @@ export function UsagePanel({ open, accounts, session, now, timeZone, className =
       {empty ? (
         <p className="mt-2 text-xs text-muted-foreground">No usage reported yet.</p>
       ) : (
-        <div className="mt-2 space-y-2.5">
+        <div className="mt-2 space-y-2">
           {live.map(account => (
-            <div key={account.source} className="space-y-2.5">
+            <div key={account.source} className="space-y-2">
               {live.length > 1 && <p className="text-[11px] font-medium text-muted-foreground">{account.source}</p>}
               {account.windows.map(limit => (
                 <WindowRow key={limit.kind} limit={limit} now={now} timeZone={timeZone} />

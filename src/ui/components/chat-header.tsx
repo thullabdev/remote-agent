@@ -1,7 +1,7 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AccountUsageView, SessionUsageView } from '../../core/usage-types.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
@@ -40,8 +40,34 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
   const state = chatState(chat)
   const [usageOpen, setUsageOpen] = useState(false)
   const now = useNow()
+  const wrapper = useRef<HTMLDivElement>(null)
+  // A glance, not a place to stay: tapping elsewhere, scrolling the chat or pressing Escape puts it away.
+  useEffect(() => {
+    if (!usageOpen) {
+      return
+    }
+    const close = () => setUsageOpen(false)
+    const outside = (event: Event) => {
+      if (!wrapper.current?.contains(event.target as Node)) {
+        close()
+      }
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        close()
+      }
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('scroll', outside, true)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('scroll', outside, true)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [usageOpen])
   return (
-    <>
+    <div ref={wrapper} className="relative z-30 shrink-0">
     <header className="chat-header-glass flex h-[4.25rem] shrink-0 items-center gap-2 bg-background/85 px-2 backdrop-blur md:px-4">
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
@@ -73,7 +99,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
         <Info aria-hidden="true" />
       </Button>
     </header>
-    <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="mx-2 mt-1 md:mx-4" />
-    </>
+    <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="absolute inset-x-2 top-full mt-1 shadow-lg ring-1 ring-border/60 md:inset-x-auto md:right-4 md:w-96" />
+    </div>
   )
 }

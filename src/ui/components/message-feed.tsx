@@ -199,7 +199,7 @@ function MessageFeedView({
 function DateSeparator({ at }: { at: number }) {
   return (
     <div className="sticky top-2 z-10 flex justify-center py-1">
-      <span className="rounded-full bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+      <span className="rounded-full border border-border/60 bg-card px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm">
         {formatDayLabel(at)}
       </span>
     </div>
