@@ -69,6 +69,8 @@ export type MessageBody =
       resolution: { note: string; source: 'local' | 'remote' } | null
     }
   | { kind: 'system'; text: string }
+  /** A Spawned Session's startup: one card that moves from starting to ready or failed. */
+  | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }
   | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number }[] }
 

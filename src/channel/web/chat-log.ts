@@ -151,6 +151,8 @@ function previewOf(body: MessageBody): string {
       return plain(body.text)
     case 'picker':
       return clipChars(body.text, PREVIEW_MAX)
+    case 'session_status':
+      return body.state === 'ready' ? 'Ready for your first task' : body.state === 'failed' ? (body.message ?? 'Could not start') : 'Starting the session…'
   }
 }
 
@@ -498,6 +500,14 @@ export class ChatLog {
       )
       .all(chatId, this.hiddenBefore(chatId))
     return rows.map(toMessage).map(message => ({ id: message.id, seq: message.seq, at: message.at, kind: message.kind, preview: previewOf(message) }))
+  }
+
+  /** The newest startup card of a chat, or undefined when it never had one. */
+  latestSessionStatus(chatId: string): Message | undefined {
+    const record = this.db
+      .query<MessageRecord, [string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND kind = 'session_status' ORDER BY seq DESC LIMIT 1`)
+      .get(chatId)
+    return record === null ? undefined : toMessage(record)
   }
 
   findMessage(id: string): Message | undefined {

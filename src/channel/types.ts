@@ -24,6 +24,22 @@ export interface ChannelHandlers {
   onCommand(command: InboundCommand): Promise<string | null>
 }
 
+/**
+ * How a Spawned Session's startup is going. A channel that understands it shows one status that updates in place;
+ * the others get `fallback`, the plain text Telegram has always shown.
+ */
+export type SessionStatus = {
+  state: 'starting' | 'resuming' | 'ready' | 'failed'
+  cwd: string
+  tmuxName: string | null
+  /** Failed only: what went wrong, in one line. */
+  message: string | null
+  /** Failed only: the screen output or reason behind it. */
+  detail: string | null
+  /** The legacy message, used when the channel has no `sessionStatus`. */
+  fallback: string
+}
+
 export interface Channel {
   start(handlers: ChannelHandlers): Promise<void>
   stop(): Promise<void>
@@ -31,6 +47,8 @@ export interface Channel {
   closeThread(thread: ThreadRef): Promise<void>
   renameThread(thread: ThreadRef, title: string): Promise<void>
   sendText(thread: ThreadRef | null, text: string, replyTo: MessageRef | null): Promise<MessageRef>
+  /** Optional: shows a Spawned Session's startup as one status that moves from starting to ready or failed. */
+  sessionStatus?(thread: ThreadRef, status: SessionStatus): Promise<void>
   /** Sends one message with one button per row. */
   sendButtons(thread: ThreadRef | null, text: string, buttons: Button[]): Promise<MessageRef>
   /** Sends one message per view item, in order. */

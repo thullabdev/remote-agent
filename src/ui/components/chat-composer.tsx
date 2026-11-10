@@ -22,6 +22,8 @@ type ChatComposerProps = {
   onResume(): Promise<void>
   /** Loads and saves this chat's unsent draft. */
   drafts: DraftApi
+  /** True while a freshly started Session waits for its first task: the box says so and takes focus. */
+  firstTask?: boolean
 }
 
 /** Whether a keydown in the composer should send the message, given the Enter preference. */
@@ -38,7 +40,7 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts }: ChatComposerProps) {
+function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts, firstTask = false }: ChatComposerProps) {
   const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
@@ -50,6 +52,12 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   const suggestions = matchingCommands(query, chat.id === 'general')
   const suggestionsOpen = suggestions.length > 0 && !suggestionsDismissed
   const activeSuggestionIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1))
+
+  useEffect(() => {
+    if (firstTask) {
+      inputRef.current?.focus()
+    }
+  }, [firstTask])
 
   useEffect(() => {
     setSelectedSuggestion(0)
@@ -298,7 +306,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
             aria-controls={suggestionsOpen ? 'chat-command-suggestions' : undefined}
             aria-expanded={suggestionsOpen}
             aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
-            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : `Message ${chat.title}…`}
+            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : firstTask ? 'What should Claude work on?' : `Message ${chat.title}…`}
             disabled={disabled}
             className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />

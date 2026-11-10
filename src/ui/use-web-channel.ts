@@ -17,7 +17,7 @@ function isMessage(value: unknown): value is Message {
   if (typeof value.seq !== 'number' || typeof value.at !== 'number' || typeof value.kind !== 'string') {
     return false
   }
-  return ['user_text', 'agent_text', 'tool_run', 'prompt', 'system', 'command_reply', 'picker'].includes(value.kind)
+  return ['user_text', 'agent_text', 'tool_run', 'prompt', 'system', 'command_reply', 'picker', 'session_status'].includes(value.kind)
 }
 
 function isChat(value: unknown): value is Chat {

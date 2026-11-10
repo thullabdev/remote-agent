@@ -351,6 +351,12 @@ export function App() {
 
   const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
 
+  // A launched session that reported ready and has not been given a task yet.
+  const awaitingFirstTask = useMemo(
+    () => messages.some(message => message.kind === 'session_status' && message.state === 'ready') && !messages.some(message => message.kind === 'user_text'),
+    [messages],
+  )
+
   const pendingItems = useMemo(() => {
     if (activeChat === null) {
       return []
@@ -567,6 +573,7 @@ export function App() {
                   onDeleteUpload={deleteFromLibrary}
                   onSend={sendFromComposer}
                   onResume={resumeActive}
+                  firstTask={awaitingFirstTask}
                 />
               </div>
             </section>

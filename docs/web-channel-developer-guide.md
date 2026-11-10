@@ -11,7 +11,7 @@ Related documents: the design (`docs/superpowers/specs/2026-11-04-web-channel-de
 
 **Chat.** The place for one Session, or the General chat. General has the id `general` and is the command surface (`/new`, `/status`, `/away`, `/back`, `/end`); it is not an AI. Every other chat belongs to one Session for that Session's whole life, including after it ends (its history stays readable). Ids are opaque strings (`c_` plus a UUID); treat them as such.
 
-**Message.** One item in a chat. Messages are tagged by `kind`: `user_text`, `agent_text`, `tool_run`, `prompt`, `system`, `command_reply`, `picker`. Content is complete and never truncated, with one exception: a `tool_run` result is capped at 20 000 characters (a marker `… [+N chars]` is appended and `resultTruncated` is `true`). Secrets are redacted on the server before anything is stored.
+**Message.** One item in a chat. Messages are tagged by `kind`: `user_text`, `agent_text`, `tool_run`, `prompt`, `system`, `session_status`, `command_reply`, `picker`. A Spawned Session's startup is one `session_status` message (`starting` or `resuming`, then rewritten in place to `ready` or `failed`, with the folder, and on failure a one-line `message` and the screen output as `detail`); it never counts as unread. Content is complete and never truncated, with one exception: a `tool_run` result is capped at 20 000 characters (a marker `… [+N chars]` is appended and `resultTruncated` is `true`). Secrets are redacted on the server before anything is stored.
 
 **Two counters, do not mix them up.**
 
@@ -265,6 +265,7 @@ type Message = { id: string; chatId: string; seq: number; at: number } & (   // 
   | { kind: 'prompt'; promptId: string; title: string; body: PromptBodyView;
       status: 'pending' | 'answered'; resolution: { note: string; source: 'local' | 'remote' } | null }
   | { kind: 'system'; text: string }                  // started, ended, reminders, errors
+  | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }           // answers in General
   | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number }[] }
 )

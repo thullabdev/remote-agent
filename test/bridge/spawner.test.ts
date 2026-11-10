@@ -90,7 +90,7 @@ test('tapping a project creates the thread first, then launches and arms the sta
   const toast = await spawner.startFromPicker('00000001', 0)
   const sessionId = idFor(2)
   expect(toast).toBe('🚀 Starting api. Open its topic.')
-  expect(channel.threads.map(thread => thread.title)).toEqual(['api · 00000002'])
+  expect(channel.threads.map(thread => thread.title)).toEqual(['api · New session'])
   expect(tmux.calls[0]).toEqual([
     'env', '-u', 'TELEGRAM_BOT_TOKEN', '-u', 'TELEGRAM_CHAT_ID', '-u', 'TELEGRAM_ALLOWED_USER_ID',
     'systemd-run', '--user', '--scope', '--quiet', '--collect',
@@ -409,4 +409,63 @@ test('a spawned session ends up with one chat linked via chat_id and thread_id',
   const chats = chatLog.listChats().filter(chat => chat.id !== 'general')
   expect(chats).toHaveLength(1)
   expect(chats[0]).toMatchObject({ id: session.chatId, spawned: true, cwd: `${home}/Sites/api`, project: 'api' })
+})
+
+function webSpawner(): { chatLog: ChatLog; webChannel: WebChannel } {
+  const chatLog = new ChatLog(store)
+  const webChannel = new WebChannel(chatLog, () => {}, store)
+  const notifier = new Notifier(store, webChannel, new AwayMode(false), () => {}, webChannel)
+  spawner = new Spawner({
+    store,
+    channel: webChannel,
+    notifier,
+    launcher: new Launcher(tmux.run),
+    trusted: new TrustedFolders({ home, configPath, projects: [] }),
+    home,
+    log: () => {},
+    schedule,
+    sleep: async () => {},
+    newId: () => idFor(++ids),
+  })
+  return { chatLog, webChannel }
+}
+
+const statusCards = (chatLog: ChatLog, chatId: string) =>
+  chatLog.listMessages(chatId, { limit: 50 }).messages.filter(message => message.kind === 'session_status')
+
+test('on the web a launch shows one startup card that moves from starting to ready, with the folder on it', async () => {
+  const { chatLog } = webSpawner()
+  await spawner.newCommand(null, '~/Sites/api')
+  const chatId = store.getSession(idFor(1))!.chatId!
+  expect(statusCards(chatLog, chatId)).toMatchObject([{ state: 'starting', cwd: `${home}/Sites/api` }])
+
+  await spawner.onSessionStarted(idFor(1))
+
+  const cards = statusCards(chatLog, chatId)
+  expect(cards).toHaveLength(1)
+  expect(cards[0]).toMatchObject({ state: 'ready', cwd: `${home}/Sites/api` })
+  const texts = chatLog.listMessages(chatId, { limit: 50 }).messages.filter(message => message.kind === 'system')
+  expect(texts).toEqual([])
+})
+
+test('on the web a session that never starts turns the card into a failure with the screen as its details', async () => {
+  const { chatLog } = webSpawner()
+  await spawner.newCommand(null, '~/Sites/api')
+  const chatId = store.getSession(idFor(1))!.chatId!
+  tmux.screen = 'Please run /login\n'
+  timers[0]?.run()
+  await flush()
+  const cards = statusCards(chatLog, chatId)
+  expect(cards).toHaveLength(1)
+  expect(cards[0]).toMatchObject({ state: 'failed', message: 'The session did not start within 30s' })
+  expect(cards[0]?.kind === 'session_status' && cards[0].detail).toContain('Please run /login')
+})
+
+test('the web channel reports a launched session starting only once, so the card is not repeated by the mod report', async () => {
+  const { chatLog, webChannel } = webSpawner()
+  await spawner.newCommand(null, '~/Sites/api')
+  const session = store.getSession(idFor(1))!
+  webChannel.report(session, { kind: 'session_started' } as never)
+  const messages = chatLog.listMessages(session.chatId!, { limit: 50 }).messages
+  expect(messages.filter(message => message.kind === 'system')).toEqual([])
 })

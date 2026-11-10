@@ -2,7 +2,7 @@ import type { Instruction, PromptBody, Report } from '../../../mod/remote-agent/
 import type { Log } from '../../bridge/prompts.ts'
 import type { PromptRow, SessionRow, Store } from '../../bridge/store.ts'
 import { permissionSummaryFull, plainResolutionNote, sessionLabel, threadTitle } from '../../bridge/views.ts'
-import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../types.ts'
+import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, SessionStatus, ThreadRef } from '../types.ts'
 import type { ChatSink } from '../chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushEvent } from './push.ts'
@@ -84,6 +84,18 @@ export class WebChannel implements Channel, ChatSink {
         ? this.chatLog.appendMessage(GENERAL_ID, { kind: 'command_reply', text })
         : this.chatLog.appendMessage(thread, { kind: 'system', text })
     return message.id
+  }
+
+  /** One startup card per launch: it is created as starting and rewritten in place when the session is ready or failed. */
+  async sessionStatus(thread: ThreadRef, status: SessionStatus): Promise<void> {
+    const body = { kind: 'session_status', state: status.state, cwd: status.cwd, message: status.message, detail: status.detail } as const
+    const latest = this.chatLog.latestSessionStatus(thread)
+    const inProgress = latest?.kind === 'session_status' && (latest.state === 'starting' || latest.state === 'resuming')
+    if (latest !== undefined && inProgress && (status.state === 'ready' || status.state === 'failed')) {
+      this.chatLog.updateMessage(latest.id, body)
+      return
+    }
+    this.chatLog.appendMessage(thread, body)
   }
 
   async sendButtons(thread: ThreadRef | null, text: string, buttons: Button[]): Promise<MessageRef> {
@@ -271,7 +283,7 @@ export class WebChannel implements Channel, ChatSink {
   instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null, display?: { text: string; attachments: UploadRef[] }): Message {
     const sourceId = clientId === undefined || clientId === null ? instruction.id : clientSourceId(clientId)
     const attachments = display?.attachments ?? []
-    return this.chatLog.appendMessage(
+    const message = this.chatLog.appendMessage(
       this.chatFor(session),
       {
         kind: 'user_text',
@@ -282,6 +294,8 @@ export class WebChannel implements Channel, ChatSink {
       },
       { sourceId },
     )
+    this.nameFromFirstTask(session, display?.text ?? instruction.text)
+    return message
   }
 
   instructionDelivered(instructionId: string): void {
@@ -308,7 +322,10 @@ export class WebChannel implements Channel, ChatSink {
     this.transcriptAttach(session.id)
     const chatId = this.chatFor(session)
     if (report.kind === 'session_started') {
-      this.appendSystem(session, `Session started in ${session.cwd}`, true)
+      // A launched session already shows its folder on the startup card, so only a session that began elsewhere announces itself.
+      if (this.chatLog.latestSessionStatus(chatId) === undefined) {
+        this.appendSystem(session, `Session started in ${session.cwd}`, true)
+      }
       this.push(chatId, 'report', 'Session started')
       return
     }
@@ -366,6 +383,23 @@ export class WebChannel implements Channel, ChatSink {
     this.appendSystem(session, text)
   }
 
+  /**
+   * A launched session is never named by Claude Code's hook, so its first task names it. A name that came from elsewhere
+   * (the hook, or the user's own rename) is left alone.
+   */
+  private nameFromFirstTask(session: SessionRow, text: string): void {
+    const current = this.store.getSession(session.id)
+    if (current === undefined || !current.spawned || current.title !== null) {
+      return
+    }
+    const name = nameFromTask(text)
+    if (name === null) {
+      return
+    }
+    this.store.setSessionTitle(current.id, name)
+    this.chatLog.updateChat(this.chatFor(current), { title: threadTitle({ ...current, title: name }) })
+  }
+
   /** `quiet` marks lifecycle bookkeeping that should not raise the unread count. */
   private appendSystem(session: SessionRow, text: string, quiet = false): void {
     this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text }, { quiet })
@@ -421,4 +455,15 @@ function promptPushText(body: PromptBody): string {
     return body.questions[0]?.question ?? ''
   }
   return permissionSummaryFull(body.tool, body.input)
+}
+
+const TASK_NAME_MAX = 48
+
+/** A short name for a session from its first task: the first line, in one line, clipped. Null when there is nothing to say. */
+export function nameFromTask(text: string): string | null {
+  const line = text.split('\n').map(part => part.replace(/\s+/g, ' ').trim()).find(part => part !== '')
+  if (line === undefined) {
+    return null
+  }
+  return line.length <= TASK_NAME_MAX ? line : `${line.slice(0, TASK_NAME_MAX - 1).trimEnd()}…`
 }

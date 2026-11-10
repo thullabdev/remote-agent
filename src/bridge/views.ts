@@ -30,18 +30,19 @@ export function cleanSessionName(name: string): string {
   return name.replace(/\s+/g, ' ').trim()
 }
 
+/** What a session is called in lists: its project and what it is about. Until it has a name it is "New session". */
 export function threadTitle(session: SessionRow): string {
-  const label = sessionLabel(session)
   const name = cleanSessionName(session.title ?? '')
+  const prefix = `${session.project} · `
   if (name === '') {
-    return label.slice(0, THREAD_TITLE_MAX)
+    return `${prefix}New session`.slice(0, THREAD_TITLE_MAX)
   }
-  const budget = THREAD_TITLE_MAX - label.length - ' · '.length
+  const budget = THREAD_TITLE_MAX - prefix.length
   if (budget < 1) {
-    return label.slice(0, THREAD_TITLE_MAX)
+    return prefix.slice(0, THREAD_TITLE_MAX)
   }
   const shown = name.length <= budget ? name : `${name.slice(0, budget - 1)}…`
-  return `${label} · ${shown}`
+  return `${prefix}${shown}`
 }
 
 export function formatDuration(ms: number): string {

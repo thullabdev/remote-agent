@@ -85,3 +85,16 @@ test('the attach button is a toggle for the library picker', () => {
   expect(markup).toContain('aria-pressed="false"')
 })
 
+
+describe('first task', () => {
+  const render = (firstTask: boolean): string => renderToStaticMarkup(createElement(ChatComposer, {
+    chat: { ...chat, spawned: true, title: 'api · New session' },
+    sending: false, enterSends: true, library: [], onRefreshLibrary: () => {}, onUpload: async () => null,
+    onDeleteUpload: () => {}, onSend: async () => {}, onResume: async () => {}, drafts: noDrafts, firstTask,
+  }))
+
+  test('a session waiting for its first task asks what Claude should work on', () => {
+    expect(render(true)).toContain('placeholder="What should Claude work on?"')
+    expect(render(false)).toContain('placeholder="Message api · New session…"')
+  })
+})

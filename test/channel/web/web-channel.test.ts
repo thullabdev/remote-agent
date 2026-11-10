@@ -777,3 +777,37 @@ test('usageChanged broadcasts an ephemeral usage.updated event without touching 
 test('usageChanged without a broadcaster does nothing', () => {
   expect(() => channel.usageChanged({ accounts: [], chats: {} })).not.toThrow()
 })
+
+test('the first task names a launched session that has no name, and later tasks leave the name alone', () => {
+  const session = store.createSpawnedSession({ id: 'abcdef1234', cwd: '/home/u/app', tmuxName: 'ra-abcdef12' })
+  void session
+  const row = store.getSession('abcdef1234')!
+  channel.sessionSeen(row)
+  const queue = (text: string) => channel.instructionQueued({ id: `i${text.length}`, text } as never, store.getSession('abcdef1234')!)
+
+  queue('Fix the login bug on the billing page\nand add a test')
+  expect(chatsWithoutGeneral()[0]?.title).toBe('app · Fix the login bug on the billing page')
+  expect(store.getSession('abcdef1234')?.title).toBe('Fix the login bug on the billing page')
+
+  queue('Now something else')
+  expect(chatsWithoutGeneral()[0]?.title).toBe('app · Fix the login bug on the billing page')
+})
+
+test('a session that already has a name is not renamed, and a command can be the first task', () => {
+  store.createSpawnedSession({ id: 'abcdef1234', cwd: '/home/u/app', tmuxName: 'ra-abcdef12' })
+  channel.sessionSeen(store.getSession('abcdef1234')!)
+  store.setSessionTitle('abcdef1234', 'Named elsewhere')
+  channel.instructionQueued({ id: 'i2', text: 'Something' } as never, store.getSession('abcdef1234')!)
+  expect(store.getSession('abcdef1234')?.title).toBe('Named elsewhere')
+})
+
+test('nameFromTask takes the first line, collapses spaces and clips long ones', async () => {
+  const { nameFromTask } = await import('../../../src/channel/web/web-channel.ts')
+  expect(nameFromTask('  fix   the\tbug  ')).toBe('fix the bug')
+  expect(nameFromTask('\n\nsecond line first')).toBe('second line first')
+  expect(nameFromTask('/clear')).toBe('/clear')
+  expect(nameFromTask('   ')).toBeNull()
+  const long = nameFromTask('x'.repeat(100))!
+  expect(long).toHaveLength(48)
+  expect(long.endsWith('…')).toBe(true)
+})

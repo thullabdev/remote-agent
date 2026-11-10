@@ -1,5 +1,6 @@
 import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { SessionStatusCard } from './session-status-card.tsx'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { NEEDS_YOU_BADGE_CLASS, commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
@@ -353,6 +354,10 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
         <MessageTime at={message.at} />
       </article>
     )
+  }
+
+  if (message.kind === 'session_status') {
+    return <SessionStatusCard message={message} />
   }
 
   if (message.kind === 'system') {

@@ -1,5 +1,5 @@
 import { projectName } from '../../mod/remote-agent/hooks/protocol.ts'
-import type { Channel, ThreadRef } from '../channel/types.ts'
+import type { Channel, SessionStatus, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
@@ -215,7 +215,7 @@ export class Spawner {
         await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false, ...this.libraryDirs() })
       } catch (error) {
         const reason = reasonOf(error)
-        await channel.sendText(thread, `❌ Could not resume the Session:\n${reason}`, null).catch(sendError => {
+        await this.announce(thread, { state: 'failed', cwd, tmuxName, message: 'Could not resume the Session', detail: reason, fallback: `❌ Could not resume the Session:\n${reason}` }).catch(sendError => {
           log(`reporting the failed resume of ${sessionId} failed`, sendError)
         })
         await notifier.closeSession(sessionId)
@@ -223,7 +223,7 @@ export class Spawner {
       }
 
       this.armTimer(sessionId)
-      await channel.sendText(thread, `⏳ Resuming this Session… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
+      await this.announce(thread, { state: 'resuming', cwd, tmuxName, message: null, detail: null, fallback: `⏳ Resuming this Session… attach with: tmux attach -t ${tmuxName}` }).catch(sendError => {
         log(`announcing the resume of ${sessionId} failed`, sendError)
       })
       return `Resuming ${projectName(cwd)} in this Session. Open its chat.`
@@ -245,7 +245,17 @@ export class Spawner {
     if (session.threadId === null) {
       return
     }
-    await this.deps.channel.sendText(session.threadId, READY, null)
+    await this.announce(session.threadId, { state: 'ready', cwd: session.cwd, tmuxName: session.tmuxName, message: null, detail: null, fallback: READY })
+  }
+
+  /** Shows startup progress through the channel's own status when it has one, else as the plain legacy text. */
+  private async announce(thread: ThreadRef, status: SessionStatus): Promise<void> {
+    const { channel } = this.deps
+    if (channel.sessionStatus === undefined) {
+      await channel.sendText(thread, status.fallback, null)
+      return
+    }
+    await channel.sessionStatus(thread, status)
   }
 
   /** `/end` in a Thread: `/exit`, then kill after the grace period, which runs in the background. Returns the reply. */
@@ -419,14 +429,14 @@ export class Spawner {
       await launcher.launch({ sessionId, cwd, model, resumeFrom, ...this.libraryDirs() })
     } catch (error) {
       const reason = reasonOf(error)
-      await channel.sendText(thread, `❌ Could not start the session:\n${reason}`, null).catch(sendError => {
+      await this.announce(thread, { state: 'failed', cwd, tmuxName, message: 'Could not start the session', detail: reason, fallback: `❌ Could not start the session:\n${reason}` }).catch(sendError => {
         log(`reporting the failed launch of ${sessionId} failed`, sendError)
       })
       await notifier.closeSession(sessionId)
       return `❌ Could not start the session: ${reason}`
     }
     this.armTimer(sessionId)
-    await channel.sendText(thread, `⏳ Starting… attach with: tmux attach -t ${tmuxName}`, null).catch(sendError => {
+    await this.announce(thread, { state: 'starting', cwd, tmuxName, message: null, detail: null, fallback: `⏳ Starting… attach with: tmux attach -t ${tmuxName}` }).catch(sendError => {
       log(`announcing the start of ${sessionId} failed`, sendError)
     })
     const withModel = model === null ? '' : ` with ${model}`
@@ -469,8 +479,15 @@ export class Spawner {
     }
     if (session.threadId !== null) {
       const shown = tail === '' ? '(no output)' : truncate(redactSecrets(tail), CAPTURE_MAX)
-      await channel
-        .sendText(session.threadId, `❌ Session did not start within ${STARTUP_TIMEOUT_MS / 1_000}s. Last output:\n\n${shown}`, null)
+      const seconds = STARTUP_TIMEOUT_MS / 1_000
+      await this.announce(session.threadId, {
+        state: 'failed',
+        cwd: session.cwd,
+        tmuxName: session.tmuxName,
+        message: `The session did not start within ${seconds}s`,
+        detail: shown,
+        fallback: `❌ Session did not start within ${seconds}s. Last output:\n\n${shown}`,
+      })
         .catch(error => {
           log(`reporting the startup timeout of ${sessionId} failed`, error)
         })
