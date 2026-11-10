@@ -29,3 +29,8 @@ describe('code block copy button', () => {
     expect(await copyToClipboard('text', undefined)).toBe(false)
   })
 })
+
+test('every code block carries the code-block class that the wrap preference styles', () => {
+  const markup = renderToStaticMarkup(createElement(CodeBlock, { children: 'x' }))
+  expect(markup).toContain('class="code-block ')
+})

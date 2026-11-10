@@ -107,6 +107,9 @@ export function SettingsDialog({ open, preferences, push, pushBusy, away, onPref
           <SettingSegments label="Enter in chat" value={preferences.enter} onChange={enter => onPreferences({ ...preferences, enter })} options={[
             ['send', 'Sends'], ['newline', 'New line'],
           ]} />
+          <SettingSegments label="Long lines in code blocks" value={preferences.codeWrap} onChange={codeWrap => onPreferences({ ...preferences, codeWrap })} options={[
+            ['scroll', 'Scroll'], ['wrap', 'Wrap'],
+          ]} />
           <SettingSegments label="Density" value={preferences.density} onChange={density => onPreferences({ ...preferences, density })} options={[
             ['compact', 'Compact'], ['comfortable', 'Comfortable'],
           ]} />

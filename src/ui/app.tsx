@@ -477,7 +477,7 @@ export function App() {
   }
 
   return (
-    <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font}`}>
+    <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font} code-${preferences.codeWrap}`}>
       <ChatList
         chats={chats}
         activeId={activeChatId}

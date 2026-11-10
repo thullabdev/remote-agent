@@ -62,7 +62,7 @@ export function CodeBlock({ children, className, preClassName }: CodeBlockProps)
   }
 
   return (
-    <div className={cn('relative min-w-0 max-w-full', className)}>
+    <div className={cn('code-block relative min-w-0 max-w-full', className)}>
       <div className="max-w-full overflow-x-auto overscroll-x-contain">
         <pre ref={preRef} className={preClassName}>{children}</pre>
       </div>
