@@ -1,17 +1,14 @@
 import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
+import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
 import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
 import { UploadPicker } from './upload-picker.tsx'
-import { UsageButton, UsagePanel } from './usage-panel.tsx'
-import { useNow } from './usage-meters.tsx'
 
 type ChatComposerProps = {
   chat: Chat
-  usage: UsageView
   sending: boolean
   /** true: Enter sends and Shift+Enter adds a line. false: Enter adds a line and Ctrl/Cmd+Enter sends. */
   enterSends: boolean
@@ -41,12 +38,10 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-function ChatComposerView({ chat, usage, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts }: ChatComposerProps) {
+function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts }: ChatComposerProps) {
   const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
-  const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [attachOpen, setAttachOpen] = useState(false)
   const dockRef = useRef<HTMLDivElement>(null)
@@ -252,10 +247,6 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
           ))}
         </div>
       )}
-      <div className="mx-auto mb-1.5 flex max-w-4xl justify-end">
-        <UsageButton open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
-      </div>
-      <UsagePanel open={usageOpen} accounts={usage.accounts} session={usage.chats[chat.id]} now={now} />
       {pickerOpen && (
         <UploadPicker
           uploads={pickerUploads}

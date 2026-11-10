@@ -26,7 +26,6 @@ describe('chat composer surface', () => {
   test('preserves the rounded input wrapper without a focus border or ring', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
       chat,
-      usage: { accounts: [], chats: {} },
       sending: false,
       enterSends: true,
       library: [],
@@ -73,7 +72,6 @@ describe('Enter key preference', () => {
 test('the attach button is a toggle for the library picker', () => {
   const markup = renderToStaticMarkup(createElement(ChatComposer, {
     chat,
-    usage: { accounts: [], chats: {} } as never,
     sending: false,
     enterSends: true,
     library: [],

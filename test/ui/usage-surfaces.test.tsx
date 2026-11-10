@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import { liveWindows } from '../../src/ui/usage-format.ts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { UsageButton, UsagePanel } from '../../src/ui/components/usage-panel.tsx'
-import { AccountLimitsSection, AccountUsageStrip, ContextPill } from '../../src/ui/components/usage-meters.tsx'
+import { UsagePanel, UsageToggle } from '../../src/ui/components/usage-panel.tsx'
+import { AccountLimitsSection, AccountUsageStrip } from '../../src/ui/components/usage-meters.tsx'
 
 const now = Date.UTC(2026, 10, 9, 10, 0, 0)
 const account = {
@@ -23,13 +23,6 @@ test('account strip renders both windows with tone colours, hidden when empty', 
   expect(html).toContain('bg-emerald-500')
   expect(html).toContain('bg-red-500')
   expect(renderToStaticMarkup(createElement(AccountUsageStrip, { accounts: [], now }))).toBe('')
-})
-
-test('context pill hidden when percent is null', () => {
-  const view = { measuredAt: 1, contextPercent: 42, contextTokens: null, contextWindow: 200000, costUsd: null }
-  expect(renderToStaticMarkup(createElement(ContextPill, { view }))).toContain('ctx 42%')
-  expect(renderToStaticMarkup(createElement(ContextPill, { view: { ...view, contextPercent: null } }))).toBe('')
-  expect(renderToStaticMarkup(createElement(ContextPill, { view: undefined }))).toBe('')
 })
 
 test('expired windows are hidden; strip empty when both are gone', () => {
@@ -55,12 +48,19 @@ test('account limits section shows an empty state without live data, and the str
 
 const session = { measuredAt: now - 120_000, contextPercent: 2.5, contextTokens: 25230, contextWindow: 1_000_000, costUsd: 0 }
 
-test('usage button is collapsed by default and wired to the panel', () => {
-  const html = renderToStaticMarkup(createElement(UsageButton, { open: false, onToggle: () => {} }))
-  expect(html).toContain('Usage')
+test('the header usage toggle shows the context percent, is collapsed by default and wired to the panel', () => {
+  const html = renderToStaticMarkup(createElement(UsageToggle, { view: { ...session, contextPercent: 42 }, open: false, onToggle: () => {} }))
+  expect(html).toContain('ctx 42%')
+  expect(html).toContain('aria-label="Usage, ctx 42%"')
   expect(html).toContain('aria-expanded="false"')
   expect(html).toContain('aria-controls="chat-usage-panel"')
-  expect(renderToStaticMarkup(createElement(UsageButton, { open: true, onToggle: () => {} }))).toContain('aria-expanded="true"')
+  expect(renderToStaticMarkup(createElement(UsageToggle, { view: session, open: true, onToggle: () => {} }))).toContain('aria-expanded="true"')
+})
+
+test('the usage toggle stays reachable without a context reading, as a gauge alone', () => {
+  const html = renderToStaticMarkup(createElement(UsageToggle, { view: undefined, open: false, onToggle: () => {} }))
+  expect(html).toContain('aria-label="Usage"')
+  expect(html).not.toContain('ctx')
 })
 
 test('usage panel renders nothing when closed', () => {

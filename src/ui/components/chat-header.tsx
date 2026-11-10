@@ -1,13 +1,15 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import type { SessionUsageView } from '../../core/usage-types.ts'
+import { useState } from 'react'
+import type { AccountUsageView, SessionUsageView } from '../../core/usage-types.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
 import { chatAvatar, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
-import { ContextPill } from './usage-meters.tsx'
+import { useNow } from './usage-meters.tsx'
+import { UsagePanel, UsageToggle } from './usage-panel.tsx'
 
 type ChatHeaderProps = {
   chat: Chat
@@ -16,6 +18,7 @@ type ChatHeaderProps = {
   onInfo(): void
   infoOpen: boolean
   usage?: SessionUsageView
+  accounts?: AccountUsageView[]
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -33,9 +36,12 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [] }: ChatHeaderProps) {
   const state = chatState(chat)
+  const [usageOpen, setUsageOpen] = useState(false)
+  const now = useNow()
   return (
+    <>
     <header className="chat-header-glass flex h-[4.25rem] shrink-0 items-center gap-2 bg-background/85 px-2 backdrop-blur md:px-4">
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
@@ -56,7 +62,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: Ch
           </span>
         </div>
       </div>
-      <ContextPill view={usage} />
+      <UsageToggle view={usage} open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
       {state === 'working' && (
         <Badge className="hidden border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 sm:inline-flex">
           <Radio className="size-3" aria-hidden="true" /> Active
@@ -67,5 +73,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: Ch
         <Info aria-hidden="true" />
       </Button>
     </header>
+    <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="mx-2 mt-1 md:mx-4" />
+    </>
   )
 }

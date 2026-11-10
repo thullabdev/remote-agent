@@ -59,21 +59,6 @@ export function AccountLimitsSection({ accounts, now, timeZone }: { accounts: Ac
   )
 }
 
-export function ContextPill({ view }: { view: SessionUsageView | undefined }) {
-  if (view === undefined) {
-    return null
-  }
-  const text = formatContextText(view)
-  if (text === null || view.contextPercent === null) {
-    return null
-  }
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0 font-mono text-[10px] ${TEXT[limitTone(view.contextPercent)]}`} title="Context window used">
-      {text}
-    </span>
-  )
-}
-
 // Wall clock that re-renders every `intervalMs`, so "in 4h 0m" counts down between usage updates.
 export function useNow(intervalMs = 30_000): number {
   const [now, setNow] = useState(() => Date.now())

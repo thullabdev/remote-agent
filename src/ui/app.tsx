@@ -529,12 +529,14 @@ export function App() {
           <>
             <section className="flex min-w-0 flex-1 flex-col">
               <ChatHeader
+                key={`header:${activeChat.id}`}
                 chat={activeChat}
                 status={status}
                 onBack={() => openChat(null)}
                 onInfo={() => setInfoOpen(value => !value)}
                 infoOpen={infoOpen}
                 usage={realtime.usage.chats[activeChat.id]}
+                accounts={realtime.usage.accounts}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -565,7 +567,6 @@ export function App() {
                   key={`composer:${activeChat.id}`}
                   drafts={api}
                   chat={activeChat}
-                  usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
                   library={library}

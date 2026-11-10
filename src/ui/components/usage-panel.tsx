@@ -1,21 +1,28 @@
 import { Gauge } from 'lucide-react'
 import type { AccountUsageView, LimitView, SessionUsageView } from '../../core/usage-types.ts'
-import { barWidth, formatDuration, formatResetLocal, limitTone, liveAccounts } from '../usage-format.ts'
+import { barWidth, formatContextText, formatDuration, formatResetLocal, limitTone, liveAccounts } from '../usage-format.ts'
 import { BAR, TEXT } from './usage-meters.tsx'
 
 export const USAGE_PANEL_ID = 'chat-usage-panel'
 
-export function UsageButton({ open, onToggle }: { open: boolean; onToggle(): void }) {
+/** The header's usage control: "ctx 42%" when the session reported its context, else just a gauge. Tapping it opens the panel. */
+export function UsageToggle({ view, open, onToggle }: { view: SessionUsageView | undefined; open: boolean; onToggle(): void }) {
+  const text = view === undefined ? null : formatContextText(view)
+  const percent = view === undefined ? null : view.contextPercent
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
       aria-controls={USAGE_PANEL_ID}
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${open ? 'bg-muted text-foreground' : 'bg-card'}`}
+      aria-label={text === null ? 'Usage' : `Usage, ${text}`}
+      title="Usage and limits"
+      className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 font-mono text-[10px] transition-colors hover:bg-muted ${
+        percent === null ? 'text-muted-foreground' : TEXT[limitTone(percent)]
+      } ${open ? 'bg-muted' : ''}`}
     >
-      <Gauge className="size-3" aria-hidden="true" />
-      Usage
+      <Gauge className="size-3.5" aria-hidden="true" />
+      {text !== null && <span>{text}</span>}
     </button>
   )
 }
@@ -62,9 +69,10 @@ type UsagePanelProps = {
   session: SessionUsageView | undefined
   now: number
   timeZone?: string
+  className?: string
 }
 
-export function UsagePanel({ open, accounts, session, now, timeZone }: UsagePanelProps) {
+export function UsagePanel({ open, accounts, session, now, timeZone, className = 'mx-auto mb-2 max-w-4xl' }: UsagePanelProps) {
   if (!open) {
     return null
   }
@@ -75,7 +83,7 @@ export function UsagePanel({ open, accounts, session, now, timeZone }: UsagePane
   const readings = [...live.map(account => account.measuredAt), session?.measuredAt].filter((value): value is number => value !== undefined)
   const measuredAt = readings.length > 0 ? Math.max(...readings) : null
   return (
-    <section id={USAGE_PANEL_ID} aria-label="Usage" className="mx-auto mb-2 max-w-4xl min-w-0 rounded-2xl bg-card px-3 py-2.5 shadow-sm">
+    <section id={USAGE_PANEL_ID} aria-label="Usage" className={`min-w-0 rounded-2xl bg-card px-3 py-2.5 shadow-sm ${className}`}>
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Usage</p>
         {measuredAt !== null && !empty && <p className="truncate text-[11px] text-muted-foreground">Updated {agoText(Math.max(0, now - measuredAt))}</p>}
