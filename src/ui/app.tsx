@@ -444,7 +444,7 @@ export function App() {
     void revealPrompt(target.chatId, target.promptId).catch(handleError)
   }, [focusPrompt, activeChatId, realtime?.loadedChats])
 
-  // The chat's pins load when the chat is opened, and again after a pin change or a manual refresh. Opening the details does not fetch.
+  // The chat's bookmarks load when the chat is opened, after a change, and whenever the details open (another device may have changed them).
   useEffect(() => {
     if (activeChatId === null) {
       return
@@ -452,7 +452,7 @@ export function App() {
     api.listPins(activeChatId).then(result => {
       setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
-  }, [activeChatId, pinsVersion, api, handleError])
+  }, [activeChatId, pinsVersion, infoOpen, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -581,20 +581,18 @@ export function App() {
             {infoOpen && (
               <ChatInfo
                 chat={activeChat}
-                messageCount={messages.length}
-                usage={realtime.usage}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}
                 onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
                 onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
                 onPin={pinned => runInfoAction(() => api.pinChat(activeChat.id, pinned))}
-                onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
+                onNotify={notify}
+                onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
                 pins={pinsByChat[activeChat.id] ?? []}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
-                onRefreshPins={() => setPinsVersion(version => version + 1)}
                 onJump={pin => {
                   setInfoOpen(false)
                   void jumpToPin(pin).catch(handleError)

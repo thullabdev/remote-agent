@@ -35,9 +35,9 @@ function header(chat: Chat): string {
 function info(chat: Chat): string {
   return renderToStaticMarkup(
     createElement(ChatInfo, {
-      chat, messageCount: 2, usage: { accounts: [], chats: {} } as never, onClose: () => {}, onEnd: async () => {}, onArchive: async () => {},
+      chat, onNotify: () => {}, onClose: () => {}, onEnd: async () => {}, onArchive: async () => {},
       onUnarchive: async () => {}, onRename: async () => {}, onPin: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
-      pins: [], onUnpin: async () => {}, onJump: () => {}, onRefreshPins: () => {},
+      pins: [], onUnpin: async () => {}, onJump: () => {}
     }),
   )
 }
