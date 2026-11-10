@@ -8,6 +8,8 @@ import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { ChatList } from './components/chat-list.tsx'
+import { Dashboard } from './components/dashboard.tsx'
+import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
@@ -347,7 +349,19 @@ export function App() {
     void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
   }, [api, runInfoAction])
 
-  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text, attachments)), [activeChat, sendMessage])
+  const showingDashboard = activeChat?.id === 'general' && preferences.generalView === 'dashboard'
+  const setGeneralView = useCallback((generalView: Preferences['generalView']) => setPreferences(current => ({ ...current, generalView })), [])
+
+  // A command typed on the dashboard is answered in the chat, so show it.
+  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => {
+    if (activeChat === null) {
+      return Promise.resolve()
+    }
+    if (activeChat.id === 'general') {
+      setGeneralView('chat')
+    }
+    return sendMessage(activeChat, text, attachments)
+  }, [activeChat, sendMessage, setGeneralView])
 
   const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
 
@@ -536,6 +550,9 @@ export function App() {
                 usage={realtime.usage.chats[activeChat.id]}
                 accounts={realtime.usage.accounts}
                 onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
+                view={preferences.generalView}
+                onView={setGeneralView}
+                summary={summaryText(dashboardCounts(chats))}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -549,6 +566,20 @@ export function App() {
                 </div>
               )}
               <div className="chat-glow flex min-h-0 flex-1 flex-col">
+                {showingDashboard ? (
+                  <Dashboard
+                    chats={chats}
+                    usage={realtime.usage}
+                    away={realtime.away}
+                    online={status === 'connected'}
+                    onOpenChat={openChat}
+                    onPromptAction={handlePromptAction}
+                    onToggleAway={toggleAway}
+                    onNewSession={() => setNewSessionOpen(true)}
+                    onStartProject={cwd => runChatAction(() => api.startProject({ cwd }))}
+                    onResume={chatId => runChatAction(() => api.resumeChat(chatId))}
+                  />
+                ) : (
                 <MessageFeed
                   key={`feed:${activeChat.id}`}
                   chat={activeChat}
@@ -562,6 +593,7 @@ export function App() {
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
                 />
+                )}
                 <ChatComposer
                   key={`composer:${activeChat.id}`}
                   drafts={api}

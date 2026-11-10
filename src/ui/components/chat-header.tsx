@@ -8,6 +8,7 @@ import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
 import { chatAvatar, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
+import type { GeneralViewPreference } from '../preferences.ts'
 import { RenameDialog } from './rename-dialog.tsx'
 import { useNow } from './usage-meters.tsx'
 import { UsagePanel, UsageToggle } from './usage-panel.tsx'
@@ -22,6 +23,11 @@ type ChatHeaderProps = {
   accounts?: AccountUsageView[]
   /** Renames the session; an empty name goes back to the automatic one. */
   onRename(title: string): Promise<void>
+  /** General only: what it shows now, and how to switch. */
+  view?: GeneralViewPreference
+  onView?(view: GeneralViewPreference): void
+  /** General only: one line of what needs attention, shown under its name. */
+  summary?: string
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -39,7 +45,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary }: ChatHeaderProps) {
   const state = chatState(chat)
   const [usageOpen, setUsageOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -99,7 +105,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
           <span className={`truncate ${state === 'needs_you' ? `font-medium ${NEEDS_YOU_TEXT_CLASS}` : ''}`}>
-            {state === 'needs_you' ? 'Waiting for your answer' : state === 'working' ? 'Working on your instruction' : chat.project ?? chat.cwd ?? 'General command chat'}
+            {state === 'needs_you' ? 'Waiting for your answer' : state === 'working' ? 'Working on your instruction' : chat.project ?? chat.cwd ?? summary ?? 'General command chat'}
           </span>
           <span className="hidden items-center gap-1.5 sm:inline-flex">
             <span className={`size-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-600 dark:bg-emerald-400' : 'bg-amber-500'}`} />
@@ -107,6 +113,21 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
           </span>
         </div>
       </div>
+      {chat.id === 'general' && view !== undefined && onView !== undefined && (
+        <div role="group" aria-label="General view" className="flex shrink-0 rounded-lg bg-muted p-0.5 text-xs">
+          {(['dashboard', 'chat'] as const).map(option => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={view === option}
+              onClick={() => onView(option)}
+              className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${view === option ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
       <UsageToggle view={usage} open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
       {state === 'working' && (
         <Badge className="hidden border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 sm:inline-flex">
