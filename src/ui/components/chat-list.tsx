@@ -401,10 +401,10 @@ export function ChatList({
       <ChatFilterBar value={filter} counts={counts} endedUnread={endedUnread} onSelect={selectFilter} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
         {filter === 'ended' && filteredChats.length > 0 && !selectionMode && (
-          <p className="px-3 pb-2 text-xs text-muted-foreground">Press and hold a session to select it, then archive.</p>
+          <p className="px-2 pb-2 text-xs text-muted-foreground">Press and hold a session to select it, then archive.</p>
         )}
         {terms.length > 0 && filteredChats.length > 0 && (
-          <p className="px-3 pb-2 text-xs text-muted-foreground">{filteredChats.length === 1 ? '1 result' : `${filteredChats.length} results`}</p>
+          <p className="px-2 pb-2 text-xs text-muted-foreground">{filteredChats.length === 1 ? '1 result' : `${filteredChats.length} results`}</p>
         )}
         <div className="space-y-1">
           {filteredChats.map(chat => (
@@ -456,7 +456,7 @@ export function ChatList({
                   ? `${chat.title}, ${selectedIds.has(chat.id) ? 'selected' : 'not selected'}`
                   : chatRowLabel(chat, now)
               }
-              className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors ${
+              className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors ${
                 activeId === chat.id ? 'bg-muted' : 'hover:bg-muted/70'
               }`}
             >
