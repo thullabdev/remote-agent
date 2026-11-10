@@ -1,5 +1,5 @@
 import { chatState } from '../channel/web/chat-state.ts'
-import type { Chat, PendingPrompt } from '../channel/web/protocol.ts'
+import type { ActivityDay, ActivityEvent, Chat, PendingPrompt } from '../channel/web/protocol.ts'
 import type { UsageView } from '../channel/web/protocol.ts'
 
 // What the General dashboard shows, derived from the chat list and usage. Pure, so it is tested without React.
@@ -18,7 +18,9 @@ export function sessionName(chat: Pick<Chat, 'project' | 'title'>): string {
 
 export type NeedsYouItem = {
   chatId: string
-  name: string
+  /** The project, shown small above the title. Null when the session has none. */
+  project: string | null
+  /** The session's title: the user's own name, or the automatic one. */
   title: string
   prompt: PendingPrompt
 }
@@ -28,7 +30,7 @@ export function needsYouItems(chats: Chat[]): NeedsYouItem[] {
   const items: NeedsYouItem[] = []
   for (const chat of sessionsOf(chats)) {
     if (chatState(chat) === 'needs_you' && chat.pendingPrompt !== null) {
-      items.push({ chatId: chat.id, name: sessionName(chat), title: chat.title, prompt: chat.pendingPrompt })
+      items.push({ chatId: chat.id, project: chat.project, title: chat.title, prompt: chat.pendingPrompt })
     }
   }
   return items.sort((a, b) => a.prompt.at - b.prompt.at)
@@ -36,12 +38,17 @@ export function needsYouItems(chats: Chat[]): NeedsYouItem[] {
 
 export type WorkingItem = {
   chatId: string
-  name: string
+  project: string | null
   title: string
   /** The newest thing the session did, as one line. Null before it has said anything. */
   step: string | null
   /** When that happened (ms epoch), or null. */
   at: number | null
+}
+
+/** "Bash: bun test" for a running tool call. */
+function stepOf(activity: { tool: string; summary: string }): string {
+  return activity.summary === '' ? activity.tool : `${activity.tool}: ${activity.summary}`
 }
 
 /** Sessions mid-turn, the most recently active first. A session that needs you is not listed: it has its own card. */
@@ -51,10 +58,10 @@ export function workingItems(chats: Chat[]): WorkingItem[] {
     if (chatState(chat) === 'working') {
       items.push({
         chatId: chat.id,
-        name: sessionName(chat),
+        project: chat.project,
         title: chat.title,
-        step: chat.lastMessage?.preview ?? null,
-        at: chat.lastMessage?.at ?? null,
+        step: chat.activity === null ? (chat.lastMessage?.preview ?? null) : stepOf(chat.activity),
+        at: chat.activity?.at ?? chat.lastMessage?.at ?? null,
       })
     }
   }
@@ -139,4 +146,76 @@ export function busiestContext(chats: Chat[], usage: UsageView): BusiestContext 
     }
   }
   return best
+}
+
+/** Time Claude worked, short: "0m", "45m", "2h 10m". Unlike a countdown, nothing is "now". */
+export function formatWorked(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) {
+    return `${minutes}m`
+  }
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+
+/** The text of a recent-activity line, without the session name. */
+export function eventVerb(kind: ActivityEvent['kind']): string {
+  return kind === 'finished' ? 'finished' : kind === 'started' ? 'started' : 'ended'
+}
+
+/** What the Today card says about the days it shows, for a screen reader and for the empty case. */
+export function activityDescription(days: ActivityDay[]): string {
+  const total = days.reduce((sum, day) => sum + day.turnsCompleted, 0)
+  return `${total} ${total === 1 ? 'turn' : 'turns'} completed in the last ${days.length} days. ${days.map(day => `${day.date}: ${day.turnsCompleted}`).join(', ')}.`
+}
+
+export type ProjectTile = {
+  /** The folder; a new session starts here. */
+  cwd: string
+  label: string
+  live: number
+  needsYou: number
+  /** The session most recently active in this folder, which the tile opens. */
+  latestChatId: string
+  /** When that session last said anything (ms epoch), or 0 when it never has. */
+  latestAt: number
+}
+
+/** One tile per folder: the ones that need you first, then the busiest, then the most recently active. */
+export function projectTiles(chats: Chat[], limit = 6): ProjectTile[] {
+  const tiles = new Map<string, ProjectTile>()
+  for (const chat of sessionsOf(chats)) {
+    if (chat.cwd === null) {
+      continue
+    }
+    const at = chat.lastMessage?.at ?? 0
+    const tile = tiles.get(chat.cwd) ?? { cwd: chat.cwd, label: chat.project ?? folderName(chat.cwd), live: 0, needsYou: 0, latestChatId: chat.id, latestAt: -1 }
+    if (chat.status !== 'ended') {
+      tile.live += 1
+    }
+    if (chatState(chat) === 'needs_you') {
+      tile.needsYou += 1
+    }
+    if (at > tile.latestAt) {
+      tile.latestAt = at
+      tile.latestChatId = chat.id
+    }
+    tiles.set(chat.cwd, tile)
+  }
+  return [...tiles.values()]
+    .map(tile => ({ ...tile, latestAt: Math.max(0, tile.latestAt) }))
+    .sort((a, b) => b.needsYou - a.needsYou || b.live - a.live || b.latestAt - a.latestAt)
+    .slice(0, limit)
+}
+
+/** When anything last said anything, across all sessions, or null when nothing has. */
+export function lastActivityAt(chats: Chat[]): number | null {
+  let latest: number | null = null
+  for (const chat of sessionsOf(chats)) {
+    const at = chat.lastMessage?.at ?? null
+    if (at !== null && (latest === null || at > latest)) {
+      latest = at
+    }
+  }
+  return latest
 }

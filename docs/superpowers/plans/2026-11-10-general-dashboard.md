@@ -1,6 +1,6 @@
 # General Dashboard ("Mission Control") — Plan
 
-**Status:** plan only, not implemented. Implementation goes on a new branch cut from `feat/chat-list-revamp` (e.g. `feat/general-dashboard`).
+**Status:** Phases 1–3 implemented on `feat/general-dashboard`, not yet committed or reviewed on a phone. Left out of Phase 3: the separate heatmap (the 7-day bars cover it), greeting variants, and "Open computer sessions". Implementation goes on a new branch cut from `feat/chat-list-revamp` (e.g. `feat/general-dashboard`).
 
 ## Goal
 
@@ -83,7 +83,7 @@ Done when: General opens to the dashboard; a permission request raised in any se
 ### Phase 2 — Current step, Today, Recent activity (small backend)
 
 - **Current step:** add `activity: { tool: string; summary: string; at: number } | null` to `Chat`, set from the newest `tool_run` message with `status: 'running'` (in `ChatLog`, via the existing `CHAT_SELECT`/message path; cleared when the turn ends). Update `protocol.ts`, `chat-log` tests, and the developer guide.
-- **Today / activity:** new `GET /api/activity?days=7` returning `{ days: [{ date, sessionsStarted, tasksFinished, workedMs }], recent: [{ at, chatId, kind, label }] }`, computed in SQL from `messages`/`chats` (`tasksFinished` = completed turns; `workedMs` = sum of busy intervals, approximated from `tool_run.durationMs` plus turn spans). Cache for 30 s. Needs a timezone parameter (`tz` offset) so "today" matches the user.
+- **Today / activity (as built):** history cannot be derived from messages, so the ChatLog records an `activity` table as it happens (session appeared, turn start/end with its duration, session ended; General excluded; 30-day retention). `GET /api/activity?days=7&tz=<minutes east of UTC>` returns `{ days: [{ date, sessionsStarted, turnsCompleted, workedMs }], recent, since }`. Recording starts at deploy, so earlier days are empty and the card says "Counting since …". Labelled "Turns done", not tasks.
 - UI: `today-card.tsx` (stats + sparkline as inline SVG, no library), `activity-feed.tsx`.
 - Open question: is "tasks finished" reliably derivable? If not, show **turns completed** and say so in the label.
 

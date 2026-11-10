@@ -1,4 +1,4 @@
-import type { Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { ActivityView, Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
 
 export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
@@ -46,6 +46,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   forkChat(chatId: string): Promise<{ toast: string }>
   resumeChat(chatId: string): Promise<{ toast: string }>
   getProjects(): Promise<{ projects: Project[] }>
+  /** The dashboard's numbers for `days` days, in this device's time zone. */
+  getActivity(days?: number): Promise<ActivityView>
   startProject(body: { cwd: string; model?: string }): Promise<{ toast: string }>
   getPushKey(): Promise<{ key: string }>
   subscribePush(subscription: PushSubscriptionRecord): Promise<{ ok: true }>
@@ -135,6 +137,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),
     getProjects: () => get('/api/projects'),
+    getActivity: (days = 7) => get(`/api/activity?days=${days}&tz=${-new Date().getTimezoneOffset()}`),
     startProject: body => post('/api/projects/start', body),
     getPushKey: () => get('/api/push/key'),
     subscribePush: subscription => post('/api/push/subscriptions', { subscription }),

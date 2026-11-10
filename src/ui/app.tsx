@@ -349,6 +349,7 @@ export function App() {
     void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
   }, [api, runInfoAction])
 
+  const loadActivity = useCallback(() => api.getActivity(), [api])
   const showingDashboard = activeChat?.id === 'general' && preferences.generalView === 'dashboard'
   const setGeneralView = useCallback((generalView: Preferences['generalView']) => setPreferences(current => ({ ...current, generalView })), [])
 
@@ -553,6 +554,7 @@ export function App() {
                 view={preferences.generalView}
                 onView={setGeneralView}
                 summary={summaryText(dashboardCounts(chats))}
+                needsYou={dashboardCounts(chats).needsYou}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -568,6 +570,7 @@ export function App() {
               <div className="chat-glow flex min-h-0 flex-1 flex-col">
                 {showingDashboard ? (
                   <Dashboard
+                    loadActivity={loadActivity}
                     chats={chats}
                     usage={realtime.usage}
                     away={realtime.away}

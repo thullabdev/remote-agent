@@ -28,6 +28,8 @@ type ChatHeaderProps = {
   onView?(view: GeneralViewPreference): void
   /** General only: one line of what needs attention, shown under its name. */
   summary?: string
+  /** General only: how many sessions need you; the avatar glows while it is above zero. */
+  needsYou?: number
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -45,7 +47,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0 }: ChatHeaderProps) {
   const state = chatState(chat)
   const [usageOpen, setUsageOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -82,7 +84,10 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
       </Button>
-      <Avatar {...chatAvatar(chat)} className="size-9 rounded-xl text-xs" />
+      <Avatar
+        {...chatAvatar(chat)}
+        className={`size-9 rounded-xl text-xs ${chat.id === 'general' && needsYou > 0 ? 'ring-2 ring-status-needs/60 animate-pulse motion-reduce:animate-none' : ''}`}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {chat.id === 'general' ? (

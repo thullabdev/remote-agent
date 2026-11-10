@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, UsageView } from '../../src/channel/web/protocol.ts'
-import { busiestContext, dashboardCounts, lastEnded, needsYouItems, recentProjects, summaryText, workingItems } from '../../src/ui/dashboard-model.ts'
+import { activityDescription, busiestContext, eventVerb, formatWorked, lastActivityAt, projectTiles, dashboardCounts, lastEnded, needsYouItems, recentProjects, summaryText, workingItems } from '../../src/ui/dashboard-model.ts'
 
 function chat(id: string, patch: Partial<Chat> = {}): Chat {
   return {
     id, title: `Title ${id}`, project: null, cwd: null, status: 'active', spawned: false, archived: false, busy: false, unread: 0,
-    lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, ...patch,
+    lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null, ...patch,
   }
 }
 
@@ -24,7 +24,7 @@ describe('needsYouItems', () => {
       chat('ended', { status: 'ended', pendingPrompt: prompt(700) }),
     ]
     expect(needsYouItems(chats).map(item => item.chatId)).toEqual(['old', 'new'])
-    expect(needsYouItems(chats)[0]?.name).toBe('api')
+    expect(needsYouItems(chats)[0]).toMatchObject({ project: 'api', title: 'Title old' })
   })
 })
 
@@ -40,6 +40,13 @@ describe('workingItems', () => {
     const items = workingItems(chats)
     expect(items.map(item => item.chatId)).toEqual(['b', 'a'])
     expect(items[0]?.step).toBe('Running tests')
+  })
+
+  test('shows the running tool and its start when there is one', () => {
+    const items = workingItems([chat('a', { busy: true, lastMessage: message(9_000, 'older'), activity: { tool: 'Bash', summary: 'bun test', at: 4_000 } })])
+    expect(items[0]).toMatchObject({ step: 'Bash: bun test', at: 4_000 })
+    const bare = workingItems([chat('a', { busy: true, activity: { tool: 'Read', summary: '', at: 1 } })])
+    expect(bare[0]?.step).toBe('Read')
   })
 
   test('has no step before the session has said anything', () => {
@@ -99,5 +106,61 @@ describe('busiestContext', () => {
 
   test('is null when nothing reports a context', () => {
     expect(busiestContext([chat('a')], usage({ a: session(null) }))).toBeNull()
+  })
+})
+
+describe('activity wording', () => {
+  test('worked time is short and never says now', () => {
+    expect(formatWorked(0)).toBe('0m')
+    expect(formatWorked(59_000)).toBe('0m')
+    expect(formatWorked(45 * 60_000)).toBe('45m')
+    expect(formatWorked(130 * 60_000)).toBe('2h 10m')
+  })
+
+  test('verbs and the chart description', () => {
+    expect(eventVerb('finished')).toBe('finished')
+    expect(eventVerb('started')).toBe('started')
+    expect(eventVerb('ended')).toBe('ended')
+    const days = [
+      { date: '2026-11-09', sessionsStarted: 0, turnsCompleted: 1, workedMs: 1 },
+      { date: '2026-11-10', sessionsStarted: 2, turnsCompleted: 3, workedMs: 2 },
+    ]
+    expect(activityDescription(days)).toBe('4 turns completed in the last 2 days. 2026-11-09: 1, 2026-11-10: 3.')
+    expect(activityDescription([{ date: '2026-11-10', sessionsStarted: 0, turnsCompleted: 1, workedMs: 0 }])).toContain('1 turn completed in the last 1 days')
+  })
+})
+
+describe('projectTiles', () => {
+  test('one tile per folder, counting live and waiting sessions, needs-you first', () => {
+    const chats = [
+      chat('a1', { cwd: '/w/api', project: 'api', lastMessage: message(1_000) }),
+      chat('a2', { cwd: '/w/api', project: 'api', busy: true, pendingPrompt: prompt(900), lastMessage: message(5_000) }),
+      chat('a3', { cwd: '/w/api', project: 'api', status: 'ended', lastMessage: message(100) }),
+      chat('w1', { cwd: '/w/web', project: 'web', lastMessage: message(9_000) }),
+      chat('x', { cwd: '/w/old', status: 'ended', lastMessage: message(50) }),
+      chat('g', { cwd: '/w/gen', archived: true }),
+      chat('n', { cwd: null }),
+    ]
+    const tiles = projectTiles(chats)
+    expect(tiles.map(tile => tile.label)).toEqual(['api', 'web', 'old'])
+    expect(tiles[0]).toEqual({ cwd: '/w/api', label: 'api', live: 2, needsYou: 1, latestChatId: 'a2', latestAt: 5_000 })
+    expect(tiles[1]).toMatchObject({ live: 1, needsYou: 0, latestChatId: 'w1' })
+  })
+
+  test('a folder with no activity yet still shows, last', () => {
+    const tiles = projectTiles([chat('a', { cwd: '/w/new', project: 'new' }), chat('b', { cwd: '/w/busy', project: 'busy', lastMessage: message(3) })])
+    expect(tiles.map(tile => [tile.label, tile.latestAt])).toEqual([['busy', 3], ['new', 0]])
+  })
+
+  test('is capped', () => {
+    const chats = Array.from({ length: 9 }, (_, index) => chat(`c${index}`, { cwd: `/w/p${index}`, lastMessage: message(index) }))
+    expect(projectTiles(chats)).toHaveLength(6)
+  })
+})
+
+describe('lastActivityAt', () => {
+  test('is the newest message across live and ended sessions, or null', () => {
+    expect(lastActivityAt([chat('a')])).toBeNull()
+    expect(lastActivityAt([chat('a', { lastMessage: message(4) }), chat('b', { status: 'ended', lastMessage: message(9) }), chat('general', { lastMessage: message(99) })])).toBe(9)
   })
 })
