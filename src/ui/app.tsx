@@ -1,4 +1,5 @@
-import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, X } from 'lucide-react'
+import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
+import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
@@ -57,26 +58,23 @@ export function App() {
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
   const [pendingMessages, setPendingMessages] = useState<Record<string, PendingMessage[]>>({})
   const [busyChatIds, setBusyChatIds] = useState<Set<string>>(new Set())
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toastId = useRef(0)
   const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
   const push = usePushSubscription(api)
 
-  const notify = useCallback((message: string) => {
-    setToast(message)
-    if (toastTimer.current !== null) {
-      clearTimeout(toastTimer.current)
-    }
-    toastTimer.current = setTimeout(() => setToast(null), 4200)
+  const notify = useCallback((message: string, kind: ToastKind = 'success') => {
+    toastId.current += 1
+    setToast({ id: toastId.current, message, kind })
   }, [])
 
   const handleError = useCallback((reason: unknown) => {
     if (reason instanceof RequestError && reason.accessDenied) {
       setAccessDenied(true)
     }
-    notify(errorText(reason))
+    notify(errorText(reason), 'error')
   }, [notify])
 
   const chats = realtime?.chats ?? []
@@ -102,7 +100,7 @@ export function App() {
     try {
       savePreferences(preferences)
     } catch {
-      notify('Could not save appearance settings on this device.')
+      notify('Could not save appearance settings on this device.', 'error')
     }
   }, [preferences, notify])
 
@@ -137,12 +135,6 @@ export function App() {
     }
     void markRead(activeChatId).catch(handleError)
   }, [activeChatId, handleError, markRead, realtime?.messages[activeChatId ?? '']])
-
-  useEffect(() => () => {
-    if (toastTimer.current !== null) {
-      clearTimeout(toastTimer.current)
-    }
-  }, [])
 
   const openChat = useCallback((chatId: string | null, focus?: { promptId: string }) => {
     setActiveChatId(chatId)
@@ -297,7 +289,7 @@ export function App() {
 
   const uploadFromComposer = useCallback(async (file: File): Promise<UploadRef | null> => {
     if (file.size > MAX_UPLOAD_BYTES) {
-      notify('That file is larger than 10 MB.')
+      notify('That file is larger than 10 MB.', 'error')
       return null
     }
     try {
@@ -407,7 +399,7 @@ export function App() {
     if (await scrollWhenRendered(pin.id)) {
       return
     }
-    notify('That message could not be found in this chat.')
+    notify('That message could not be found in this chat.', 'error')
   }
 
   /** Scrolls to the Prompt a session waits on, loading older pages if it is above the loaded ones. Quiet if it was answered meanwhile. */
@@ -587,7 +579,7 @@ export function App() {
                 onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
                 onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
                 onPin={pinned => runInfoAction(() => api.pinChat(activeChat.id, pinned))}
-                onNotify={notify}
+                onNotify={message => notify(message, 'error')}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
                 onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
@@ -616,12 +608,7 @@ export function App() {
         )}
       </main>
 
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-3 rounded-2xl bg-card px-4 py-3 text-sm shadow-xl" role="status" aria-live="polite">
-          <span className="min-w-0">{toast}</span>
-          <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Dismiss notification" onClick={() => setToast(null)}><X className="size-4" /></button>
-        </div>
-      )}
+      {toast && <Toast key={toast.id} toast={toast} onDismiss={() => setToast(null)} />}
 
       <SettingsDialog
         open={settingsOpen}
