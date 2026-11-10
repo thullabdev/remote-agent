@@ -277,3 +277,10 @@ describe('connection wording', () => {
     expect(connectionNoticeText('resyncing')).toBe('Syncing recent activity…')
   })
 })
+
+test('chatAvatar gives the list row and the chat header the same letter source and hue', async () => {
+  const { chatAvatar, avatarHue } = await import('../../src/ui/presentation.ts')
+  expect(chatAvatar({ id: 'c1', title: 'Fix login', project: 'api' })).toEqual({ fallback: 'api', hue: avatarHue('api') })
+  expect(chatAvatar({ id: 'c2', title: 'Fix login', project: null })).toEqual({ fallback: 'Fix login', hue: avatarHue('Fix login') })
+  expect(chatAvatar({ id: 'general', title: 'General', project: null })).toEqual({ fallback: '⌘', hue: undefined })
+})

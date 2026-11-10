@@ -2,7 +2,7 @@ import { Check, Monitor, Pin, Terminal } from 'lucide-react'
 import { Fragment } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { avatarHue, formatRelativeTime, highlightSegments, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
+import { chatAvatar, formatRelativeTime, highlightSegments, NEEDS_YOU_TEXT_CLASS, pendingPromptLabel } from '../presentation.ts'
 import { Avatar } from './ui/avatar.tsx'
 
 const STATE_BADGE_CLASS = { needs_you: 'bg-status-needs', working: 'bg-status-working motion-safe:animate-pulse' } as const
@@ -10,10 +10,9 @@ const STATE_BADGE_CLASS = { needs_you: 'bg-status-needs', working: 'bg-status-wo
 /** The avatar tile, tinted by project, with the session's state as a dot on its corner. */
 function ChatAvatar({ chat }: { chat: Chat }) {
   const state = chatState(chat)
-  const hue = chat.id === 'general' ? undefined : avatarHue(chat.project ?? chat.title)
   return (
     <span className="relative shrink-0">
-      <Avatar fallback={chat.id === 'general' ? '⌘' : (chat.project ?? chat.title)} hue={hue} className="size-11 rounded-2xl text-sm" />
+      <Avatar {...chatAvatar(chat)} className="size-11 rounded-2xl text-sm" />
       {(state === 'needs_you' || state === 'working') && (
         <span
           data-state={state}

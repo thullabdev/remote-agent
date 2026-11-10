@@ -267,6 +267,15 @@ export function avatarHue(key: string): number {
   return hash % 360
 }
 
+/** What an avatar shows for a session, so the list row and the chat header agree: the project's letter and color. */
+export function chatAvatar(chat: { id: string; title: string; project: string | null }): { fallback: string; hue: number | undefined } {
+  if (chat.id === 'general') {
+    return { fallback: '⌘', hue: undefined }
+  }
+  const key = chat.project ?? chat.title
+  return { fallback: key, hue: avatarHue(key) }
+}
+
 /** The same age as formatRelativeTime, in words a screen reader can say ("12 minutes ago"). */
 export function relativeTimeWords(at: number, now = Date.now()): string {
   const delta = Math.max(0, now - at)

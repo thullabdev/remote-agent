@@ -6,7 +6,7 @@ import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
-import { avatarHue, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
+import { chatAvatar, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
 import { ContextPill } from './usage-meters.tsx'
 
 type ChatHeaderProps = {
@@ -40,7 +40,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage }: Ch
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Back to chats" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
       </Button>
-      <Avatar fallback={chat.id === 'general' ? '⌘' : chat.title} hue={chat.id === 'general' ? undefined : avatarHue(chat.project ?? chat.title)} className="size-9 rounded-xl text-xs" />
+      <Avatar {...chatAvatar(chat)} className="size-9 rounded-xl text-xs" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <h1 className="truncate font-display text-sm font-semibold tracking-tight">{chat.title}</h1>
