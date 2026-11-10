@@ -1,4 +1,4 @@
-import { ArrowLeft, Info, Radio } from 'lucide-react'
+import { ArrowLeft, Info, Pencil, Radio } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { useEffect, useRef, useState } from 'react'
@@ -8,6 +8,7 @@ import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
 import { chatAvatar, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
+import { RenameDialog } from './rename-dialog.tsx'
 import { useNow } from './usage-meters.tsx'
 import { UsagePanel, UsageToggle } from './usage-panel.tsx'
 
@@ -19,6 +20,8 @@ type ChatHeaderProps = {
   infoOpen: boolean
   usage?: SessionUsageView
   accounts?: AccountUsageView[]
+  /** Renames the session; an empty name goes back to the automatic one. */
+  onRename(title: string): Promise<void>
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -36,9 +39,10 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [] }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename }: ChatHeaderProps) {
   const state = chatState(chat)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const now = useNow()
   const wrapper = useRef<HTMLDivElement>(null)
   // A glance, not a place to stay: tapping elsewhere, scrolling the chat or pressing Escape puts it away.
@@ -75,7 +79,22 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
       <Avatar {...chatAvatar(chat)} className="size-9 rounded-xl text-xs" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <h1 className="truncate font-display text-sm font-semibold tracking-tight">{chat.title}</h1>
+          {chat.id === 'general' ? (
+            <h1 className="truncate font-display text-sm font-semibold tracking-tight">{chat.title}</h1>
+          ) : (
+            <h1 className="min-w-0 text-sm font-semibold tracking-tight">
+              <button
+                type="button"
+                aria-label={`Rename session, ${chat.title}`}
+                title={`Rename session, ${chat.title}`}
+                onClick={() => setRenaming(true)}
+                className="flex max-w-full items-center gap-1.5 rounded-md py-0.5 pr-1.5 text-left font-display hover:bg-muted/70"
+              >
+                <span className="truncate">{chat.title}</span>
+                <Pencil className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </h1>
+          )}
           {chat.status === 'ended' && <Badge className="border-transparent bg-muted py-0 text-[9px]">Ended</Badge>}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -100,6 +119,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
       </Button>
     </header>
     <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="absolute inset-x-2 top-full mt-1 shadow-lg ring-1 ring-border/60 md:inset-x-auto md:right-4 md:w-96" />
+    <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />
     </div>
   )
 }

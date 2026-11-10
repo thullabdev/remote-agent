@@ -535,6 +535,7 @@ export function App() {
                 infoOpen={infoOpen}
                 usage={realtime.usage.chats[activeChat.id]}
                 accounts={realtime.usage.accounts}
+                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">

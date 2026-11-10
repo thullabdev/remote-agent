@@ -6,7 +6,7 @@ import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { copyToClipboard } from './code-block.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
-import { Input } from './ui/input.tsx'
+import { RenameDialog } from './rename-dialog.tsx'
 import { formatTime, relativeTimeWords, NEEDS_YOU_BADGE_CLASS } from '../presentation.ts'
 
 type ChatInfoProps = {
@@ -74,7 +74,6 @@ export function ChatInfo({ chat, onClose, onNotify, onEnd, onArchive, onUnarchiv
   const isGeneral = chat.id === 'general'
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [renaming, setRenaming] = useState(false)
-  const [draftName, setDraftName] = useState('')
   const { copied, copy } = useCopy(onNotify)
   const sheet = useSheetLayout()
   const closeButton = useRef<HTMLButtonElement>(null)
@@ -94,16 +93,6 @@ export function ChatInfo({ chat, onClose, onNotify, onEnd, onArchive, onUnarchiv
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [sheet, onClose])
-
-  const openRename = () => {
-    setDraftName(chat.title)
-    setRenaming(true)
-  }
-
-  const submitRename = async () => {
-    setRenaming(false)
-    await onRename(draftName.trim())
-  }
 
   const runConfirmed = async () => {
     const action = confirm
@@ -191,7 +180,7 @@ export function ChatInfo({ chat, onClose, onNotify, onEnd, onArchive, onUnarchiv
                       {chat.pinned ? 'Unpin' : 'Pin to top'}
                     </Button>
                   )}
-                  <Button variant="outline" className="justify-start" onClick={openRename}>
+                  <Button variant="outline" className="justify-start" onClick={() => setRenaming(true)}>
                     <Pencil aria-hidden="true" />
                     Rename
                   </Button>
@@ -287,33 +276,7 @@ export function ChatInfo({ chat, onClose, onNotify, onEnd, onArchive, onUnarchiv
         </div>
       </aside>
 
-      <Dialog open={renaming} onOpenChange={open => { if (!open) setRenaming(false) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Session</DialogTitle>
-            <DialogDescription>Leave the name empty to go back to the automatic name.</DialogDescription>
-          </DialogHeader>
-          <form
-            className="grid gap-4"
-            onSubmit={event => {
-              event.preventDefault()
-              void submitRename()
-            }}
-          >
-            <Input
-              value={draftName}
-              onChange={event => setDraftName(event.target.value)}
-              maxLength={120}
-              aria-label="Session name"
-              autoFocus
-            />
-            <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setRenaming(false)}>Cancel</Button>
-              <Button type="submit">Save name</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />
 
       <Dialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null) }}>
         <DialogContent>

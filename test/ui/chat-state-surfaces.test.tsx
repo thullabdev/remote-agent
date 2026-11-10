@@ -29,7 +29,7 @@ function list(chat: Chat): string {
 }
 
 function header(chat: Chat): string {
-  return renderToStaticMarkup(createElement(ChatHeader, { chat, status: 'connected', onBack: () => {}, onInfo: () => {}, infoOpen: false }))
+  return renderToStaticMarkup(createElement(ChatHeader, { chat, status: 'connected', onBack: () => {}, onInfo: () => {}, infoOpen: false, onRename: async () => {} }))
 }
 
 function info(chat: Chat): string {
@@ -381,4 +381,14 @@ test('a pinned session carries a pin mark, and General (always pinned) does not'
   expect(pinnedRow).toContain('Pinned')
   expect(row(base)).not.toContain('lucide-pin')
   expect(row({ ...base, id: 'general', title: 'General', project: null, pinned: true })).not.toContain('lucide-pin')
+})
+
+test('the header title is a rename button with a pencil, and General is plain text', () => {
+  const markup = header(base)
+  expect(markup).toContain(`aria-label="Rename session, ${base.title}"`)
+  expect(markup).toContain('lucide-pencil')
+  expect(markup).not.toContain('>Rename<')
+  const general = header({ ...base, id: 'general', title: 'General', project: null })
+  expect(general).not.toContain('Rename session')
+  expect(general).not.toContain('lucide-pencil')
 })
