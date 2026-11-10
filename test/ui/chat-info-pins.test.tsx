@@ -6,7 +6,7 @@ import { ChatInfo } from '../../src/ui/components/chat-info.tsx'
 
 const chat: Chat = {
   id: 'c1', title: 'Billing fix', project: 'api', cwd: '/home/u/api', status: 'active', spawned: false, archived: false,
-  busy: false, unread: 0, lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
+  busy: false, unread: 0, lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null,
 }
 
 function render(pins: PinView[] = [], shown: Chat = chat): string {

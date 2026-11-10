@@ -4,7 +4,7 @@ import type { Chat } from '../../../src/channel/web/protocol.ts'
 
 const base: Chat = {
   id: 'c1', title: 'app', project: 'app', cwd: '/app', status: 'active', spawned: false, archived: false,
-  busy: false, unread: 0, lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
+  busy: false, unread: 0, lastMessage: null, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null,
 }
 const waiting: Chat['pendingPrompt'] = { promptId: 'p1', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 }
 

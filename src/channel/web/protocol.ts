@@ -16,6 +16,28 @@ export type PendingPrompt = {
   count: number
 }
 
+/** What a working Session is doing right now: its running tool call. */
+export type ChatActivity = {
+  tool: string
+  /** The command, file or URL the tool acts on; empty when there is none. */
+  summary: string
+  /** When the tool call started (ms epoch), for "12s". */
+  at: number
+}
+
+/** One day of the dashboard's Today card. `date` is YYYY-MM-DD in the viewer's zone. */
+export type ActivityDay = { date: string; sessionsStarted: number; turnsCompleted: number; workedMs: number }
+
+/** A line of the dashboard's recent activity. */
+export type ActivityEvent = { id: number; at: number; chatId: string; kind: 'started' | 'finished' | 'ended'; name: string }
+
+export type ActivityView = {
+  days: ActivityDay[]
+  recent: ActivityEvent[]
+  /** When recording began (ms epoch), or null before anything was recorded; days before it are empty, not quiet. */
+  since: number | null
+}
+
 export type Chat = {
   id: string
   title: string
@@ -33,6 +55,8 @@ export type Chat = {
   tmuxName: string | null
   /** Set while the Session waits for a human Answer. Wins over `busy`, which stays true because the turn is still open. */
   pendingPrompt: PendingPrompt | null
+  /** The running tool call while the Session works. Null when idle, ended, waiting on a Prompt, or between tool calls. */
+  activity: ChatActivity | null
 }
 
 export type PromptBodyView =

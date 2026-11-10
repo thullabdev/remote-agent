@@ -1,7 +1,8 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
-import type { Chat, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import { ACTIVITY_KEEP_DAYS, buildDays, type ActivityKind, type ActivityRow } from './activity.ts'
+import type { ActivityView, Chat, ChatActivity, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
 /** How many sessions the user can pin (General is always at the top and does not count), so pinning cannot recreate a crowded list. */
@@ -13,6 +14,8 @@ export const MAX_REPLAY_BYTES = 4 * 1024 * 1024
 export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number }
 
 const PREVIEW_MAX = 140
+const RECENT_ACTIVITY = 8
+const PRUNE_EVERY_MS = 86_400_000
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
 const MESSAGE_ADDED_COLUMNS: [string, string][] = [
@@ -50,6 +53,10 @@ CREATE TABLE IF NOT EXISTS read_cursors (
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, chat_id TEXT NOT NULL, kind TEXT NOT NULL, ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS activity_at ON activity (at);
 CREATE TABLE IF NOT EXISTS drafts (
   chat_id TEXT PRIMARY KEY REFERENCES chats(id), text TEXT NOT NULL, attachments TEXT NOT NULL
 );
@@ -203,6 +210,7 @@ export class ChatLog {
   private dispatching = false
   private readonly maxReplayEvents: number
   private readonly maxReplayBytes: number
+  private lastActivityPrune = 0
 
   constructor(
     private readonly store: Store,
@@ -255,6 +263,7 @@ export class ChatLog {
       this.db
         .query('INSERT INTO chats (id, session_id, title, created_at) VALUES (?, ?, ?, ?)')
         .run(input.id, input.sessionId, input.title, this.now())
+      this.recordActivity('started', input.id)
       return { value: this.chatOrThrow(input.id), events: [this.emitChat(input.id)] }
     })
   }
@@ -280,6 +289,12 @@ export class ChatLog {
         busy: patch.busy ?? current.busy,
       }
       this.db.query('UPDATE chats SET title = ?, status = ?, busy = ? WHERE id = ?').run(next.title, next.status, next.busy ? 1 : 0, id)
+      if (next.busy !== current.busy) {
+        this.recordTurn(id, next.busy)
+      }
+      if (next.status === 'ended' && current.status !== 'ended') {
+        this.recordActivity('ended', id)
+      }
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -713,6 +728,60 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  private recordActivity(kind: ActivityKind, chatId: string, ms = 0): void {
+    if (chatId === GENERAL_ID) {
+      return
+    }
+    const at = this.now()
+    this.db.query('INSERT INTO activity (at, chat_id, kind, ms) VALUES (?, ?, ?, ?)').run(at, chatId, kind, ms)
+    if (at - this.lastActivityPrune > PRUNE_EVERY_MS) {
+      this.lastActivityPrune = at
+      this.db.query('DELETE FROM activity WHERE at < ?').run(at - ACTIVITY_KEEP_DAYS * 86_400_000)
+    }
+  }
+
+  /** A turn began or ended. An end carries how long the turn ran, when its start was seen. */
+  private recordTurn(chatId: string, started: boolean): void {
+    if (started) {
+      this.recordActivity('turn_start', chatId)
+      return
+    }
+    const last = this.db
+      .query<{ at: number; kind: string }, [string]>(`SELECT at, kind FROM activity WHERE chat_id = ? AND kind IN ('turn_start', 'turn_end') ORDER BY id DESC LIMIT 1`)
+      .get(chatId)
+    this.recordActivity('turn_end', chatId, last?.kind === 'turn_start' ? Math.max(0, this.now() - last.at) : 0)
+  }
+
+  /** The dashboard's numbers: `days` days ending today in the viewer's zone (`offsetMinutes` east of UTC), and the latest events. */
+  getActivity(options: { days: number; offsetMinutes: number }): ActivityView {
+    const now = this.now()
+    const rows = this.db
+      .query<ActivityRow, [number]>(`SELECT at, kind, ms FROM activity WHERE at >= ? ORDER BY id`)
+      .all(now - (options.days + 1) * 86_400_000)
+    const recent = this.db
+      .query<{ id: number; at: number; chat_id: string; kind: string; name: string }, []>(
+        `SELECT a.id, a.at, a.chat_id, a.kind, COALESCE(c.custom_title, c.title) AS name
+         FROM activity a JOIN chats c ON c.id = a.chat_id
+         WHERE a.kind IN ('started', 'turn_end', 'ended') ORDER BY a.id DESC LIMIT ${RECENT_ACTIVITY}`,
+      )
+      .all()
+      .map(row => ({ id: row.id, at: row.at, chatId: row.chat_id, kind: row.kind === 'turn_end' ? ('finished' as const) : (row.kind as 'started' | 'ended'), name: row.name }))
+    const first = this.db.query<{ at: number | null }, []>('SELECT MIN(at) AS at FROM activity').get()?.at ?? null
+    return { days: buildDays(rows, now, options.days, options.offsetMinutes), recent, since: first }
+  }
+
+  /** The tool call a working Session is running, newest first; null when none is running. */
+  private runningTool(chatId: string, hiddenBefore: number): ChatActivity | null {
+    const record = this.db
+      .query<MessageRecord, [string, number]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'tool_run' ORDER BY seq DESC LIMIT 1`)
+      .get(chatId, hiddenBefore)
+    const message = record === null ? undefined : toMessage(record)
+    if (message === undefined || message.kind !== 'tool_run' || message.status !== 'running') {
+      return null
+    }
+    return { tool: message.tool, summary: clipChars(toolHint(message.input), PREVIEW_MAX), at: message.at }
+  }
+
   private maxSeq(table: 'events' | 'messages'): number {
     return this.db.query<{ seq: number }, []>(`SELECT COALESCE(MAX(seq), 0) AS seq FROM ${table}`).get()?.seq ?? 0
   }
@@ -723,6 +792,7 @@ export class ChatLog {
       .query<{ count: number }, [string, number]>(`SELECT COUNT(*) AS count FROM messages WHERE chat_id = ? AND seq > ? AND kind IN ${UNREAD_KINDS} AND counts_unread = 1`)
       .get(record.id, floor)
     const last = this.lastVisible(record.id)
+    const pendingPrompt = record.status === 'active' ? this.pendingPrompt(record.id, record.hidden_before_seq) : null
     return {
       id: record.id,
       title: record.custom_title ?? record.title,
@@ -737,7 +807,8 @@ export class ChatLog {
       draft: draftPreview(record.draft_text, record.draft_attachments, record.draft_at),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
-      pendingPrompt: record.status === 'active' ? this.pendingPrompt(record.id, record.hidden_before_seq) : null,
+      pendingPrompt,
+      activity: record.status === 'active' && record.busy === 1 && pendingPrompt === null ? this.runningTool(record.id, record.hidden_before_seq) : null,
     }
   }
 

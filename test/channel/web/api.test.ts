@@ -181,6 +181,22 @@ test('GET /api/state includes usage, empty when nothing was reported', async () 
   expect(body.usage).toEqual({ accounts: [], chats: {} })
 })
 
+test('GET /api/activity returns days for the viewer\'s zone and recent events', async () => {
+  const chatId = seedSession()
+  chatLog.updateChat(chatId, { busy: true })
+  chatLog.updateChat(chatId, { busy: false })
+
+  const { status, body } = await call('GET', '/api/activity?days=3&tz=420')
+
+  expect(status).toBe(200)
+  expect(body.days).toHaveLength(3)
+  expect(body.recent[0]).toMatchObject({ chatId, kind: 'finished' })
+  expect(body.since).not.toBeNull()
+  expect((await call('GET', '/api/activity?tz=abc')).status).toBe(400)
+  expect((await call('GET', '/api/activity?tz=5000')).status).toBe(400)
+  expect((await call('GET', '/api/activity?days=500')).body.days).toHaveLength(30)
+})
+
 test('GET /api/state returns seq, away and General first', async () => {
   const chatId = seedSession()
   await channel.createThread('older')

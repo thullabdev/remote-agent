@@ -17,7 +17,7 @@ const chat: Chat = {
   lastMessage: null, draft: null,
   pinned: false,
   tmuxName: null,
-  pendingPrompt: null,
+  pendingPrompt: null, activity: null,
 }
 
 const noDrafts = { getDraft: async () => ({ draft: null }), saveDraft: async () => ({ ok: true as const }) }

@@ -184,7 +184,7 @@ describe('chat row helpers', () => {
 
   const chat: Chat = {
     id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: false, unread: 0,
-    lastMessage: { seq: 1, at: now - 12 * 60_000, preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
+    lastMessage: { seq: 1, at: now - 12 * 60_000, preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null,
   }
 
   test('chatRowLabel starts with the state, then title, project and age', () => {
@@ -223,12 +223,12 @@ describe('opening a chat at the prompt that needs you', () => {
   const chat: Chat = {
     id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: true, unread: 0,
     lastMessage: null, draft: null, pinned: false, tmuxName: null,
-    pendingPrompt: { promptId: 'p1', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 },
+    pendingPrompt: { promptId: 'p1', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 }, activity: null,
   }
 
   test('rowOpenTarget asks to open at the prompt only for a session that needs you', () => {
     expect(rowOpenTarget(chat)).toEqual({ promptId: 'p1' })
-    expect(rowOpenTarget({ ...chat, pendingPrompt: null })).toBeUndefined()
+    expect(rowOpenTarget({ ...chat, pendingPrompt: null, activity: null })).toBeUndefined()
     expect(rowOpenTarget({ ...chat, status: 'ended' })).toBeUndefined()
   })
 

@@ -19,7 +19,7 @@ const general: Chat = {
   lastMessage: null, draft: null,
   pinned: true,
   tmuxName: null,
-  pendingPrompt: null,
+  pendingPrompt: null, activity: null,
 }
 
 const first: Message = { id: 'm_1', chatId: 'general', seq: 1, at: 10, kind: 'agent_text', markdown: 'hello' }
@@ -46,7 +46,7 @@ describe('Web Channel event state', () => {
     expect(initial.chats[0]?.pendingPrompt).toBeNull()
 
     const updated = applyServerEvent(initial, { type: 'chat.updated', seq: 2, chat: { ...legacy, unread: 1 } as Chat })
-    expect(updated.chats[0]).toMatchObject({ unread: 1, pendingPrompt: null })
+    expect(updated.chats[0]).toMatchObject({ unread: 1, pendingPrompt: null, activity: null })
   })
 
   test('a chat that starts needing the user moves above newer chats, on load and on chat.updated', () => {

@@ -4,7 +4,7 @@ import { chatMatchesSearch, filterChats, filterCounts, LIST_FILTERS, ORIGIN_FILT
 
 const general: Chat = {
   id: 'general', title: 'General', project: null, cwd: null, status: 'active', spawned: false, archived: false, busy: false, unread: 0,
-  lastMessage: null, draft: null, pinned: true, tmuxName: null, pendingPrompt: null,
+  lastMessage: null, draft: null, pinned: true, tmuxName: null, pendingPrompt: null, activity: null,
 }
 const idle: Chat = { ...general, id: 'idle', title: 'Idle session', pinned: false }
 const working: Chat = { ...idle, id: 'working', title: 'Working session', busy: true }

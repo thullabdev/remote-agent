@@ -101,6 +101,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
+  { method: 'GET', pattern: ['activity'], run: ({ deps, url }) => activity(deps, url) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
   { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
   { method: 'PUT', pattern: ['away'], run: ({ deps, request }) => setAway(deps, request) },
@@ -511,6 +512,16 @@ async function renameChat(deps: ApiDeps, request: Request, chatId: string): Prom
   const name = title.trim()
   deps.chatLog.setCustomTitle(chatId, name === '' ? null : name)
   return { toast: name === '' ? 'Session name reset.' : 'Session renamed.' }
+}
+
+/** The dashboard's numbers. `tz` is the viewer's offset east of UTC in minutes, so "today" is theirs. */
+function activity(deps: ApiDeps, url: URL): unknown {
+  const days = Math.min(30, Math.max(1, Math.floor(Number(url.searchParams.get('days') ?? 7)) || 7))
+  const tz = Number(url.searchParams.get('tz') ?? 0)
+  if (!Number.isInteger(tz) || Math.abs(tz) > 14 * 60) {
+    throw new ApiError(400, 'tz must be minutes east of UTC.')
+  }
+  return deps.chatLog.getActivity({ days, offsetMinutes: tz })
 }
 
 function listPins(deps: ApiDeps, chatId: string): unknown {

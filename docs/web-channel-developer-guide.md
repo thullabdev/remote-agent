@@ -168,6 +168,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/fork` | Resume a Session into a new one. |
 | `POST /chats/:id/pin` `{ pinned }` | Pin a Session to the top of the list (below ones that need you), or unpin it. At most 5 can be pinned; General is always first and cannot be pinned or unpinned; an archived Session cannot be pinned, and archiving unpins. `{ toast }`. |
 | `GET /projects` | Folders a Session may start in. |
+| `GET /activity?days=7&tz=0` | Daily numbers and recent events for a dashboard. |
 | `POST /projects/start` | Start a Session in a project. |
 | `PUT /away` | Set Away mode. |
 | `GET /push/key` | VAPID public key. |
@@ -223,6 +224,14 @@ No body. `200 { ok: true }`. Emits `chat.cleared` and `chat.updated`. It hides h
 
 No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer allowed (not in `REMOTE_AGENT_PROJECTS` or Claude Code's project keys). Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
 
+### GET /activity
+
+`GET /api/activity?days=7&tz=420` → `200 { days, recent, since }`. `days` (1–30, default 7) is how many days to return; `tz` is the viewer's offset in minutes **east** of UTC (`-new Date().getTimezoneOffset()`), so a day is the viewer's day; a bad `tz` answers 400. `days` is oldest first, ending today, each `{ date: 'YYYY-MM-DD', sessionsStarted, turnsCompleted, workedMs }`; days with nothing are zeros. `recent` is the latest 8 events, newest first: `{ id, at, chatId, kind: 'started' | 'finished' | 'ended', name }` (`name` is the session's title, the user's own name if they set one). `since` is when recording began (ms epoch) or `null`; days before it are empty because they were not recorded, not because nothing happened.
+
+The numbers come from an `activity` table the ChatLog writes as it happens: a session appearing, a turn starting or ending (`busy` changing), a session ending. General is not recorded. Rows older than 30 days are deleted. A turn's time is capped at 12 hours.
+
+`chat.activity` is the tool call a working Session is running now (`{ tool, summary, at }`, `at` being when it started). It is `null` when idle, ended, waiting on a Prompt, or between tool calls; a `chat.updated` event is sent when it changes.
+
 ### GET /projects and POST /projects/start
 
 `GET` → `200 { projects: { label: string, cwd: string }[] }`: existing folders from `REMOTE_AGENT_PROJECTS` and from the `projects` keys in `~/.claude.json`, each listed once. `hasTrustDialogAccepted` is not checked. `CLAUDE_CONFIG_PATH` can override the config location.
@@ -255,6 +264,7 @@ type Chat = {
   tmuxName: string | null
   draft: { preview: string; at: number } | null   // the unsent message; at: last edit, ms since epoch
   pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null
+  activity: { tool: string; summary: string; at: number } | null
 }
 
 type Message = { id: string; chatId: string; seq: number; at: number } & (   // at: ms since epoch

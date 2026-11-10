@@ -18,6 +18,7 @@ function chat(id: string, patch: Partial<Chat> = {}): Chat {
     pinned: false,
     tmuxName: null,
     pendingPrompt: null,
+    activity: null,
     ...patch,
   }
 }

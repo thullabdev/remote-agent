@@ -10,7 +10,7 @@ import { MessageFeed } from '../../src/ui/components/message-feed.tsx'
 
 const base: Chat = {
   id: 'c1', title: 'Billing fix', project: 'api', cwd: '/home/u/api', status: 'active', spawned: false, archived: false,
-  busy: false, unread: 0, lastMessage: { seq: 1, at: Date.now(), preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null,
+  busy: false, unread: 0, lastMessage: { seq: 1, at: Date.now(), preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null,
 }
 const blocked: Chat = {
   ...base,

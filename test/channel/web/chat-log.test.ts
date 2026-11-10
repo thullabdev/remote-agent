@@ -602,3 +602,77 @@ test('archiving a session unpins it, so restoring it does not bring a forgotten 
   log.setArchivedMany(['c1'], true)
   expect(log.getChat('c1')).toMatchObject({ archived: true, pinned: false })
 })
+
+const runningTool = (command: string): MessageBody => ({
+  kind: 'tool_run', tool: 'Bash', input: { command }, result: null, resultTruncated: false, status: 'running', durationMs: null,
+})
+
+test('a working session reports the tool it is running, and clears it when the tool finishes', () => {
+  expect(log.getChat('c1')?.activity).toBeNull()
+  log.updateChat('c1', { busy: true })
+  clock = 5_000
+  const run = log.appendMessage('c1', runningTool('bun test\nsecond line'))
+  expect(log.getChat('c1')?.activity).toEqual({ tool: 'Bash', summary: 'bun test', at: 5_000 })
+
+  log.updateMessage(run.id, { ...toolRun('ok') })
+  expect(log.getChat('c1')?.activity).toBeNull()
+})
+
+test('a session with no running tool, an idle one and one waiting on a prompt report no activity', () => {
+  log.appendMessage('c1', runningTool('ls'))
+  expect(log.getChat('c1')?.activity).toBeNull()
+  log.updateChat('c1', { busy: true })
+  expect(log.getChat('c1')?.activity?.tool).toBe('Bash')
+  log.appendMessage('c1', permission)
+  expect(log.getChat('c1')?.activity).toBeNull()
+})
+
+test('activity counts started sessions and finished turns with how long they ran', () => {
+  clock = 10_000
+  log.updateChat('c1', { busy: true })
+  clock = 70_000
+  log.updateChat('c1', { busy: false })
+  log.updateChat('c1', { busy: false })
+
+  const view = log.getActivity({ days: 2, offsetMinutes: 0 })
+  const today = view.days[1]
+  expect(view.days).toHaveLength(2)
+  expect(today).toMatchObject({ sessionsStarted: 1, turnsCompleted: 1, workedMs: 60_000 })
+  expect(view.since).toBe(1_000)
+})
+
+test('General is not counted, and an ended session is recorded once', () => {
+  log.updateChat('general', { busy: true })
+  log.updateChat('general', { busy: false })
+  log.updateChat('c1', { status: 'ended' })
+  log.updateChat('c1', { status: 'ended' })
+
+  const view = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(view.days[0]).toMatchObject({ sessionsStarted: 1, turnsCompleted: 0 })
+  expect(view.recent.map(event => [event.chatId, event.kind])).toEqual([['c1', 'ended'], ['c1', 'started']])
+})
+
+test('recent activity names the session by its title, newest first, capped at eight', () => {
+  for (let turn = 0; turn < 6; turn += 1) {
+    clock += 1_000
+    log.updateChat('c1', { busy: true })
+    clock += 1_000
+    log.updateChat('c1', { busy: false })
+  }
+  const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(recent).toHaveLength(7)
+  expect(recent[0]).toMatchObject({ kind: 'finished', name: 'app session' })
+  log.setCustomTitle('c1', 'Fix billing')
+  expect(log.getActivity({ days: 1, offsetMinutes: 0 }).recent[0]?.name).toBe('Fix billing')
+  expect(recent[recent.length - 1]?.kind).toBe('started')
+  expect(recent.map(event => event.id)).toEqual([...recent.map(event => event.id)].sort((a, b) => b - a))
+})
+
+test('a turn whose start was never seen counts as finished with no time, and old rows are pruned', () => {
+  log.updateChat('c1', { busy: true })
+  clock += 40 * 86_400_000
+  log.updateChat('c1', { busy: false })
+  const view = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(view.days[0]).toMatchObject({ turnsCompleted: 1, sessionsStarted: 0 })
+  expect(view.since).toBe(clock)
+})
