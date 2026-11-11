@@ -5,6 +5,7 @@ import { redactSecrets } from '../../../core/text.ts'
 import type { ChatLog } from '../chat-log.ts'
 import type { MessageBody } from '../protocol.ts'
 import { parseTranscriptLine, type TranscriptEntry, type TranscriptItem } from './parse.ts'
+import { launchFolderOf } from '../../../bridge/launch-folder.ts'
 import { transcriptPath } from './path.ts'
 
 const BATCH_LINES = 200
@@ -210,7 +211,7 @@ export class TranscriptReader {
     const chatId = tail.chatId
     if (tail.path === null) {
       try {
-        tail.path = transcriptPath(this.deps.home, session.cwd, tail.sessionId)
+        tail.path = transcriptPath(this.deps.home, await launchFolderOf(this.deps.home, session), tail.sessionId)
       } catch (error) {
         if (!tail.pathLogged) {
           tail.pathLogged = true

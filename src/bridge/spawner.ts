@@ -1,11 +1,10 @@
-import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { projectName } from '../../mod/remote-agent/hooks/protocol.ts'
 import type { Channel, SessionStatus, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
 import { transcriptPath } from '../channel/web/transcript/path.ts'
+import { launchFolderOf } from './launch-folder.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log } from './prompts.ts'
 import { listSessionHistories, type SessionHistory } from './session-history.ts'
@@ -19,10 +18,6 @@ export const USAGE = 'Usage: /new [--model <model>] <trusted folder> or /new --r
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended remotely.'
-/** The first `"cwd"` a transcript records: the folder its Session was launched from. Null when none is found. */
-const RECORDED_CWD = /"cwd":"((?:[^"\\]|\\.)*)"/
-const CWD_SEARCH_BYTES = 64 * 1024
-
 export const NO_TRANSCRIPT = 'This Session never got a first message, so there is nothing to resume. Start a new one with /new <folder>.'
 export const UNKNOWN_SESSION = 'Unknown session.'
 export const SESSION_ALREADY_ACTIVE = 'This Session is already active.'
@@ -233,33 +228,9 @@ export class Spawner {
     }
   }
 
-  /**
-   * The folder a Session was launched from, which is where Claude keeps its transcript. The stored value comes first; a Session
-   * from before it was stored is read from its transcript. Falls back to the Session's current folder.
-   */
-  async launchFolder(session: SessionRow): Promise<string> {
-    if (session.launchCwd !== null) {
-      return session.launchCwd
-    }
-    const projects = join(this.deps.home, '.claude', 'projects')
-    let folders: string[] = []
-    try {
-      folders = await readdir(projects)
-    } catch {
-      return session.cwd
-    }
-    for (const folder of folders) {
-      const file = Bun.file(join(projects, folder, `${session.id}.jsonl`))
-      if (!(await file.exists())) {
-        continue
-      }
-      const head = await file.slice(0, CWD_SEARCH_BYTES).text()
-      const match = RECORDED_CWD.exec(head)
-      if (match !== null) {
-        return JSON.parse(`"${match[1]}"`) as string
-      }
-    }
-    return session.cwd
+  /** The folder a Session was launched from; see launchFolderOf. */
+  launchFolder(session: SessionRow): Promise<string> {
+    return launchFolderOf(this.deps.home, session)
   }
 
   /** Restarts an ended Session with its existing Claude session id and transcript. */

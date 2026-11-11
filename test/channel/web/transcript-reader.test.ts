@@ -104,6 +104,20 @@ function write(h: Harness, text: string): void {
   h.files.set(PATH, encoder.encode(text))
 }
 
+test('a Session moved into a worktree is still read from the folder it was launched in', async () => {
+  const h = setup()
+  h.store.upsertSession({ sessionId: SID, cwd: CWD })
+  h.channel.sessionSeen(h.store.getSession(SID)!)
+  const chatId = h.store.getSession(SID)!.chatId!
+  h.store.upsertSession({ sessionId: SID, cwd: `${CWD}/.claude/worktrees/feat` })
+  h.reader.attach(SID)
+  write(h, prompt('p-1', 'first') + assistantText('a-1', 'second'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+})
+
 test('attach backfills the whole file once', async () => {
   const h = setup()
   const chatId = startSession(h)
