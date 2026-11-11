@@ -26,7 +26,7 @@ export function UploadPicker({ uploads, query, selected, note, onHover, onPick, 
       aria-label="Library files"
       className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-80 max-w-4xl overflow-auto rounded-2xl bg-card py-1 shadow-xl sm:left-6 sm:right-6"
     >
-      <div className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground">
         <span className="font-mono uppercase tracking-[.12em]">Library</span>
         <div className="flex items-center gap-3">
           <button type="button" onMouseDown={event => event.preventDefault()} onClick={onManage} className="font-medium text-foreground hover:underline">

@@ -50,7 +50,8 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(92vw,44rem)] max-h-[min(88dvh,50rem)]">
+      {/* The one column may shrink to the screen: without minmax(0,1fr) a long file name widens the whole dialog. */}
+      <DialogContent className="w-[min(92vw,44rem)] max-h-[min(88dvh,50rem)] grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Library</DialogTitle>
           <DialogDescription>
@@ -106,9 +107,9 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
             {library.length === 0 ? 'Files you upload appear here.' : `No files match “${query}”.`}
           </p>
         ) : (
-          <ul className="grid gap-1.5">
+          <ul className="grid min-w-0 gap-1.5">
             {shown.map(upload => (
-              <li key={upload.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-muted/60">
+              <li key={upload.id} className="flex min-w-0 items-center gap-3 rounded-xl px-2 py-2 hover:bg-muted/60">
                 <LibraryThumb upload={upload} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{upload.name}</p>
