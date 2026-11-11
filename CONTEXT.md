@@ -61,7 +61,14 @@ A PNG, JPEG, GIF, WebP or PDF file in the shared library, kept until deleted and
 _Avoid_: file (unqualified), asset
 
 **Pin**:
-A mark the user puts on one of their own messages or an agent reply, so it is listed in the chat details. Pins belong to the message, not to a Session.
+A mark that keeps something easy to find. A message (the user's own or an agent reply) can be pinned, which lists it in the Chat details. A live Session can be pinned too, up to five, which keeps it near the top of the Session list, below the ones that need the user.
+
+**Draft**:
+The unsent message in a Chat. It is saved with its attachments, so it follows the user to their other devices, and a Chat with a Draft sorts ahead of working ones in the Session list.
+
+**Dashboard**:
+General's home screen in the web Channel, also called Mission control: what needs the user, what is working now, the remaining budget, projects, and recent activity. The command chat stays one switch away.
+_Avoid_: home, overview
 
 ## Relationships
 

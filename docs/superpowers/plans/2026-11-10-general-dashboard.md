@@ -1,6 +1,6 @@
 # General Dashboard ("Mission Control") — Plan
 
-**Status:** Phases 1–3 implemented on `feat/general-dashboard`, not yet committed or reviewed on a phone. Left out of Phase 3: the separate heatmap (the 7-day bars cover it), greeting variants, and "Open computer sessions". Implementation goes on a new branch cut from `feat/chat-list-revamp` (e.g. `feat/general-dashboard`).
+**Status:** Phases 1–3 are implemented and merged to `main`; a phone review is not recorded here. Left out of Phase 3: the separate heatmap (the 7-day bars cover it), greeting variants, and "Open computer sessions".
 
 ## Goal
 
