@@ -3,7 +3,7 @@ import type { Log } from '../../../bridge/prompts.ts'
 import type { Store } from '../../../bridge/store.ts'
 import { redactSecrets } from '../../../core/text.ts'
 import type { ChatLog } from '../chat-log.ts'
-import type { MessageBody } from '../protocol.ts'
+import type { Message, MessageBody } from '../protocol.ts'
 import { parseTranscriptLine, type TranscriptEntry, type TranscriptItem } from './parse.ts'
 import { transcriptPath } from './path.ts'
 
@@ -153,6 +153,11 @@ export class TranscriptReader {
   /** True only while attached and the transcript file has been found at least once. */
   isActive(sessionId: string): boolean {
     return this.tails.get(sessionId)?.found === true
+  }
+
+  /** True while the Session's transcript shows a turn open (a prompt or tool call with no turn end yet). */
+  turnOpen(sessionId: string): boolean {
+    return this.tails.get(sessionId)?.open === true
   }
 
   /** Reads everything new in the Session's transcript. A tick that overlaps a running one does nothing. */
@@ -325,6 +330,7 @@ export class TranscriptReader {
     if (instruction !== undefined) {
       chatLog.claim(chatId, `instr:${instruction.id}`)
       chatLog.claim(chatId, sourceId)
+      this.markReceived(instruction)
       return
     }
     chatLog.appendMessage(chatId, { kind: 'user_text', text, status: 'delivered', instructionId: null }, this.stamp(tail, entry.at, sourceId))
@@ -364,6 +370,14 @@ export class TranscriptReader {
       status,
       durationMs,
     })
+  }
+
+  /** A line that arrives after the receipt timed out is still Claude's: the message becomes delivered after all. */
+  private markReceived(message: Message): void {
+    if (message.kind !== 'user_text' || message.status !== 'not_received') {
+      return
+    }
+    this.deps.chatLog.updateMessage(message.id, { kind: 'user_text', text: message.text, status: 'delivered', instructionId: message.instructionId })
   }
 
   private reportBusy(tail: Tail): void {

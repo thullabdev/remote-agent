@@ -33,6 +33,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   markRead(chatId: string, seq: number): Promise<{ ok: true }>
   setAway(away: boolean): Promise<{ away: boolean }>
   endChat(chatId: string): Promise<{ toast: string }>
+  /** Stops the turn a Spawned Session is running, as Escape in its terminal does. */
+  interruptChat(chatId: string): Promise<{ toast: string }>
   archiveChat(chatId: string): Promise<{ toast: string }>
   archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
@@ -112,6 +114,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
         body: JSON.stringify({ away }),
       }),
     endChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/end`),
+    interruptChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/interrupt`),
     archiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/archive`),
     archiveChats: async chatIds => {
       try {

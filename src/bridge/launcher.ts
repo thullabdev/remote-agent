@@ -80,6 +80,14 @@ export class Launcher {
     }
   }
 
+  /** Presses one key in the session's terminal, such as Escape, which stops the running turn. */
+  async sendKey(name: string, key: 'Escape'): Promise<void> {
+    const result = await this.run(['tmux', 'send-keys', '-t', name, key])
+    if (result.code !== 0) {
+      throw failure(result)
+    }
+  }
+
   async kill(name: string): Promise<void> {
     const result = await this.run(['tmux', 'kill-session', '-t', `=${name}`])
     if (result.code !== 0 && !GONE.test(result.stderr)) {

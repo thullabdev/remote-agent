@@ -86,6 +86,11 @@ test('exists, sendExit, kill and capture address the exact session', async () =>
   ])
 })
 
+test('sendKey presses the key in the exact session', async () => {
+  await launcher.sendKey('ra-3f2a9c1b', 'Escape')
+  expect(tmux.calls).toEqual([['tmux', 'send-keys', '-t', 'ra-3f2a9c1b', 'Escape']])
+})
+
 test('kill tolerates a session that is already gone', async () => {
   await launcher.kill('ra-gone')
   expect(tmux.calls).toEqual([['tmux', 'kill-session', '-t', '=ra-gone']])

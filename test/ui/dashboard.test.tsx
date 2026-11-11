@@ -180,3 +180,12 @@ test('the layout keeps a fixed column so long text cannot widen the cards', () =
   expect(html).toContain('grid-cols-[minmax(0,1fr)]')
   expect(html).toContain('data-working="b"')
 })
+
+test('a working session offers Stop: enabled for a spawned session, disabled for one on the computer', () => {
+  const header = (patch: Partial<Chat>) => renderToStaticMarkup(
+    createElement(ChatHeader, { chat: chat('s', { busy: true, ...patch }), status: 'connected', onBack: () => {}, onInfo: () => {}, infoOpen: false, onRename: async () => {}, onStop: () => {} }),
+  )
+  expect(header({ spawned: true })).toMatch(/<button[^>]*aria-label="Stop the running turn"(?![^>]*disabled)/)
+  expect(header({ spawned: false })).toMatch(/<button[^>]*disabled[^>]*aria-label="Stop the running turn"|<button[^>]*aria-label="Stop the running turn"[^>]*disabled/)
+  expect(header({ spawned: true, busy: false })).not.toContain('Stop the running turn')
+})

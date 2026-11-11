@@ -454,6 +454,15 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  /**
+   * Whether the transcript has recorded this Instruction: its message is claimed by a transcript line. The claim key is the
+   * message id, which is what findUnclaimedInstruction matches on.
+   */
+  isReceived(instructionId: string): boolean {
+    const message = this.findByInstructionId(instructionId)
+    return message !== undefined && this.isClaimed(message.chatId, `instr:${message.id}`)
+  }
+
   /** The user_text message created for an Instruction, whatever source id it was appended with. */
   findByInstructionId(instructionId: string): Message | undefined {
     const record = this.db

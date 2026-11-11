@@ -73,7 +73,8 @@ export type PromptBodyView =
   | { kind: 'permission'; tool: string; summary: string; reason: string | null; agentId: string | null }
 
 export type MessageBody =
-  | { kind: 'user_text'; text: string; status: 'queued' | 'delivered'; instructionId: string | null; attachments?: UploadRef[] }
+  /** not_received: delivered to Claude Code but no transcript line followed in time, so the user can send it again. */
+  | { kind: 'user_text'; text: string; status: 'queued' | 'delivered' | 'not_received'; instructionId: string | null; attachments?: UploadRef[] }
   | { kind: 'agent_text'; markdown: string }
   | {
       kind: 'tool_run'

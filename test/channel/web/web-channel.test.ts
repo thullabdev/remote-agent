@@ -6,7 +6,7 @@ import { Store } from '../../../src/bridge/store.ts'
 import { ChatLog } from '../../../src/channel/web/chat-log.ts'
 import type { ServerEvent } from '../../../src/channel/web/protocol.ts'
 import { PushService, type PushEvent } from '../../../src/channel/web/push.ts'
-import { WebChannel } from '../../../src/channel/web/web-channel.ts'
+import { RECEIPT_WAIT_MS, WebChannel } from '../../../src/channel/web/web-channel.ts'
 
 let clock = 1_000
 let store: Store
@@ -810,4 +810,51 @@ test('nameFromTask takes the first line, collapses spaces and clips long ones', 
   const long = nameFromTask('x'.repeat(100))!
   expect(long).toHaveLength(48)
   expect(long.endsWith('…')).toBe(true)
+})
+
+test('an instruction Claude never records is marked not received after the wait, and frees the chat', () => {
+  const session = seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'Continue')
+  channel.instructionQueued(instruction, session)
+  channel.instructionDelivered(instruction.id)
+  const chatId = store.getSession(webSession.sessionId)?.chatId ?? ''
+
+  channel.checkReceipts(Date.now() + RECEIPT_WAIT_MS - 1_000)
+  expect(chatLog.findByInstructionId(instruction.id)).toMatchObject({ status: 'delivered' })
+  expect(busyOf(webSession.sessionId)).toBe(true)
+
+  channel.checkReceipts(Date.now() + RECEIPT_WAIT_MS + 1_000)
+  expect(chatLog.findByInstructionId(instruction.id)).toMatchObject({ status: 'not_received' })
+  expect(busyOf(webSession.sessionId)).toBe(false)
+  expect(chatId).not.toBe('')
+})
+
+test('an instruction recorded in time keeps its delivered status and no timer changes it later', () => {
+  const session = seenSession()
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'add tests')
+  channel.instructionQueued(instruction, session)
+  channel.instructionDelivered(instruction.id)
+  const message = chatLog.findByInstructionId(instruction.id)
+  if (message === undefined) {
+    throw new Error('no message for the instruction')
+  }
+  // The transcript reader claims the line against the message, the same way it does for a real turn.
+  chatLog.claim(message.chatId, `instr:${message.id}`)
+
+  channel.checkReceipts(Date.now() + RECEIPT_WAIT_MS * 2)
+
+  expect(chatLog.findByInstructionId(instruction.id)).toMatchObject({ status: 'delivered' })
+})
+
+test('while the transcript shows a turn open, a missing receipt leaves the chat busy', () => {
+  const session = seenSession()
+  channel.setTurnOpenProbe(() => true)
+  const instruction = store.enqueueInstruction(webSession.sessionId, 'long task')
+  channel.instructionQueued(instruction, session)
+  channel.instructionDelivered(instruction.id)
+
+  channel.checkReceipts(Date.now() + RECEIPT_WAIT_MS + 1_000)
+
+  expect(chatLog.findByInstructionId(instruction.id)).toMatchObject({ status: 'not_received' })
+  expect(busyOf(webSession.sessionId)).toBe(true)
 })

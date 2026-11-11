@@ -296,6 +296,21 @@ async function startedSession(): Promise<{ id: string; thread: string }> {
   return { id, thread: store.getSession(id)?.threadId ?? '' }
 }
 
+test('interrupt presses Escape in a running Spawned Session, and leaves it running', async () => {
+  const { id } = await startedSession()
+  const before = tmux.commands().length
+  expect(await spawner.interrupt(id)).toBe('Stopping…')
+  expect(tmux.commands().slice(before)).toEqual(['has-session', 'send-keys'])
+  expect(store.getSession(id)?.endedAt).toBeNull()
+})
+
+test('interrupt says so when the terminal is already gone or the session ended', async () => {
+  const { id } = await startedSession()
+  tmux.alive.clear()
+  expect(await spawner.interrupt(id)).toBe('The session is no longer running.')
+  expect(await spawner.interrupt('no-such-session')).toBe('This session has ended.')
+})
+
 test('/end exits gracefully and closes the thread', async () => {
   const { id, thread } = await startedSession()
   expect(await spawner.end(thread)).toBe('⏹ Ending the session…')

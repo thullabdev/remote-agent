@@ -18,6 +18,10 @@ export class WebChannel implements Channel, ChatSink {
   private transcriptDetach: (sessionId: string) => void = () => {}
   private pushNotifier: ((event: PushEvent) => Promise<void>) | null = null
   private usageBroadcaster: ((event: ServerEvent) => void) | null = null
+  private turnOpenProbe: (sessionId: string) => boolean = () => false
+  /** Delivered instructions still waiting for Claude Code to record them in the transcript, by instruction id. */
+  private readonly receipts = new Map<string, { sessionId: string; chatId: string; deadline: number }>()
+  private receiptTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     private readonly chatLog: ChatLog,
@@ -28,6 +32,11 @@ export class WebChannel implements Channel, ChatSink {
   /** Tells whether the transcript reader is active for a Session; its turn text then comes from the reader, not from the Report. */
   setTranscriptProbe(probe: (sessionId: string) => boolean): void {
     this.transcriptActive = probe
+  }
+
+  /** Tells whether the Session's transcript shows a turn open. Used when a delivered instruction is never recorded. */
+  setTurnOpenProbe(probe: (sessionId: string) => boolean): void {
+    this.turnOpenProbe = probe
   }
 
   /** Sets who is told about prompts, reminders and reports by push; null turns pushing off. */
@@ -57,11 +66,39 @@ export class WebChannel implements Channel, ChatSink {
 
   async start(handlers: ChannelHandlers): Promise<void> {
     this.current = handlers
+    this.receiptTimer ??= setInterval(() => this.checkReceipts(Date.now()), RECEIPT_CHECK_MS)
   }
 
   async stop(): Promise<void> {
     this.current = null
+    if (this.receiptTimer !== null) {
+      clearInterval(this.receiptTimer)
+      this.receiptTimer = null
+    }
     this.log('web channel stopped')
+  }
+
+  /**
+   * An instruction that Claude Code accepted but never recorded would leave the chat busy forever, since only a transcript turn end
+   * clears busy. After the wait, it is marked not received, and busy is cleared when the transcript shows no open turn.
+   */
+  checkReceipts(now: number): void {
+    for (const [instructionId, receipt] of this.receipts) {
+      if (now < receipt.deadline) {
+        continue
+      }
+      this.receipts.delete(instructionId)
+      if (this.chatLog.isReceived(instructionId)) {
+        continue
+      }
+      const message = this.chatLog.findByInstructionId(instructionId)
+      if (message?.kind === 'user_text' && message.status === 'delivered') {
+        this.chatLog.updateMessage(message.id, { kind: 'user_text', text: message.text, status: 'not_received', instructionId })
+      }
+      if (!this.turnOpenProbe(receipt.sessionId)) {
+        this.busyChanged(receipt.sessionId, false)
+      }
+    }
   }
 
   async createThread(title: string): Promise<ThreadRef> {
@@ -304,6 +341,10 @@ export class WebChannel implements Channel, ChatSink {
       return
     }
     this.busyChanged(instruction.sessionId, true)
+    const chatId = this.chatIdOf(instruction.sessionId)
+    if (chatId !== null && !this.chatLog.isReceived(instructionId)) {
+      this.receipts.set(instructionId, { sessionId: instruction.sessionId, chatId, deadline: Date.now() + RECEIPT_WAIT_MS })
+    }
     const current = this.chatLog.findByInstructionId(instructionId)
     if (current === undefined || current.kind !== 'user_text') {
       return
@@ -458,6 +499,9 @@ function promptPushText(body: PromptBody): string {
 }
 
 const TASK_NAME_MAX = 48
+/** How long Claude Code has to record a delivered instruction in the transcript before it counts as not received. */
+export const RECEIPT_WAIT_MS = 30_000
+const RECEIPT_CHECK_MS = 5_000
 
 /** A short name for a session from its first task: the first line, in one line, clipped. Null when there is nothing to say. */
 export function nameFromTask(text: string): string | null {

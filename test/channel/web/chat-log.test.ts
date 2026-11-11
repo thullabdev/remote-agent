@@ -676,3 +676,15 @@ test('a turn whose start was never seen counts as finished with no time, and old
   expect(view.days[0]).toMatchObject({ turnsCompleted: 1, sessionsStarted: 0 })
   expect(view.since).toBe(clock)
 })
+
+test('an instruction is received once a transcript line claims its message, the way the reader does', () => {
+  log.appendMessage('c1', { kind: 'user_text', text: 'Continue', status: 'delivered', instructionId: 'i-continue' }, { sourceId: 'client:x' })
+  expect(log.isReceived('i-continue')).toBe(false)
+
+  const matched = log.findUnclaimedInstruction('c1', 'Continue')
+  expect(matched).toBeDefined()
+  log.claim('c1', `instr:${matched?.id}`)
+
+  expect(log.isReceived('i-continue')).toBe(true)
+  expect(log.isReceived('no-such-instruction')).toBe(false)
+})

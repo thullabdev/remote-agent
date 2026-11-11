@@ -354,6 +354,14 @@ export function App() {
   const setGeneralView = useCallback((generalView: Preferences['generalView']) => setPreferences(current => ({ ...current, generalView })), [])
 
   // A command typed on the dashboard is answered in the chat, so show it.
+  // Sends again a message Claude never recorded: the same text and files, as a new message.
+  const resendMessage = useCallback((message: Message) => {
+    if (activeChat === null || message.kind !== 'user_text') {
+      return
+    }
+    void sendMessage(activeChat, message.text, message.attachments ?? []).catch(handleError)
+  }, [activeChat, handleError, sendMessage])
+
   const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => {
     if (activeChat === null) {
       return Promise.resolve()
@@ -555,6 +563,7 @@ export function App() {
                 onView={setGeneralView}
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
+                onStop={() => runInfoAction(() => api.interruptChat(activeChat.id))}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -595,6 +604,7 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
+                  onResend={resendMessage}
                 />
                 )}
                 <ChatComposer

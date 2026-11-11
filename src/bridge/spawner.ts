@@ -144,6 +144,26 @@ export class Spawner {
   }
 
   /**
+   * Stops the turn a Spawned Session is running, as if the user pressed Escape in its terminal. Returns the toast.
+   * Prompts already submitted to Claude Code are not removed here.
+   */
+  async interrupt(sessionId: string): Promise<string> {
+    const { store, launcher } = this.deps
+    const session = store.getSession(sessionId)
+    if (session === undefined || session.endedAt !== null) {
+      return 'This session has ended.'
+    }
+    if (!session.spawned || session.tmuxName === null) {
+      return NOT_SPAWNED
+    }
+    if (!(await launcher.exists(session.tmuxName))) {
+      return 'The session is no longer running.'
+    }
+    await launcher.sendKey(session.tmuxName, 'Escape')
+    return 'Stopping…'
+  }
+
+  /**
    * Starts a Spawned Session that resumes the transcript of `sessionId` under a new id, so the original is left alone.
    * Works for ended and non-spawned sessions too. Returns the toast.
    */

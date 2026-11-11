@@ -24,7 +24,7 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume' | 'interrupt'>
   sink: Pick<ChatSink, 'instructionQueued'>
   /** The current accounts and per-chat usage, read fresh for each state request. */
   usage: () => UsageView
@@ -84,6 +84,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'actions'], run: ({ deps, request }, id) => action(deps, request, id) },
   { method: 'POST', pattern: ['prompts', ':id', 'reply'], run: ({ deps, request }, id) => promptReply(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'read'], run: ({ deps, request }, id) => markRead(deps, request, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'interrupt'], run: ({ deps }, id) => interruptChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
@@ -435,6 +436,19 @@ async function markRead(deps: ApiDeps, request: Request, chatId: string): Promis
   requireChat(deps, chatId)
   deps.chatLog.markRead(chatId, body.seq)
   return { ok: true }
+}
+
+/** Stops the running turn of a Spawned Session. A Session on the user's computer has no channel to its terminal, so it is refused. */
+async function interruptChat(deps: ApiDeps, chatId: string): Promise<unknown> {
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  if (!session.spawned) {
+    throw new ApiError(409, 'This session runs on your computer. Press Esc in its terminal to stop it.')
+  }
+  if (session.endedAt !== null) {
+    throw new ApiError(409, 'This session has ended.')
+  }
+  return { toast: await deps.spawner.interrupt(session.id) }
 }
 
 async function endChat(deps: ApiDeps, chatId: string): Promise<unknown> {

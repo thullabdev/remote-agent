@@ -1,4 +1,4 @@
-import { ArrowLeft, Info, Pencil, Radio } from 'lucide-react'
+import { ArrowLeft, Info, Pencil, Radio, Square } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { useEffect, useRef, useState } from 'react'
@@ -30,6 +30,8 @@ type ChatHeaderProps = {
   summary?: string
   /** General only: how many sessions need you; the avatar glows while it is above zero. */
   needsYou?: number
+  /** Stops the running turn. Shown while the session works; disabled for a session on the user's computer. */
+  onStop?(): void
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -47,7 +49,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0 }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, onStop }: ChatHeaderProps) {
   const state = chatState(chat)
   const [usageOpen, setUsageOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -138,6 +140,19 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
         <Badge className="hidden border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 sm:inline-flex">
           <Radio className="size-3" aria-hidden="true" /> Active
         </Badge>
+      )}
+      {state === 'working' && onStop !== undefined && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          aria-label="Stop the running turn"
+          disabled={!chat.spawned}
+          title={chat.spawned ? 'Stop the running turn' : "Press Esc in this session's terminal to stop it"}
+          onClick={onStop}
+        >
+          <Square aria-hidden="true" className="fill-current" /> <span className="hidden sm:inline">Stop</span>
+        </Button>
       )}
       {state === 'needs_you' && <Badge className={`hidden sm:inline-flex ${NEEDS_YOU_BADGE_CLASS}`}>Needs you</Badge>}
       <Button variant={infoOpen ? 'secondary' : 'ghost'} size="icon-sm" aria-label="Session information and actions" onClick={onInfo}>

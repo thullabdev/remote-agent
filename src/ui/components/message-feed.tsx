@@ -25,6 +25,8 @@ type MessageFeedProps = {
   onPromptReply(promptId: string, body: { questionIndex: number; text: string }): Promise<void>
   onPickerAction(chatId: string, body: { pickerId: string; choice: number }): Promise<void>
   onTogglePin?(message: Message): void
+  /** Sends a message again when Claude never recorded it. */
+  onResend?(message: Message): void
 }
 
 /** Scrolls a loaded message into view. False when it is not in the feed (for example an older page not loaded yet). */
@@ -48,6 +50,7 @@ function MessageFeedView({
   onPromptReply,
   onPickerAction,
   onTogglePin,
+  onResend,
 }: MessageFeedProps) {
   const grouped = useMemo(() => groupMessages(messages), [messages])
 
@@ -113,6 +116,7 @@ function MessageFeedView({
           onPromptReply={onPromptReply}
           onPickerAction={onPickerAction}
           onTogglePin={onTogglePin}
+          onResend={onResend}
         />
       </div>,
     )
@@ -212,6 +216,8 @@ type MessageCardProps = {
   messages: Message[]
   pendingError?: string | null
   onRetry?: () => void
+  /** Sends a user message again, when Claude never recorded it. */
+  onResend?: (message: Message) => void
   onPromptAction?: MessageFeedProps['onPromptAction']
   onPromptReply?: MessageFeedProps['onPromptReply']
   onPickerAction?: MessageFeedProps['onPickerAction']
@@ -291,7 +297,7 @@ function PressToPin({ onToggle, children, className }: { onToggle(): void; child
   )
 }
 
-function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
+function MessageCard({ message, messages, pendingError, onRetry, onResend, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
     return (
       <div className="flex justify-end">
@@ -309,9 +315,16 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
           )}
           <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
             {message.status === 'queued' && <span>Sending…</span>}
+            {message.status === 'not_received' && <span className="text-red-700 dark:text-red-300">Not received by Claude</span>}
             <PinMark pinned={message.pinned === true} />
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
           </div>
+          {message.status === 'not_received' && onResend && (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
+              <span>Claude did not pick this up, so it may have been lost.</span>
+              <button className="font-semibold underline" onClick={() => onResend(message)}>Send again</button>
+            </div>
+          )}
           {pendingError && (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
               <span>{pendingError}</span>

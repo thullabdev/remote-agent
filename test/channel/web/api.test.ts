@@ -69,6 +69,7 @@ function stubSpawner(): ApiDeps['spawner'] {
     newCommand: async () => null,
     fork: async () => 'Forking api. Open its topic.',
     resume: async () => 'Resuming the existing Session.',
+    interrupt: async () => 'Stopping…',
   }
 }
 
@@ -179,6 +180,14 @@ test('GET /api/state includes usage, empty when nothing was reported', async () 
   const { body } = await call('GET', '/api/state')
 
   expect(body.usage).toEqual({ accounts: [], chats: {} })
+})
+
+test('POST /api/chats/:id/interrupt asks the spawner to stop a Spawned Session, and refuses a computer session', async () => {
+  const chatId = seedSession()
+  const refused = await call('POST', `/api/chats/${chatId}/interrupt`)
+  expect(refused.status).toBe(409)
+  expect(refused.body.error).toContain('runs on your computer')
+  expect((await call('POST', '/api/chats/general/interrupt')).status).toBe(404)
 })
 
 test('GET /api/activity returns days for the viewer\'s zone and recent events', async () => {

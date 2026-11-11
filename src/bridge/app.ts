@@ -113,6 +113,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
       })
       reader = transcripts
       webChannel.setTranscriptProbe(sessionId => transcripts.isActive(sessionId))
+      webChannel.setTurnOpenProbe(sessionId => transcripts.turnOpen(sessionId))
       webChannel.setTranscriptAttacher(
         sessionId => transcripts.attach(sessionId),
         sessionId => transcripts.detach(sessionId),

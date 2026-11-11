@@ -169,6 +169,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/pin` `{ pinned }` | Pin a Session to the top of the list (below ones that need you), or unpin it. At most 5 can be pinned; General is always first and cannot be pinned or unpinned; an archived Session cannot be pinned, and archiving unpins. `{ toast }`. |
 | `GET /projects` | Folders a Session may start in. |
 | `GET /activity?days=7&tz=0` | Daily numbers and recent events for a dashboard. |
+| `POST /chats/:id/interrupt` | Stop the running turn of a Spawned Session (Escape in its terminal). 409 for a session on the user's computer. |
 | `POST /projects/start` | Start a Session in a project. |
 | `PUT /away` | Set Away mode. |
 | `GET /push/key` | VAPID public key. |
