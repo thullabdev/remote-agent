@@ -1,150 +1,203 @@
-import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, GitFork, Info, Pencil, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
-import type { Chat, PinView, UsageView } from '../../channel/web/protocol.ts'
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, EyeOff, GitFork, Monitor, Pencil, Pin, PinOff, RotateCcw, Terminal, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { chatState } from '../../channel/web/chat-state.ts'
+import type { Chat, PinView } from '../../channel/web/protocol.ts'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
+import { copyToClipboard } from './code-block.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.tsx'
-import { Input } from './ui/input.tsx'
-import { Separator } from './ui/separator.tsx'
-import { AccountLimitsSection, useNow } from './usage-meters.tsx'
-import { formatContextText } from '../usage-format.ts'
-import { formatTime } from '../presentation.ts'
+import { RenameDialog } from './rename-dialog.tsx'
+import { formatTime, relativeTimeWords, NEEDS_YOU_BADGE_CLASS } from '../presentation.ts'
 
 type ChatInfoProps = {
   chat: Chat
-  messageCount: number
-  usage: UsageView
   onClose(): void
+  /** Shows a short message, for results that have no request behind them (a copy). */
+  onNotify(message: string): void
   onEnd(): Promise<void>
   onArchive(): Promise<void>
   onUnarchive(): Promise<void>
   onRename(title: string): Promise<void>
+  /** Pins the session to the top of the list, or unpins it. */
+  onPin(pinned: boolean): Promise<void>
+  /** Hides the chat history on every device. */
   onClear(): Promise<void>
   onFork(): Promise<void>
   onResume(): Promise<void>
+  /** The bookmarked messages of this chat. */
   pins: PinView[]
   onUnpin(messageId: string): Promise<void>
-  onRefreshPins(): void
-  /** Closes the details and shows the pinned message in the chat, loading older history if needed. */
+  /** Closes the details and shows the bookmarked message in the chat, loading older history if needed. */
   onJump(pin: PinView): void
 }
 
-type Action = 'end' | 'archive' | 'unarchive' | 'clear' | 'fork' | 'resume'
+/** The two actions that still ask first: ending a process and hiding history. The rest are reversible and run at once. */
+type Confirm = 'end' | 'clear'
 
-export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive, onUnarchive, onRename, onClear, onFork, onResume, pins, onUnpin, onJump, onRefreshPins }: ChatInfoProps) {
-  const now = useNow()
-  const sessionUsage = usage.chats[chat.id]
-  const contextText = sessionUsage === undefined ? null : formatContextText(sessionUsage)
-  const [confirm, setConfirm] = useState<Action | null>(null)
+const STATE_LABEL = { needs_you: 'Needs you', working: 'Working', idle: 'Idle', ended: 'Ended' } as const
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return <p className="text-[11px] font-semibold uppercase tracking-[.12em] text-muted-foreground">{children}</p>
+}
+
+function useCopy(onNotify: (message: string) => void): { copied: string | null; copy(key: string, text: string): Promise<void> } {
+  const [copied, setCopied] = useState<string | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const copy = async (key: string, text: string) => {
+    if (!(await copyToClipboard(text))) {
+      onNotify('Could not copy. Select the text and copy it by hand.')
+      return
+    }
+    setCopied(key)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(null), 1500)
+  }
+  return { copied, copy }
+}
+
+/** True on the narrow layout, where the panel is a sheet over the chat rather than a column beside it. */
+function useSheetLayout(): boolean {
+  const [sheet, setSheet] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)')
+    setSheet(query.matches)
+    const onChange = () => setSheet(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return sheet
+}
+
+export function ChatInfo({ chat, onClose, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump }: ChatInfoProps) {
+  const state = chatState(chat)
+  const isGeneral = chat.id === 'general'
+  const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [renaming, setRenaming] = useState(false)
-  const [draftName, setDraftName] = useState('')
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopy(onNotify)
+  const sheet = useSheetLayout()
+  const closeButton = useRef<HTMLButtonElement>(null)
 
-  const openRename = () => {
-    setDraftName(chat.title)
-    setRenaming(true)
-  }
-
-  const submitRename = async () => {
-    setRenaming(false)
-    await onRename(draftName.trim())
-  }
-
-  const copyPath = async () => {
-    if (chat.cwd === null || !navigator.clipboard) {
-      return
+  // As a sheet the panel behaves like a dialog: it takes focus on open and Escape puts it away.
+  useEffect(() => {
+    if (sheet) {
+      closeButton.current?.focus()
     }
-    await navigator.clipboard.writeText(chat.cwd)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
-  }
+  }, [sheet])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && sheet) {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sheet, onClose])
 
-  const runAction = async () => {
+  const runConfirmed = async () => {
     const action = confirm
-    if (action === null) {
-      return
-    }
     setConfirm(null)
     if (action === 'end') {
       await onEnd()
-    } else if (action === 'archive') {
-      await onArchive()
-    } else if (action === 'unarchive') {
-      await onUnarchive()
     } else if (action === 'clear') {
       await onClear()
-    } else if (action === 'resume') {
-      await onResume()
-    } else {
-      await onFork()
     }
   }
 
-  const description = confirm === 'end'
-    ? 'The Bridge will end this Spawned Session. Its history will remain available.'
-    : confirm === 'archive'
-      ? 'This removes the ended Session from the regular chat filters. You can find it and restore it from Archived.'
-      : confirm === 'unarchive'
-        ? 'This returns the Session to the regular chat filters.'
-        : confirm === 'clear'
-          ? 'This hides the current chat history on every connected device. It does not clear the Session’s context.'
-          : confirm === 'resume'
-            ? 'The Bridge will restart this Claude Session using its existing session ID and transcript. The ended process cannot be revived, so Claude runs in a new process; this does not fork or create a new Session ID.'
-            : 'The Bridge will start a new Spawned Session from this Session’s transcript. The original chat stays unchanged.'
+  const tmuxCommand = chat.tmuxName === null ? null : `tmux attach -t ${chat.tmuxName}`
+  const hasTechnical = chat.cwd !== null || tmuxCommand !== null
+  const ended = chat.status === 'ended'
 
   return (
     <>
-      <aside className="fixed inset-0 z-30 flex justify-end bg-black/30 md:static md:z-auto md:w-80 md:shrink-0 md:bg-transparent">
-        <button className="absolute inset-0 md:hidden" onClick={onClose} aria-label="Close session information" />
-        <div className="relative flex h-full w-[min(88vw,22rem)] flex-col border-l border-border bg-background shadow-2xl md:w-80 md:shadow-none xl:border-l-0">
-          <header className="flex h-[4.25rem] shrink-0 items-center justify-between border-b border-border/70 px-4">
-            <div className="flex items-center gap-2 font-display font-semibold">
-              <Info className="size-4 text-muted-foreground" aria-hidden="true" />
-              Session details
-            </div>
-            <Button variant="ghost" size="icon-sm" aria-label="Close session information" onClick={onClose}>
+      <aside
+        role={sheet ? 'dialog' : 'complementary'}
+        aria-modal={sheet ? true : undefined}
+        aria-label="Session details"
+        className="fixed inset-0 z-30 flex justify-end bg-black/30 md:static md:z-auto md:w-80 md:shrink-0 md:bg-transparent"
+      >
+        <button className="absolute inset-0 md:hidden" tabIndex={-1} onClick={onClose} aria-label="Close session information" />
+        <div className="relative flex h-full w-[min(88vw,22rem)] flex-col bg-background shadow-2xl md:w-80 md:shadow-none">
+          <header className="flex h-[4.25rem] shrink-0 items-center justify-between px-4">
+            <h2 className="font-display font-semibold">Session details</h2>
+            <Button ref={closeButton} variant="ghost" size="icon-sm" aria-label="Close session information" onClick={onClose}>
               <X aria-hidden="true" />
             </Button>
           </header>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-            <section>
-              <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Session</p>
-              <h2 className="mt-1 break-words font-display text-lg font-semibold">{chat.title}</h2>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge>{chat.status}</Badge>
-                {chat.spawned && <Badge>Spawned</Badge>}
+            <section aria-label="Session">
+              <p className="break-words font-display text-lg font-semibold">{chat.title}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {state === 'needs_you' && <Badge className={NEEDS_YOU_BADGE_CLASS}>{STATE_LABEL.needs_you}</Badge>}
+                {state === 'working' && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">{STATE_LABEL.working}</Badge>}
+                {(state === 'idle' || state === 'ended') && <Badge>{STATE_LABEL[state]}</Badge>}
                 {chat.archived && <Badge>Archived</Badge>}
-                {chat.busy && <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">Working</Badge>}
-              </div>
-            </section>
-
-            <Separator />
-            <InfoRow label="Project" value={chat.project ?? (chat.id === 'general' ? 'General' : 'Not available')} />
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Working directory</p>
-              <div className="mt-1 flex items-start gap-2">
-                <code className="min-w-0 flex-1 break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">{chat.cwd ?? 'Not available'}</code>
-                {chat.cwd && (
-                  <Button variant="ghost" size="icon-sm" aria-label="Copy working directory" onClick={() => void copyPath()}>
-                    {copied ? <Check /> : <Copy />}
-                  </Button>
+                {!isGeneral && (
+                  <span data-origin={chat.spawned ? 'spawned' : 'computer'} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    {chat.spawned ? <Terminal className="size-3.5" aria-hidden="true" /> : <Monitor className="size-3.5" aria-hidden="true" />}
+                    {chat.spawned ? 'Spawned by Remote Agent' : 'Running on your computer'}
+                  </span>
                 )}
               </div>
-            </div>
-            <InfoRow label="Messages" value={String(messageCount)} />
-            <div>
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Pinned messages · {pins.length}</p>
-                <Button variant="ghost" size="icon-sm" aria-label="Refresh pinned messages" onClick={onRefreshPins}>
-                  <RefreshCw aria-hidden="true" />
-                </Button>
-              </div>
+              {(chat.project !== null || chat.lastMessage !== null) && (
+                <dl className="mt-3 space-y-1 text-sm">
+                  {chat.project !== null && (
+                    <div className="flex gap-2">
+                      <dt className="w-24 shrink-0 text-muted-foreground">Project</dt>
+                      <dd className="min-w-0 break-words">{chat.project}</dd>
+                    </div>
+                  )}
+                  {chat.lastMessage !== null && (
+                    <div className="flex gap-2">
+                      <dt className="w-24 shrink-0 text-muted-foreground">Last activity</dt>
+                      <dd>{relativeTimeWords(chat.lastMessage.at)}</dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+            </section>
+
+            {!isGeneral && (
+              <section aria-label="Actions" className="grid gap-2">
+                {ended ? (
+                  <>
+                    <Button className="justify-start" disabled={chat.archived} onClick={() => void onResume()}>
+                      <RotateCcw aria-hidden="true" />
+                      Resume
+                    </Button>
+                    <p className="-mt-1 text-xs text-muted-foreground">Starts Claude again with this session&apos;s history.</p>
+                  </>
+                ) : (
+                  <Button className="justify-start" onClick={() => void onFork()}>
+                    <GitFork aria-hidden="true" />
+                    Fork
+                  </Button>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {!chat.archived && (
+                    <Button variant="outline" className="justify-start" onClick={() => void onPin(!chat.pinned)}>
+                      {chat.pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+                      {chat.pinned ? 'Unpin' : 'Pin to top'}
+                    </Button>
+                  )}
+                  <Button variant="outline" className="justify-start" onClick={() => setRenaming(true)}>
+                    <Pencil aria-hidden="true" />
+                    Rename
+                  </Button>
+                </div>
+              </section>
+            )}
+
+            <details open={pins.length > 0} className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between">
+                <SectionLabel>Bookmarks · {pins.length}</SectionLabel>
+              </summary>
               {pins.length === 0 ? (
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Pin a message in the chat to keep it here.</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Tap the bookmark on a message to keep it here.</p>
               ) : (
                 <ul className="mt-2 space-y-2">
                   {pins.map(pin => (
-                    <li key={pin.id} className="rounded-xl border border-border bg-card p-2.5">
+                    <li key={pin.id} className="rounded-xl bg-card p-2.5">
                       <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
                         <span>{pin.kind === 'user_text' ? 'You' : 'Agent'}</span>
                         <time dateTime={new Date(pin.at).toISOString()}>{formatTime(pin.at)}</time>
@@ -152,158 +205,97 @@ export function ChatInfo({ chat, messageCount, usage, onClose, onEnd, onArchive,
                       <p className="mt-1 line-clamp-2 text-sm leading-snug">{pin.preview}</p>
                       <div className="mt-1.5 flex gap-1">
                         <Button variant="ghost" size="sm" onClick={() => onJump(pin)}>Show in chat</Button>
-                        <Button variant="ghost" size="sm" onClick={() => void onUnpin(pin.id)}>Unpin</Button>
+                        <Button variant="ghost" size="sm" onClick={() => void onUnpin(pin.id)}>Remove bookmark</Button>
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
-            </div>
-            {sessionUsage !== undefined && (contextText !== null || sessionUsage.costUsd !== null) && (
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">Usage</p>
-                <div className="mt-1 space-y-1 text-sm">
-                  {contextText !== null && (
-                    <p>
-                      Context {contextText.replace('ctx ', '')}
-                      {sessionUsage.contextTokens !== null && ` · ${sessionUsage.contextTokens.toLocaleString('en-US')} / ${sessionUsage.contextWindow.toLocaleString('en-US')} tokens`}
-                    </p>
+            </details>
+
+            {hasTechnical && (
+              <details>
+                <summary className="cursor-pointer list-none">
+                  <SectionLabel>Technical</SectionLabel>
+                </summary>
+                <div className="mt-2 space-y-3">
+                  {chat.cwd !== null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Working directory</p>
+                      <div className="mt-1 flex items-start gap-2">
+                        <code className="min-w-0 flex-1 break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">{chat.cwd}</code>
+                        <Button variant="ghost" size="icon-sm" aria-label="Copy working directory" onClick={() => void copy('cwd', chat.cwd ?? '')}>
+                          {copied === 'cwd' ? <Check /> : <Copy />}
+                        </Button>
+                      </div>
+                    </div>
                   )}
-                  {sessionUsage.costUsd !== null && <p>Cost ${sessionUsage.costUsd.toFixed(2)}</p>}
+                  {tmuxCommand !== null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Attach from a terminal</p>
+                      <div className="mt-1 flex items-start gap-2">
+                        <code className="min-w-0 flex-1 break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">{tmuxCommand}</code>
+                        <Button variant="ghost" size="icon-sm" aria-label="Copy attach command" onClick={() => void copy('tmux', tmuxCommand)}>
+                          {copied === 'tmux' ? <Check /> : <Copy />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              </details>
             )}
-            <AccountLimitsSection accounts={usage.accounts} now={now} />
-            {chat.tmuxName && (
-              <div className="rounded-2xl border border-border bg-card p-3">
-                <p className="text-xs font-medium">Attach from a terminal</p>
-                <code className="mt-2 block break-all rounded-lg bg-muted px-2 py-1.5 font-mono text-[11px]">tmux attach -t {chat.tmuxName}</code>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">This hint is available for Spawned Sessions only.</p>
+
+            <section aria-label="Manage" className="space-y-2 border-t border-border/60 pt-4">
+              <SectionLabel>Manage</SectionLabel>
+              <div className="grid gap-2">
+                {chat.spawned && chat.status === 'active' && (
+                  <Button variant="outline" className="justify-start" onClick={() => setConfirm('end')}>
+                    <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
+                    End Spawned Session
+                  </Button>
+                )}
+                {!isGeneral && ended && !chat.archived && (
+                  <Button variant="outline" className="justify-start" onClick={() => void onArchive()}>
+                    <Archive aria-hidden="true" />
+                    Archive
+                  </Button>
+                )}
+                {!isGeneral && chat.archived && (
+                  <Button variant="outline" className="justify-start" onClick={() => void onUnarchive()}>
+                    <ArchiveRestore aria-hidden="true" />
+                    Restore from Archived
+                  </Button>
+                )}
+                <Button variant="outline" className="justify-start text-red-700 hover:text-red-800 dark:text-red-300" onClick={() => setConfirm('clear')}>
+                  <EyeOff aria-hidden="true" />
+                  Hide history on all devices
+                </Button>
               </div>
-            )}
-            <Separator />
-            <div className="grid gap-2">
-              {chat.id !== 'general' && (
-                <Button variant="outline" className="justify-start" onClick={openRename}>
-                  <Pencil aria-hidden="true" />
-                  Rename Session
-                </Button>
-              )}
-              {chat.spawned && chat.status === 'active' && (
-                <Button variant="outline" className="justify-start" onClick={() => setConfirm('end')}>
-                  <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
-                  End Spawned Session
-                </Button>
-              )}
-              {chat.id !== 'general' && chat.status === 'ended' && !chat.archived && (
-                <Button variant="outline" className="justify-start" onClick={() => setConfirm('archive')}>
-                  <Archive aria-hidden="true" />
-                  Archive Session
-                </Button>
-              )}
-              {chat.id !== 'general' && chat.archived && (
-                <Button variant="outline" className="justify-start" onClick={() => setConfirm('unarchive')}>
-                  <ArchiveRestore aria-hidden="true" />
-                  Restore from Archived
-                </Button>
-              )}
-              {chat.id !== 'general' && (
-                chat.status === 'ended'
-                  ? (
-                    <Button variant="default" className="justify-start" onClick={() => setConfirm('resume')}>
-                      <RotateCcw aria-hidden="true" />
-                      Resume this Session
-                    </Button>
-                  )
-                  : (
-                    <Button variant="outline" className="justify-start" onClick={() => setConfirm('fork')}>
-                      <GitFork aria-hidden="true" />
-                      Fork this Session
-                    </Button>
-                  )
-              )}
-              <Button variant="outline" className="justify-start text-red-700 hover:text-red-800 dark:text-red-300" onClick={() => setConfirm('clear')}>
-                <Trash2 aria-hidden="true" />
-                Clear chat history
-              </Button>
-            </div>
+            </section>
           </div>
         </div>
       </aside>
 
-      <Dialog open={renaming} onOpenChange={open => { if (!open) setRenaming(false) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Session</DialogTitle>
-            <DialogDescription>Leave the name empty to go back to the automatic name.</DialogDescription>
-          </DialogHeader>
-          <form
-            className="grid gap-4"
-            onSubmit={event => {
-              event.preventDefault()
-              void submitRename()
-            }}
-          >
-            <Input
-              value={draftName}
-              onChange={event => setDraftName(event.target.value)}
-              maxLength={120}
-              aria-label="Session name"
-              autoFocus
-            />
-            <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setRenaming(false)}>Cancel</Button>
-              <Button type="submit">Save name</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />
 
       <Dialog open={confirm !== null} onOpenChange={open => { if (!open) setConfirm(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle>{confirm === 'end' ? 'End this Session?' : 'Hide chat history?'}</DialogTitle>
+            <DialogDescription>
               {confirm === 'end'
-                ? 'End this Session?'
-                : confirm === 'archive'
-                  ? 'Archive this Session?'
-                  : confirm === 'unarchive'
-                    ? 'Restore this Session?'
-                    : confirm === 'clear'
-                      ? 'Clear chat history?'
-                      : confirm === 'resume'
-                        ? 'Resume this Session?'
-                        : 'Fork this Session?'}
-            </DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+                ? 'Remote Agent will end this spawned session. Its history will remain available.'
+                : 'This hides the messages shown here on every connected device. Claude keeps its own context, so the session is not reset.'}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button variant={confirm === 'end' || confirm === 'clear' ? 'destructive' : 'default'} onClick={() => void runAction()}>
-              {confirm === 'end'
-                ? 'End Session'
-                : confirm === 'archive'
-                  ? 'Archive Session'
-                  : confirm === 'unarchive'
-                    ? 'Restore Session'
-                    : confirm === 'clear'
-                      ? 'Clear history'
-                      : confirm === 'resume'
-                        ? 'Resume Session'
-                        : 'Fork Session'}
+            <Button variant="destructive" onClick={() => void runConfirmed()}>
+              {confirm === 'end' ? 'End Session' : 'Hide history'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
-  )
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm">{value}</p>
-    </div>
   )
 }

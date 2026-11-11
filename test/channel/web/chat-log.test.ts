@@ -78,6 +78,33 @@ test('createChat fills project, cwd and spawned from the session row', () => {
   expect(log.listChats().map(chat => chat.id)).toEqual(['general', 'c1'])
 })
 
+test('a draft shows in the chat list, and a change to what the list shows is announced once', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+  log.appendMessage('c1', agent('Plan ready'))
+  expect(log.getChat('c1')?.draft).toBeNull()
+
+  const updates = () => events.filter(event => event.type === 'chat.updated' && event.chat.id === 'c1').length
+  const before = updates()
+  log.setDraft('c1', { text: '  Continue   with the\nmigration  ', attachments: [] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration', at: 1_000 })
+  expect(updates()).toBe(before + 1)
+
+  log.setDraft('c1', { text: 'Continue   with the migration', attachments: [] })
+  expect(updates()).toBe(before + 1)
+
+  log.setDraft('c1', { text: 'Continue with the migration, then', attachments: [] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: 'Continue with the migration, then', at: 1_000 })
+  expect(updates()).toBe(before + 2)
+
+  log.setDraft('c1', { text: '', attachments: [{ id: 'u_1', name: 'a.png', mime: 'image/png', size: 9 }, { id: 'u_2', name: 'b.pdf', mime: 'application/pdf', size: 9 }] })
+  expect(log.getChat('c1')?.draft).toEqual({ preview: '2 attached files', at: 1_000 })
+
+  log.setDraft('c1', { text: '   ', attachments: [] })
+  expect(log.getChat('c1')?.draft).toBeNull()
+  expect(log.getChat('c1')?.lastMessage?.preview).toBe('Plan ready')
+})
+
 test('archiving a chat is persisted and emits updated chat state', () => {
   const events: ServerEvent[] = []
   log.subscribe(event => events.push(event))
@@ -210,6 +237,11 @@ test('lastMessage previews the newest visible message in at most 140 chars', () 
   expect(log.getChat('c1')?.lastMessage).toEqual({ seq: message.seq, at: clock, preview: 'x'.repeat(140) })
 })
 
+test('lastMessage preview of an agent message is plain text, not markdown', () => {
+  log.appendMessage('c1', agent('## Result\n\nMerged `7ade68a` into **main**.'))
+  expect(log.getChat('c1')?.lastMessage?.preview).toBe('Result Merged 7ade68a into main.')
+})
+
 test('opening a database created without counts_unread migrates it, and old rows count as unread', () => {
   const store = new Store(':memory:', () => clock)
   const first = new ChatLog(store, () => clock)
@@ -219,6 +251,33 @@ test('opening a database created without counts_unread migrates it, and old rows
   const reopened = new ChatLog(store, () => clock)
 
   expect(reopened.getChat('general')?.unread).toBe(1)
+})
+
+test('a draft carries the time it was last edited, so the list can put the newest draft first', () => {
+  clock = 2_000
+  log.setDraft('c1', { text: 'first', attachments: [] })
+  expect(log.getChat('c1')?.draft?.at).toBe(2_000)
+
+  clock = 3_000
+  log.setDraft('c1', { text: 'first, then more', attachments: [] })
+  expect(log.getChat('c1')?.draft?.at).toBe(3_000)
+
+  clock = 4_000
+  log.setDraft('c1', { text: '', attachments: [] })
+  expect(log.getChat('c1')?.draft).toBeNull()
+})
+
+test('opening a database created without a draft time keeps its drafts, with the oldest possible time', () => {
+  const store = new Store(':memory:', () => clock)
+  store.upsertSession({ sessionId: 's2', cwd: '/home/u/Sites/other' })
+  const first = new ChatLog(store, () => clock)
+  first.createChat({ id: 'c2', sessionId: 's2', title: 'other' })
+  first.setDraft('c2', { text: 'kept across the upgrade', attachments: [] })
+  store.database.exec('ALTER TABLE drafts DROP COLUMN updated_at')
+
+  const reopened = new ChatLog(store, () => clock)
+
+  expect(reopened.getChat('c2')?.draft).toEqual({ preview: 'kept across the upgrade', at: 0 })
 })
 
 test('opening a database created without archived migrates existing chats as unarchived', () => {
@@ -384,4 +443,254 @@ test('a custom title wins over the automatic title until it is cleared', () => {
 
   expect(log.setCustomTitle('c1', null).title).toBe('Claude automatic title')
   expect(new ChatLog(store, () => clock).getChat('c1')?.title).toBe('Claude automatic title')
+})
+
+const askPrompt = (promptId: string, question: string): MessageBody => ({
+  kind: 'prompt',
+  promptId,
+  title: 'app session',
+  body: {
+    kind: 'question',
+    questions: [{ question, header: 'Pick', multiSelect: false, options: [{ label: 'A', description: '' }], answered: null }],
+  },
+  status: 'pending',
+  resolution: null,
+})
+
+test('pendingPrompt is null when nothing waits on the user', () => {
+  log.appendMessage('c1', agent('hello'))
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+  expect(log.getChat('general')?.pendingPrompt).toBeNull()
+})
+
+test('pendingPrompt describes a pending permission request in one plain line', () => {
+  clock = 5_000
+  log.appendMessage('c1', {
+    ...permission,
+    body: { kind: 'permission', tool: 'Bash', summary: '$ bun test\n--watch', reason: null, agentId: null },
+  })
+  expect(log.getChat('c1')?.pendingPrompt).toEqual({ promptId: 'p1', kind: 'permission', summary: 'Bash: bun test --watch', at: 5_000, count: 1 })
+})
+
+test('pendingPrompt uses the first question of a question prompt', () => {
+  log.appendMessage('c1', askPrompt('q1', 'Which **database** should we use?'))
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', kind: 'question', summary: 'Which database should we use?', count: 1 })
+})
+
+test('pendingPrompt counts prompts, not the messages of one multi-question prompt, and points at the oldest', () => {
+  clock = 2_000
+  log.appendMessage('c1', askPrompt('q1', 'First?'))
+  log.appendMessage('c1', askPrompt('q1', 'Second?'))
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', count: 1 })
+  clock = 3_000
+  log.appendMessage('c1', permission)
+  expect(log.getChat('c1')?.pendingPrompt).toMatchObject({ promptId: 'q1', at: 2_000, count: 2 })
+})
+
+test('answering a prompt clears pendingPrompt and emits chat.updated even when it is not the last message', () => {
+  const prompt = log.appendMessage('c1', permission)
+  log.appendMessage('c1', agent('later text'))
+  const after = log.currentSeq()
+
+  log.updateMessage(prompt.id, { ...permission, status: 'answered', resolution: { note: 'Allowed', source: 'remote' } } as MessageBody)
+
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+  const updates = eventsSince(after).filter(event => event.type === 'chat.updated')
+  expect(updates).toHaveLength(1)
+  expect(updates[0]).toMatchObject({ chat: { id: 'c1', pendingPrompt: null } })
+})
+
+test('an ended chat has no pendingPrompt', () => {
+  log.appendMessage('c1', permission)
+  log.updateChat('c1', { status: 'ended' })
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+})
+
+test('a cleared prompt no longer counts as pending', () => {
+  log.appendMessage('c1', permission)
+  log.clearChat('c1')
+  expect(log.getChat('c1')?.pendingPrompt).toBeNull()
+})
+
+const previewOf = (): string | undefined => log.getChat('c1')?.lastMessage?.preview
+
+test('a prompt previews what it asks, not the session name', () => {
+  log.appendMessage('c1', askPrompt('q1', 'Which database?'))
+  expect(previewOf()).toBe('Which database?')
+  log.appendMessage('c1', {
+    ...permission,
+    body: { kind: 'permission', tool: 'Bash', summary: '$ bun test', reason: null, agentId: null },
+  })
+  expect(previewOf()).toBe('Bash: bun test')
+})
+
+test('a tool run previews what it is doing or did', () => {
+  const run = (tool: string, status: 'running' | 'done' | 'error', input: unknown): MessageBody => ({
+    kind: 'tool_run',
+    tool,
+    input,
+    result: null,
+    resultTruncated: false,
+    status,
+    durationMs: null,
+  })
+  log.appendMessage('c1', run('Bash', 'running', { command: 'bun test\n--watch' }))
+  expect(previewOf()).toBe('Running Bash: bun test')
+  log.appendMessage('c1', run('Bash', 'done', { command: 'ls' }))
+  expect(previewOf()).toBe('Ran Bash: ls')
+  log.appendMessage('c1', run('Bash', 'error', { command: 'ls' }))
+  expect(previewOf()).toBe('Bash failed: ls')
+  log.appendMessage('c1', run('Read', 'done', { file_path: '/a/b.ts' }))
+  expect(previewOf()).toBe('Ran Read: /a/b.ts')
+  log.appendMessage('c1', run('Glob', 'done', {}))
+  expect(previewOf()).toBe('Ran Glob')
+})
+
+test('a user message previews with a You prefix so it is not mistaken for the agent', () => {
+  log.appendMessage('c1', userText('continue with the migration'))
+  expect(previewOf()).toBe('You: continue with the migration')
+})
+
+test('command replies and system messages preview as plain text', () => {
+  log.appendMessage('c1', { kind: 'command_reply', text: '**Usage**\n- one\n- two' })
+  expect(previewOf()).toBe('Usage one two')
+  log.appendMessage('c1', { kind: 'system', text: 'Session ended (`exit`)' })
+  expect(previewOf()).toBe('Session ended (exit)')
+})
+
+test('a preview never splits an emoji and stays cheap for a huge message', () => {
+  log.appendMessage('c1', agent(`${'a'.repeat(139)}😀 tail`))
+  expect(previewOf()).toBe(`${'a'.repeat(139)}😀`)
+  log.appendMessage('c1', agent(`**${'x'.repeat(500_000)}`))
+  expect(previewOf()?.length).toBe(140)
+})
+
+test('setChatPinned pins a session and announces it once, and General stays pinned', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+  const updates = () => events.filter(event => event.type === 'chat.updated' && event.chat.id === 'c1').length
+  expect(log.getChat('c1')?.pinned).toBe(false)
+
+  const pinned = log.setChatPinned('c1', true)
+  expect(pinned.pinned).toBe(true)
+  expect(log.getChat('c1')?.pinned).toBe(true)
+  expect(updates()).toBe(1)
+
+  log.setChatPinned('c1', true)
+  expect(updates()).toBe(1)
+
+  log.setChatPinned('c1', false)
+  expect(log.getChat('c1')?.pinned).toBe(false)
+  expect(updates()).toBe(2)
+  expect(log.getChat('general')?.pinned).toBe(true)
+})
+
+test('pinnedChatCount counts pinned sessions and leaves General out', () => {
+  expect(log.pinnedChatCount()).toBe(0)
+  log.setChatPinned('c1', true)
+  expect(log.pinnedChatCount()).toBe(1)
+})
+
+test('archiving a session unpins it, so restoring it does not bring a forgotten pin back', () => {
+  log.setChatPinned('c1', true)
+  log.setArchived('c1', true)
+  expect(log.getChat('c1')).toMatchObject({ archived: true, pinned: false })
+  log.setArchived('c1', false)
+  expect(log.getChat('c1')?.pinned).toBe(false)
+
+  log.setChatPinned('c1', true)
+  log.setArchivedMany(['c1'], true)
+  expect(log.getChat('c1')).toMatchObject({ archived: true, pinned: false })
+})
+
+const runningTool = (command: string): MessageBody => ({
+  kind: 'tool_run', tool: 'Bash', input: { command }, result: null, resultTruncated: false, status: 'running', durationMs: null,
+})
+
+test('a working session reports the tool it is running, and clears it when the tool finishes', () => {
+  expect(log.getChat('c1')?.activity).toBeNull()
+  log.updateChat('c1', { busy: true })
+  clock = 5_000
+  const run = log.appendMessage('c1', runningTool('bun test\nsecond line'))
+  expect(log.getChat('c1')?.activity).toEqual({ tool: 'Bash', summary: 'bun test', at: 5_000 })
+
+  log.updateMessage(run.id, { ...toolRun('ok') })
+  expect(log.getChat('c1')?.activity).toBeNull()
+})
+
+test('a session with no running tool, an idle one and one waiting on a prompt report no activity', () => {
+  log.appendMessage('c1', runningTool('ls'))
+  expect(log.getChat('c1')?.activity).toBeNull()
+  log.updateChat('c1', { busy: true })
+  expect(log.getChat('c1')?.activity?.tool).toBe('Bash')
+  log.appendMessage('c1', permission)
+  expect(log.getChat('c1')?.activity).toBeNull()
+})
+
+test('activity counts started sessions and finished turns with how long they ran', () => {
+  clock = 10_000
+  log.updateChat('c1', { busy: true })
+  clock = 70_000
+  log.updateChat('c1', { busy: false })
+  log.updateChat('c1', { busy: false })
+
+  const view = log.getActivity({ days: 2, offsetMinutes: 0 })
+  const today = view.days[1]
+  expect(view.days).toHaveLength(2)
+  expect(today).toMatchObject({ sessionsStarted: 1, turnsCompleted: 1, workedMs: 60_000 })
+  expect(view.since).toBe(1_000)
+})
+
+test('General is not counted, and an ended session is recorded once', () => {
+  log.updateChat('general', { busy: true })
+  log.updateChat('general', { busy: false })
+  log.updateChat('c1', { status: 'ended' })
+  log.updateChat('c1', { status: 'ended' })
+
+  const view = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(view.days[0]).toMatchObject({ sessionsStarted: 1, turnsCompleted: 0 })
+  expect(view.recent.map(event => [event.chatId, event.kind])).toEqual([['c1', 'ended'], ['c1', 'started']])
+})
+
+test('recent activity names the session by its title, newest first, with a burst of turns as one line', () => {
+  for (let turn = 0; turn < 6; turn += 1) {
+    clock += 1_000
+    log.updateChat('c1', { busy: true })
+    clock += 1_000
+    log.updateChat('c1', { busy: false })
+  }
+  const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
+  // Six turns close together are one burst, so one line, then the start.
+  expect(recent).toHaveLength(2)
+  expect(recent[0]).toMatchObject({ kind: 'finished', name: 'app session', turns: 6, preview: null })
+  log.setCustomTitle('c1', 'Fix billing')
+  expect(log.getActivity({ days: 1, offsetMinutes: 0 }).recent[0]?.name).toBe('Fix billing')
+  expect(recent[recent.length - 1]?.kind).toBe('started')
+  expect(recent.map(event => event.id)).toEqual([...recent.map(event => event.id)].sort((a, b) => b - a))
+})
+
+test('a turn whose start was never seen counts as finished with no time, and old rows are pruned', () => {
+  log.updateChat('c1', { busy: true })
+  clock += 40 * 86_400_000
+  log.updateChat('c1', { busy: false })
+  const view = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(view.days[0]).toMatchObject({ turnsCompleted: 1, sessionsStarted: 0 })
+  expect(view.since).toBe(clock)
+})
+
+test('a finished burst shows the newest reply made before its last turn ended', () => {
+  log.updateChat('c1', { busy: true })
+  clock = 2_000
+  log.appendMessage('c1', agent('First answer'))
+  clock = 3_000
+  log.updateChat('c1', { busy: false })
+  clock = 4_000
+  log.updateChat('c1', { busy: true })
+  clock = 5_000
+  log.appendMessage('c1', agent('Second answer, the one that matters'))
+  clock = 6_000
+  log.updateChat('c1', { busy: false })
+
+  const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(recent[0]).toMatchObject({ kind: 'finished', turns: 2, preview: 'Second answer, the one that matters' })
 })

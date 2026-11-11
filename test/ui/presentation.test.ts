@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Message } from '../../src/channel/web/protocol.ts'
-import { commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import type { Chat, Message } from '../../src/channel/web/protocol.ts'
+import { connectionNoticeText, highlightSegments, avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,
@@ -159,4 +159,128 @@ describe('changed ranges', () => {
     const lines = markChangedRanges(diffLines('a', 'b\nc'))
     expect(lines.map(line => line.changed)).toEqual([{ start: 0, end: 1 }, { start: 0, end: 1 }, undefined])
   })
+})
+
+describe('chat row helpers', () => {
+  const now = Date.UTC(2026, 10, 10, 12, 0)
+
+  test('avatarHue is stable per key, in range, and differs for different projects', () => {
+    expect(avatarHue('remote-agent')).toBe(avatarHue('remote-agent'))
+    expect(avatarHue('remote-agent')).not.toBe(avatarHue('vulcan'))
+    for (const key of ['', 'a', 'remote-agent', 'ü', '😀 emoji']) {
+      expect(avatarHue(key)).toBeGreaterThanOrEqual(0)
+      expect(avatarHue(key)).toBeLessThan(360)
+    }
+  })
+
+  test('relativeTimeWords reads aloud what formatRelativeTime abbreviates', () => {
+    expect(relativeTimeWords(now - 10_000, now)).toBe('just now')
+    expect(relativeTimeWords(now - 60_000, now)).toBe('1 minute ago')
+    expect(relativeTimeWords(now - 12 * 60_000, now)).toBe('12 minutes ago')
+    expect(relativeTimeWords(now - 3_600_000, now)).toBe('1 hour ago')
+    expect(relativeTimeWords(now - 7 * 3_600_000, now)).toBe('7 hours ago')
+    expect(relativeTimeWords(now - 3 * 86_400_000, now)).toMatch(/Nov/)
+  })
+
+  const chat: Chat = {
+    id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: false, unread: 0,
+    lastMessage: { seq: 1, at: now - 12 * 60_000, preview: 'Done with the migration' }, draft: null, pinned: false, tmuxName: null, pendingPrompt: null, activity: null,
+  }
+
+  test('chatRowLabel starts with the state, then title, project and age', () => {
+    expect(chatRowLabel(chat, now)).toBe('Billing fix, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, busy: true }, now)).toBe('Working, Billing fix, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, status: 'ended' }, now)).toBe('Ended, Billing fix, computer session, api, 12 minutes ago')
+    expect(
+      chatRowLabel({ ...chat, busy: true, pendingPrompt: { promptId: 'p', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 } }, now),
+    ).toBe('Needs you, permission: Bash: ls, Billing fix, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, spawned: true }, now)).toBe('Billing fix, spawned session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, id: 'general', title: 'General', project: null, pinned: true }, now)).toBe('General, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, pinned: true }, now)).toBe('Billing fix, pinned, computer session, api, 12 minutes ago')
+    expect(chatRowLabel({ ...chat, unread: 3, draft: { preview: 'x', at: 1 } }, now)).toBe('Billing fix, computer session, api, 12 minutes ago, 3 unread, has a draft')
+  })
+})
+
+describe('opening a chat at the prompt that needs you', () => {
+  const promptMessage = (id: string, seq: number, promptId: string, status: 'pending' | 'answered'): Message => ({
+    id, chatId: 'c1', seq, at: seq, kind: 'prompt', promptId, title: 'Allow Bash?', status, resolution: null,
+    body: { kind: 'permission', tool: 'Bash', summary: 'ls', reason: null, agentId: null },
+  })
+  const text = (id: string, seq: number): Message => ({ id, chatId: 'c1', seq, at: seq, kind: 'agent_text', markdown: 'hi' })
+
+  test('pendingPromptMessage finds the first pending message of the prompt, skipping answered ones and other prompts', () => {
+    const messages = [text('m1', 1), promptMessage('m2', 2, 'old', 'answered'), promptMessage('m3', 3, 'p1', 'pending'), promptMessage('m4', 4, 'p1', 'pending'), promptMessage('m5', 5, 'p2', 'pending')]
+    expect(pendingPromptMessage(messages, 'p1')?.id).toBe('m3')
+    expect(pendingPromptMessage(messages, 'p2')?.id).toBe('m5')
+  })
+
+  test('pendingPromptMessage is undefined once the prompt is answered or when it is not loaded', () => {
+    expect(pendingPromptMessage([promptMessage('m2', 2, 'p1', 'answered')], 'p1')).toBeUndefined()
+    expect(pendingPromptMessage([text('m1', 1)], 'p1')).toBeUndefined()
+    expect(pendingPromptMessage([], 'p1')).toBeUndefined()
+  })
+
+  const chat: Chat = {
+    id: 'c1', title: 'Billing fix', project: 'api', cwd: '/api', status: 'active', spawned: false, archived: false, busy: true, unread: 0,
+    lastMessage: null, draft: null, pinned: false, tmuxName: null,
+    pendingPrompt: { promptId: 'p1', kind: 'permission', summary: 'Bash: ls', at: 1, count: 1 }, activity: null,
+  }
+
+  test('rowOpenTarget asks to open at the prompt only for a session that needs you', () => {
+    expect(rowOpenTarget(chat)).toEqual({ promptId: 'p1' })
+    expect(rowOpenTarget({ ...chat, pendingPrompt: null, activity: null })).toBeUndefined()
+    expect(rowOpenTarget({ ...chat, status: 'ended' })).toBeUndefined()
+  })
+
+  test('deepLink reads the chat and the prompt from the address, and ignores a prompt without a chat', () => {
+    expect(deepLink('?chat=c1&prompt=p9')).toEqual({ chatId: 'c1', promptId: 'p9' })
+    expect(deepLink('?chat=c1')).toEqual({ chatId: 'c1', promptId: null })
+    expect(deepLink('')).toEqual({ chatId: null, promptId: null })
+    expect(deepLink('?prompt=p9')).toEqual({ chatId: null, promptId: null })
+    expect(deepLink('?chat=&prompt=p9')).toEqual({ chatId: null, promptId: null })
+  })
+})
+
+describe('search highlighting', () => {
+  test('highlightSegments marks each match and keeps the original case', () => {
+    expect(highlightSegments('Billing fix for API', ['fix', 'api'])).toEqual([
+      { text: 'Billing ', match: false },
+      { text: 'fix', match: true },
+      { text: ' for ', match: false },
+      { text: 'API', match: true },
+    ])
+  })
+
+  test('overlapping and repeated matches merge into one marked run', () => {
+    expect(highlightSegments('Billing', ['bill', 'ill'])).toEqual([{ text: 'Bill', match: true }, { text: 'ing', match: false }])
+    expect(highlightSegments('aaa', ['a'])).toEqual([{ text: 'aaa', match: true }])
+  })
+
+  test('no terms, no text, or no match gives plain text', () => {
+    expect(highlightSegments('Billing', [])).toEqual([{ text: 'Billing', match: false }])
+    expect(highlightSegments('', ['x'])).toEqual([])
+    expect(highlightSegments('Billing', ['zzz'])).toEqual([{ text: 'Billing', match: false }])
+  })
+
+  test('a term is matched literally, so punctuation in a search is not a pattern', () => {
+    expect(highlightSegments('a.b and axb', ['a.b'])).toEqual([{ text: 'a.b', match: true }, { text: ' and axb', match: false }])
+    expect(highlightSegments('f(x) [y]', ['(x)', '[y]'])).toEqual([{ text: 'f', match: false }, { text: '(x)', match: true }, { text: ' ', match: false }, { text: '[y]', match: true }])
+  })
+})
+
+describe('connection wording', () => {
+  test('connectionNoticeText says nothing while connected and speaks plainly otherwise', () => {
+    expect(connectionNoticeText('connected')).toBeUndefined()
+    expect(connectionNoticeText('reconnecting')).toBe("Can't reach your computer. Reconnecting…")
+    expect(connectionNoticeText('error')).toBe("Can't reach your computer.")
+    expect(connectionNoticeText('loading')).toBe('Connecting to your computer…')
+    expect(connectionNoticeText('resyncing')).toBe('Syncing recent activity…')
+  })
+})
+
+test('chatAvatar gives the list row and the chat header the same letter source and hue', async () => {
+  const { chatAvatar, avatarHue } = await import('../../src/ui/presentation.ts')
+  expect(chatAvatar({ id: 'c1', title: 'Fix login', project: 'api' })).toEqual({ fallback: 'api', hue: avatarHue('api') })
+  expect(chatAvatar({ id: 'c2', title: 'Fix login', project: null })).toEqual({ fallback: 'Fix login', hue: avatarHue('Fix login') })
+  expect(chatAvatar({ id: 'general', title: 'General', project: null })).toEqual({ fallback: '⌘', hue: undefined })
 })

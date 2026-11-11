@@ -10,9 +10,11 @@ type NewSessionDialogProps = {
   api: ApiClient
   onOpenChange(open: boolean): void
   onStarted(message: string): void
+  /** Called as a session is requested, before the bridge answers, so the app can open the chat it creates. */
+  onStarting?(): void
 }
 
-export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSessionDialogProps) {
+export function NewSessionDialog({ open, api, onOpenChange, onStarted, onStarting }: NewSessionDialogProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [query, setQuery] = useState('')
   const [model, setModel] = useState('')
@@ -46,6 +48,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
     setStarting(true)
     setError(null)
     try {
+      onStarting?.()
       const result = await api.startProject({ cwd: project.cwd, ...(model.trim() === '' ? {} : { model: model.trim() }) })
       onStarted(result.toast)
       onOpenChange(false)
@@ -61,7 +64,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Start a Session</DialogTitle>
-          <DialogDescription>Choose a trusted project folder. The Bridge will start a new Spawned Session there.</DialogDescription>
+          <DialogDescription>Choose a trusted project folder. Remote Agent will start a new spawned session there, on your computer.</DialogDescription>
         </DialogHeader>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
@@ -81,7 +84,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
                 key={`${project.cwd}-${project.label}`}
                 disabled={starting}
                 onClick={() => void start(project)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-border bg-background/70 p-3 text-left hover:border-primary/40 hover:bg-muted disabled:opacity-50"
+                className="flex w-full items-center gap-3 rounded-2xl bg-background/70 p-3 text-left hover:border-primary/40 hover:bg-muted disabled:opacity-50"
               >
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted"><Folder className="size-4 text-muted-foreground" aria-hidden="true" /></span>
                 <span className="min-w-0 flex-1">

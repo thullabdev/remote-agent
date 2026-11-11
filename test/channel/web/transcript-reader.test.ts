@@ -104,6 +104,59 @@ function write(h: Harness, text: string): void {
   h.files.set(PATH, encoder.encode(text))
 }
 
+test('a Session moved into a worktree is still read from the folder it was launched in', async () => {
+  const h = setup()
+  h.store.upsertSession({ sessionId: SID, cwd: CWD })
+  h.channel.sessionSeen(h.store.getSession(SID)!)
+  const chatId = h.store.getSession(SID)!.chatId!
+  h.store.upsertSession({ sessionId: SID, cwd: `${CWD}/.claude/worktrees/feat` })
+  h.reader.attach(SID)
+  write(h, prompt('p-1', 'first') + assistantText('a-1', 'second'))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+})
+
+test('an attach skips old transcript entries the chat never recorded, and keeps the newer ones', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 1, 0) })
+  const chatId = startSession(h)
+  write(h, assistantText('a-2', 'recorded', 20))
+  await h.reader.ingestOnce(SID)
+  h.reader.detach(SID)
+
+  write(h, assistantText('a-1', 'gap', 5) + assistantText('a-2', 'recorded', 20) + assistantText('a-3', 'newer', 30))
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual(['recorded', 'newer'])
+})
+
+test('a live entry older than the newest recorded message is still kept, since the reader lagged behind the hook', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 0, 15) })
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'from the hook' }, { at: Date.UTC(2026, 0, 1, 10, 0, 20) })
+  write(h, assistantText('a-1', 'written just before', 19))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual(['from the hook', 'written just before'])
+})
+
+test('a skipped old tool run leaves no unknown tool run when its result arrives', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 1, 0) })
+  const chatId = startSession(h)
+  write(h, assistantText('a-2', 'recorded', 20))
+  await h.reader.ingestOnce(SID)
+  h.reader.detach(SID)
+
+  write(h, toolUse('a-1', 'toolu_old', 5) + toolResult('u-1', 'toolu_old', 'out', 6) + assistantText('a-2', 'recorded', 20))
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['agent_text'])
+})
+
 test('attach backfills the whole file once', async () => {
   const h = setup()
   const chatId = startSession(h)
@@ -224,6 +277,67 @@ test('busy turns true on a user entry and false on turn_end', async () => {
 
   write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3))
   await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+})
+
+// Phase 0 baseline for CL-15 (docs/ui-critique-chat-list-review.md): documents today's behaviour. Flip the expectation when the list learns a "needs you" state.
+test('a chat waiting on a pending permission prompt is still reported busy', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, prompt('p-1', 'run it', 1) + toolUse('a-1', 'tool-1', 2))
+  await h.reader.ingestOnce(SID)
+
+  h.chatLog.appendMessage(chatId, {
+    kind: 'prompt',
+    promptId: 'perm-1',
+    title: 'Allow Bash?',
+    body: { kind: 'permission', tool: 'Bash', summary: 'ls', reason: null, agentId: null },
+    status: 'pending',
+    resolution: null,
+  })
+
+  const chat = h.chatLog.getChat(chatId)
+  expect(chat?.busy).toBe(true)
+  expect(messagesOf(h, chatId).some(message => message.kind === 'prompt' && message.status === 'pending')).toBe(true)
+})
+
+test('a compaction after a finished turn leaves the chat idle and adds no message from the user', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const compactBoundary = line({ type: 'system', subtype: 'compact_boundary', uuid: 'c-1', timestamp: iso(4) })
+  const compactSummary = line({
+    type: 'user',
+    uuid: 'c-2',
+    timestamp: iso(5),
+    isCompactSummary: true,
+    isVisibleInTranscriptOnly: true,
+    message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context.' },
+  })
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3))
+  await h.reader.ingestOnce(SID)
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+
+  write(h, prompt('p-1', 'go', 1) + assistantText('a-1', 'done', 2) + turnEnd('s-1', 3) + compactBoundary + compactSummary)
+  await h.reader.ingestOnce(SID)
+
+  expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
+})
+
+test('a transcript that ends on a compaction backfills to idle', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(
+    h,
+    prompt('p-1', 'go', 1) +
+      assistantText('a-1', 'done', 2) +
+      turnEnd('s-1', 3) +
+      line({ type: 'system', subtype: 'compact_boundary', uuid: 'c-1', timestamp: iso(4) }) +
+      line({ type: 'user', uuid: 'c-2', timestamp: iso(5), isCompactSummary: true, message: { role: 'user', content: 'This session is being continued…' } }),
+  )
+
+  await h.reader.ingestOnce(SID)
+
   expect(h.chatLog.getChat(chatId)?.busy).toBe(false)
 })
 
@@ -670,3 +784,23 @@ test('a session id that cannot name a transcript file is not tailed, and the rea
   expect(logged.filter(message => message.includes('transcript file')).length).toBe(1)
 })
 
+
+test('a resumed Session shows its history from the source transcript before its own transcript exists, without doubling it later', async () => {
+  const h = setup()
+  h.files.set(transcriptPath(HOME, CWD, 'hist-src'), encoder.encode(prompt('h-1', 'old question') + assistantText('h-2', 'old answer')))
+  const chatId = startSession(h)
+  h.reader.attachSource(SID, 'hist-src')
+
+  await h.reader.ingestOnce(SID)
+  expect(textsOf(h, chatId)).toEqual(['old question', 'old answer'])
+
+  // The forked transcript appears at the first turn: it copies the history (same ids) and adds the new turn.
+  write(h, prompt('h-1', 'old question') + assistantText('h-2', 'old answer') + prompt('n-1', 'new question'))
+  await h.reader.ingestOnce(SID)
+  await h.reader.ingestOnce(SID)
+  expect(textsOf(h, chatId)).toEqual(['old question', 'old answer', 'new question'])
+})
+
+function textsOf(h: Harness, chatId: string): string[] {
+  return messagesOf(h, chatId).flatMap(message => (message.kind === 'user_text' ? [message.text] : message.kind === 'agent_text' ? [message.markdown] : []))
+}

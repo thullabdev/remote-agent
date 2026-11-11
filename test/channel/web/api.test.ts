@@ -35,6 +35,12 @@ let projectsDep: ApiDeps['projects']
 let uploadsLibrary: UploadLibrary | undefined
 let tmux: FakeTmux
 let home: string
+/** The transcript Claude writes on the first turn; a resume needs it. */
+async function writeTranscript(sessionId: string): Promise<void> {
+  const dir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(dir, { recursive: true })
+  await writeFile(`${dir}/${sessionId}.jsonl`, `${JSON.stringify({ type: 'user', message: { content: 'Hello' } })}\n`)
+}
 let configPath: string
 const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
@@ -69,6 +75,7 @@ function stubSpawner(): ApiDeps['spawner'] {
     newCommand: async () => null,
     fork: async () => 'Forking api. Open its topic.',
     resume: async () => 'Resuming the existing Session.',
+    lastModel: async () => null,
   }
 }
 
@@ -179,6 +186,33 @@ test('GET /api/state includes usage, empty when nothing was reported', async () 
   const { body } = await call('GET', '/api/state')
 
   expect(body.usage).toEqual({ accounts: [], chats: {} })
+})
+
+test('POST /api/chats/:id/resume takes an optional model, and GET resume-model reports the model it last ran on', async () => {
+  const chatId = seedSession()
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: 'gpt-5' })).status).toBe(400)
+  expect((await call('POST', `/api/chats/${chatId}/resume`)).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: null })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: 'haiku' })).status).toBe(200)
+  const model = await call('GET', `/api/chats/${chatId}/resume-model`)
+  expect(model.status).toBe(200)
+  expect(model.body).toEqual({ model: null })
+})
+
+test('GET /api/activity returns days for the viewer\'s zone and recent events', async () => {
+  const chatId = seedSession()
+  chatLog.updateChat(chatId, { busy: true })
+  chatLog.updateChat(chatId, { busy: false })
+
+  const { status, body } = await call('GET', '/api/activity?days=3&tz=420')
+
+  expect(status).toBe(200)
+  expect(body.days).toHaveLength(3)
+  expect(body.recent[0]).toMatchObject({ chatId, kind: 'finished' })
+  expect(body.since).not.toBeNull()
+  expect((await call('GET', '/api/activity?tz=abc')).status).toBe(400)
+  expect((await call('GET', '/api/activity?tz=5000')).status).toBe(400)
+  expect((await call('GET', '/api/activity?days=500')).body.days).toHaveLength(30)
 })
 
 test('GET /api/state returns seq, away and General first', async () => {
@@ -614,6 +648,7 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
 test('resume reopens the same ended session and chat without forking the transcript', async () => {
   await useRealSpawner()
   store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  await writeTranscript('s1')
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
   chatLog.appendMessage(chatId, { kind: 'system', text: 'Original history' })
@@ -638,6 +673,7 @@ test('resume reopens the same ended session and chat without forking the transcr
 test('a failed resume leaves the original session and chat ended', async () => {
   await useRealSpawner()
   store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  await writeTranscript('s1')
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
   store.endSession('s1')
@@ -703,6 +739,28 @@ test('pins and unpins a message; pins list the chat in order with previews; syst
   expect((await call('GET', '/api/chats/nope/pins')).status).toBe(404)
 })
 
+test('a draft is saved per chat, read back on any device, and an empty draft removes it', async () => {
+  const chatId = seedSession()
+  const other = seedSession('s2')
+  expect(await call('GET', `/api/chats/${chatId}/draft`)).toEqual({ status: 200, body: { draft: null } })
+
+  const attachment = { id: 'u_one', name: 'plan.pdf', mime: 'application/pdf', size: 120 }
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'Continue from @plan.pdf', attachments: [attachment] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toEqual({ text: 'Continue from @plan.pdf', attachments: [attachment] })
+  expect((await call('GET', `/api/chats/${other}/draft`)).body.draft).toBeNull()
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'Second try', attachments: [] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toEqual({ text: 'Second try', attachments: [] })
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: '', attachments: [] })).status).toBe(200)
+  expect((await call('GET', `/api/chats/${chatId}/draft`)).body.draft).toBeNull()
+
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'x'.repeat(20_001), attachments: [] })).status).toBe(400)
+  expect((await call('PUT', `/api/chats/${chatId}/draft`, { text: 'ok', attachments: [] }))).toMatchObject({ status: 200 })
+  expect((await call('GET', '/api/chats/nope/draft')).status).toBe(404)
+  expect((await call('PUT', '/api/chats/nope/draft', { text: 'x', attachments: [] })).status).toBe(404)
+})
+
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3])
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n')
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])
@@ -759,10 +817,19 @@ test('a message with attachments shows their names and tells the Session where t
   const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-1', text: 'Compare this', attachmentIds: [body.upload.id] })
 
   expect(sent.status).toBe(200)
-  expect(sent.body.message).toMatchObject({ kind: 'user_text', text: 'Compare this', attachments: [{ id: body.upload.id, name: 'diagram.png', mime: 'image/png' }] })
-  const instruction = store.listPendingInstructions('s1').at(-1)!
   const path = uploadsLibrary!.filePath(uploadsLibrary!.get(body.upload.id)!)
+  expect(sent.body.message).toMatchObject({ kind: 'user_text', text: 'Compare this', attachments: [{ id: body.upload.id, name: 'diagram.png', mime: 'image/png', path }] })
+  const instruction = store.listPendingInstructions('s1').at(-1)!
   expect(instruction.text).toBe(`Compare this\n\nAttached files (read them with the Read tool):\n- ${path}`)
+  expect((await call('GET', '/api/uploads')).body.uploads[0]).toMatchObject({ id: body.upload.id, uses: 1 })
+})
+
+test('a delivered message keeps its attachments', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('kept.png', PNG_BYTES)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-kept', text: 'Look', attachmentIds: [body.upload.id] })
+  channel.instructionDelivered(store.listPendingInstructions('s1').at(-1)!.id)
+  expect(chatLog.findMessage(sent.body.message.id)).toMatchObject({ kind: 'user_text', status: 'delivered', attachments: [{ id: body.upload.id }] })
 })
 
 test('a file-only message is allowed; the Session gets the paths alone', async () => {
@@ -799,3 +866,44 @@ test('each @reference to an attached file becomes its path in the Session instru
   expect(instruction).not.toContain('@diagram.png')
 })
 
+
+test('pins and unpins a session, and the change reaches the chat list', async () => {
+  const chatId = seedSession()
+
+  expect(await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })).toEqual({ status: 200, body: { toast: 'Session pinned.' } })
+  expect(chatLog.getChat(chatId)?.pinned).toBe(true)
+  expect((await call('GET', '/api/state')).body.chats.find((chat: { id: string }) => chat.id === chatId).pinned).toBe(true)
+
+  expect(await call('POST', `/api/chats/${chatId}/pin`, { pinned: false })).toEqual({ status: 200, body: { toast: 'Session unpinned.' } })
+  expect(chatLog.getChat(chatId)?.pinned).toBe(false)
+})
+
+test('General cannot be pinned or unpinned, an unknown session is 404, an archived one cannot be pinned, and a bad body is 400', async () => {
+  expect((await call('POST', '/api/chats/general/pin', { pinned: false })).status).toBe(409)
+  expect((await call('POST', '/api/chats/general/pin', { pinned: true })).status).toBe(409)
+  expect(chatLog.getChat('general')?.pinned).toBe(true)
+  expect((await call('POST', '/api/chats/nope/pin', { pinned: true })).status).toBe(404)
+
+  const chatId = seedSession()
+  expect((await call('POST', `/api/chats/${chatId}/pin`, { pinned: 'yes' })).status).toBe(400)
+  chatLog.setArchived(chatId, true)
+  const archived = await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })
+  expect(archived.status).toBe(409)
+  expect(archived.body.error).toBe('An archived Session cannot be pinned.')
+})
+
+test('at most five sessions can be pinned, and unpinning one makes room', async () => {
+  const chatIds = ['s1', 's2', 's3', 's4', 's5', 's6'].map(id => seedSession(id))
+  for (const chatId of chatIds.slice(0, 5)) {
+    expect((await call('POST', `/api/chats/${chatId}/pin`, { pinned: true })).status).toBe(200)
+  }
+
+  const sixth = await call('POST', `/api/chats/${chatIds[5]}/pin`, { pinned: true })
+  expect(sixth.status).toBe(409)
+  expect(sixth.body.error).toBe('You can pin up to 5 Sessions. Unpin one first.')
+  expect(chatLog.getChat(chatIds[5]!)?.pinned).toBe(false)
+
+  expect((await call('POST', `/api/chats/${chatIds[0]}/pin`, { pinned: false })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatIds[5]}/pin`, { pinned: true })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatIds[1]}/pin`, { pinned: true })).status).toBe(200)
+})

@@ -6,6 +6,8 @@ export type GlowPreference = 'off' | 'soft' | 'strong'
 export type DensityPreference = 'compact' | 'comfortable'
 export type FontPreference = 'small' | 'medium' | 'large'
 export type EnterPreference = 'send' | 'newline'
+export type CodeWrapPreference = 'scroll' | 'wrap'
+export type GeneralViewPreference = 'dashboard' | 'chat'
 
 export type Preferences = {
   theme: ThemePreference
@@ -16,6 +18,10 @@ export type Preferences = {
   font: FontPreference
   /** What Enter does in the chat composer: send the message, or add a new line (Ctrl/Cmd+Enter then sends). */
   enter: EnterPreference
+  /** Long lines in code blocks: scroll sideways inside the block, or wrap onto the next line. */
+  codeWrap: CodeWrapPreference
+  /** What General opens to: the dashboard, or its command chat. */
+  generalView: GeneralViewPreference
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -26,6 +32,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   density: 'comfortable',
   font: 'medium',
   enter: 'newline',
+  codeWrap: 'scroll',
+  generalView: 'dashboard',
 }
 
 const STORAGE_KEY = 'remote-agent.preferences.v1'
@@ -45,6 +53,8 @@ export function readPreferences(storage: Pick<Storage, 'getItem'> = localStorage
       density: isOneOf(value.density, ['compact', 'comfortable']) ? value.density : DEFAULT_PREFERENCES.density,
       font: isOneOf(value.font, ['small', 'medium', 'large']) ? value.font : DEFAULT_PREFERENCES.font,
       enter: isOneOf(value.enter, ['send', 'newline']) ? value.enter : DEFAULT_PREFERENCES.enter,
+      codeWrap: isOneOf(value.codeWrap, ['scroll', 'wrap']) ? value.codeWrap : DEFAULT_PREFERENCES.codeWrap,
+      generalView: isOneOf(value.generalView, ['dashboard', 'chat']) ? value.generalView : DEFAULT_PREFERENCES.generalView,
     }
   } catch {
     return DEFAULT_PREFERENCES

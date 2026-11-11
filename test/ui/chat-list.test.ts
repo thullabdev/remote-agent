@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { countFittingTabs, filterChats, isSelectableChat } from '../../src/ui/components/chat-list.tsx'
+import { isPinnableChat, isSelectableChat, selectionGroupOf } from '../../src/ui/components/chat-list.tsx'
 
 const general: Chat = {
   id: 'general',
@@ -12,56 +12,32 @@ const general: Chat = {
   archived: false,
   busy: false,
   unread: 0,
-  lastMessage: null,
+  lastMessage: null, draft: null,
   pinned: true,
   tmuxName: null,
+  pendingPrompt: null, activity: null,
 }
 
-const laptop: Chat = { ...general, id: 'laptop-chat', title: 'Laptop session', pinned: false }
+const computer: Chat = { ...general, id: 'computer-chat', title: 'Computer session', pinned: false }
 const spawned: Chat = { ...general, id: 'spawned-chat', title: 'Spawned session', spawned: true, pinned: false }
 const endedSpawned: Chat = { ...spawned, id: 'ended-spawned-chat', title: 'Ended spawned session', status: 'ended' }
-const endedLaptop: Chat = { ...laptop, id: 'ended-laptop-chat', title: 'Ended active session', status: 'ended' }
+const endedComputer: Chat = { ...computer, id: 'ended-computer-chat', title: 'Ended active session', status: 'ended' }
 const archivedSpawned: Chat = { ...endedSpawned, id: 'archived-spawned-chat', title: 'Archived spawned session', archived: true }
-const archivedLaptop: Chat = { ...endedLaptop, id: 'archived-laptop-chat', title: 'Archived active session', archived: true }
-
-test('filters sessions by origin and keeps General in the All view only', () => {
-  const chats = [general, laptop, spawned]
-
-  expect(filterChats(chats, '', 'all').map(chat => chat.id)).toEqual(['general', 'laptop-chat', 'spawned-chat'])
-  expect(filterChats(chats, '', 'laptop').map(chat => chat.id)).toEqual(['laptop-chat'])
-  expect(filterChats(chats, '', 'spawned').map(chat => chat.id)).toEqual(['spawned-chat'])
-})
-
-test('combines the origin filter with title search', () => {
-  expect(filterChats([laptop, spawned], 'SPAWNED', 'spawned').map(chat => chat.id)).toEqual(['spawned-chat'])
-  expect(filterChats([laptop, spawned], 'laptop', 'spawned')).toEqual([])
-})
-
-test('shows ended sessions until archived and lists archived sessions in their own filter', () => {
-  const chats = [spawned, endedSpawned, endedLaptop, archivedSpawned, archivedLaptop]
-
-  expect(filterChats(chats, '', 'all').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat', 'ended-laptop-chat'])
-  expect(filterChats(chats, '', 'spawned').map(chat => chat.id)).toEqual(['spawned-chat', 'ended-spawned-chat'])
-  expect(filterChats(chats, '', 'archived').map(chat => chat.id)).toEqual(['archived-spawned-chat', 'archived-laptop-chat'])
-})
+const archivedComputer: Chat = { ...endedComputer, id: 'archived-computer-chat', title: 'Archived active session', archived: true }
 
 test('only ended unarchived sessions can be selected for archive', () => {
-  expect(isSelectableChat(endedLaptop)).toBe(true)
+  expect(isSelectableChat(endedComputer)).toBe(true)
   expect(isSelectableChat(endedSpawned)).toBe(true)
-  expect(isSelectableChat(laptop)).toBe(false)
-  expect(isSelectableChat(archivedLaptop)).toBe(false)
+  expect(isSelectableChat(computer)).toBe(false)
+  expect(isSelectableChat(archivedComputer)).toBe(false)
   expect(isSelectableChat(general)).toBe(false)
 })
 
-test('countFittingTabs keeps every tab when they all fit', () => {
-  expect(countFittingTabs([40, 80, 60], 200, 50)).toBe(3)
-})
-
-test('countFittingTabs leaves room for the More button when tabs overflow', () => {
-  // 40 + 4 + 80 = 124 fits, but 124 + 4 + 50 = 178 does not fit in 170, so only the first tab stays visible.
-  expect(countFittingTabs([40, 80, 60], 170, 50)).toBe(1)
-})
-
-test('countFittingTabs shows only More when not even one tab fits', () => {
-  expect(countFittingTabs([40, 80], 60, 50)).toBe(0)
+test('long press groups sessions: ended ones archive, live ones pin, General and archived do neither', () => {
+  expect(selectionGroupOf(endedComputer)).toBe('ended')
+  expect(selectionGroupOf(computer)).toBe('live')
+  expect(selectionGroupOf(spawned)).toBe('live')
+  expect(selectionGroupOf(general)).toBeNull()
+  expect(selectionGroupOf(archivedComputer)).toBeNull()
+  expect(isPinnableChat(endedComputer)).toBe(false)
 })

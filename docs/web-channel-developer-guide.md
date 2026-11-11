@@ -11,7 +11,7 @@ Related documents: the design (`docs/superpowers/specs/2026-11-04-web-channel-de
 
 **Chat.** The place for one Session, or the General chat. General has the id `general` and is the command surface (`/new`, `/status`, `/away`, `/back`, `/end`); it is not an AI. Every other chat belongs to one Session for that Session's whole life, including after it ends (its history stays readable). Ids are opaque strings (`c_` plus a UUID); treat them as such.
 
-**Message.** One item in a chat. Messages are tagged by `kind`: `user_text`, `agent_text`, `tool_run`, `prompt`, `system`, `command_reply`, `picker`. Content is complete and never truncated, with one exception: a `tool_run` result is capped at 20 000 characters (a marker `… [+N chars]` is appended and `resultTruncated` is `true`). Secrets are redacted on the server before anything is stored.
+**Message.** One item in a chat. Messages are tagged by `kind`: `user_text`, `agent_text`, `tool_run`, `prompt`, `system`, `session_status`, `command_reply`, `picker`. A Spawned Session's startup is one `session_status` message (`starting` or `resuming`, then rewritten in place to `ready` or `failed`, with the folder, and on failure a one-line `message` and the screen output as `detail`); it never counts as unread. Content is complete and never truncated, with one exception: a `tool_run` result is capped at 20 000 characters (a marker `… [+N chars]` is appended and `resultTruncated` is `true`). Secrets are redacted on the server before anything is stored.
 
 **Two counters, do not mix them up.**
 
@@ -28,7 +28,7 @@ When a message is updated (a prompt gets answered, an instruction is delivered) 
 
 **Away mode.** A server-side flag. Prompts always push; reports (turn finished, session started or ended) push only while Away mode is on. It is on when the Bridge starts.
 
-**Unread.** One global read position per chat, shared by all your devices. Messages of kind `agent_text`, `prompt` and `system` after the position count as unread; `tool_run`, `user_text`, `command_reply` and `picker` do not. History that was backfilled from an existing transcript never counts as unread.
+**Unread.** One global read position per chat, shared by all your devices. Messages of kind `agent_text`, `prompt` and `system` after the position count as unread; `tool_run`, `user_text`, `command_reply` and `picker` do not. History that was backfilled from an existing transcript never counts as unread, and neither do the "Session started" and "Session ended" messages (they stay in the log).
 
 ## Part 1: Building a client
 
@@ -110,7 +110,7 @@ A client has no login screen. Treat a 401 or 403 from steps 1 and 2 as "access d
 
 This is the order a client should do things in. Everything after step 2 is driven by events.
 
-1. **`GET /api/state`** → `{ seq, away, chats, usage }`. Keep `seq` (an *event* seq). `chats` is General first, then by latest message time. Render the chat list from it.
+1. **`GET /api/state`** → `{ seq, away, chats, usage }`. Keep `seq` (an *event* seq). `chats` is General first, then chats waiting on you, then pinned chats, then chats with an unsent draft (newest edit first), then working chats, then the rest by latest message time. Render the chat list from it.
 2. **Open the WebSocket** `/ws?after=<seq from step 1>`. The first frame is `hello`. Because you pass `after`, anything that happened between step 1 and the connection is replayed, and nothing is missed.
 3. **Send your presence** as soon as the socket opens, and again whenever it changes (see 3.3). This is what stops pushes while you are looking at the page.
 4. **When the user opens a chat:** `GET /api/chats/:id/messages` (latest 50). Render ascending. For older history call again with `before=<smallest message seq you have>` until `hasMore` is `false`.
@@ -131,11 +131,11 @@ This is the order a client should do things in. Everything after step 2 is drive
 - *Question*, free text, or a multi-select: `POST /api/prompts/:promptId/reply {questionIndex, text}`. For a multi-select send option numbers (`"1,3"`, 1-based); for anything else the text is the answer.
 - *Permission Request*: `actions` with `questionIndex: 0` and `optionIndex: 0` to allow or `1` to deny. `reply` with `allow`, `yes`, `y`, `ok` or `approve` allows; any other text denies and is passed back to the agent as feedback.
 
-Both return `{ toast }`, a short string to show for a moment (`Already answered.` when another device won). The message itself changes through a `message.updated` event: `status: "answered"` and a `resolution` (`{ note, source }`, `source` is `local` for the terminal, `remote` for you). Do not edit your copy from the toast; wait for the event.
+Both return `{ toast }`, a short string to show for a moment (`Already answered.` when another device won). The message itself changes through a `message.updated` event: `status: "answered"` and a `resolution` (`{ note, source }`, `source` is `local` for the terminal, `remote` for you). Do not edit your copy from the toast; wait for the event. Show the pressed choice as sending until the request returns and as sent after it, so the card is never left looking untouched while the event is on its way. A multi-question Prompt has one message per question, and each one flips to `answered` as soon as that question is answered (`resolution.note` is `Answered: <its answer>` and the question's `answered` holds the answer), while the others stay `pending` until they are answered too. A Permission Request's note is `Allowed`, `Denied`, or `Denied: <feedback>`; `Answered in the terminal` when the terminal settled it.
 
 > **Known gap: question index for multi-question prompts.** A Prompt with several questions is stored as several `prompt` messages that share one `promptId`, each holding exactly one question. The message does not say which question index it is, so a client must derive `questionIndex` as the message's position among the messages that share its `promptId`, ordered by `seq` (0 for the first). A Prompt with one question, which is by far the common case, and every Permission Request are always index 0. Making the index an explicit field is a small server change that has not been made yet.
 
-**Starting a Session.** Either send `/new` in General and tap a button on the resulting `picker` message (`POST …/actions {pickerId, choice}`), or skip the picker: `GET /api/projects` for the listed project folders and `POST /api/projects/start {cwd, model?}`. The new chat appears through `chat.updated` and `message.created` events; it is not in the response.
+**Starting a Session.** Either send `/new` in General and tap a button on the resulting `picker` message (`POST …/actions {pickerId, choice}`; each button may carry a `detail` line and an `at` time for a richer row, and Telegram shows only the label), or skip the picker: `GET /api/projects` for the listed project folders and `POST /api/projects/start {cwd, model?}`. The new chat appears through `chat.updated` and `message.created` events; it is not in the response.
 
 **Ending, clearing, resuming, forking.** `POST /api/chats/:id/end` ends a Session the Bridge started (other Sessions cannot be ended remotely). `POST /api/chats/:id/clear` hides the chat's history on all your devices (the agent's context is not touched). `POST /api/chats/:id/resume` restarts an ended Session with `claude --resume <same-id>`; its chat, transcript and Claude session id are retained, though the ended process itself cannot be revived and Claude starts in a new process. `POST /api/chats/:id/fork` instead starts a new Session id from this conversation.
 
@@ -144,7 +144,8 @@ Both return `{ toast }`, a short string to show for a moment (`Already answered.
 - `agent_text.markdown` is Markdown. Everything else is plain text.
 - Group consecutive `tool_run` messages between two other messages into one "agent run" in the UI. The server does not group them. A `tool_run` with `status: "running"` that never completes (the user interrupted) stays `running`; consider showing it as interrupted once a later message exists.
 - `chat.busy` drives the "typing…" indicator. It is best-effort: derived from the Session transcript and cleared when a turn finishes, is interrupted, or the Session ends.
-- `chat.lastMessage.preview` is plain text, at most 140 characters, for the chat list only. Never use it for anything else.
+- `chat.lastMessage.preview` is plain text, at most 140 characters, for the chat list only. Never use it for anything else. Markdown is stripped; a prompt previews what it asks (`Bash: bun test`, or the first question), a tool run what it did (`Ran Bash: ls`, `Running Bash: ls`, `Bash failed: ls`), and a message you sent starts with `You: `.
+- `chat.pendingPrompt` is set while the Session waits for an Answer: `{ promptId, kind, summary, at, count }` for the oldest pending Prompt (`count` counts a multi-question Prompt once). It is `null` when nothing waits and for ended chats. While it is set `chat.busy` is still `true` (the turn is open), so show "needs you" in preference to "working". A `chat.updated` event is sent when it changes.
 - A chat with `status: "ended"` is read-only: sending text to it returns 409.
 - `chat.spawned` is `true` for Sessions the Bridge started: only those can be ended from the UI, and `chat.tmuxName` lets you show a `tmux attach -t <name>` hint.
 
@@ -172,7 +173,9 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/end` | End a Session the Bridge started. |
 | `POST /chats/:id/clear` | Hide a chat's history on all devices. |
 | `POST /chats/:id/fork` | Resume a Session into a new one. |
+| `POST /chats/:id/pin` `{ pinned }` | Pin a Session to the top of the list (below ones that need you), or unpin it. At most 5 can be pinned; General is always first and cannot be pinned or unpinned; an archived Session cannot be pinned, and archiving unpins. `{ toast }`. |
 | `GET /projects` | Folders a Session may start in. |
+| `GET /activity?days=7&tz=0` | Daily numbers and recent events for a dashboard. |
 | `POST /projects/start` | Start a Session in a project. |
 | `PUT /away` | Set Away mode. |
 | `GET /push/key` | VAPID public key. |
@@ -181,7 +184,7 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 
 ### GET /state
 
-`200 { seq: number, away: boolean, chats: Chat[], usage: UsageView }`. `seq` is an event seq. `chats` has General first, then the rest by `lastMessage.at` descending (chats without messages last). `usage` holds the account limits and per-chat usage; its types are in `src/core/usage-types.ts`.
+`200 { seq: number, away: boolean, chats: Chat[], usage: UsageView }`. `seq` is an event seq. `chats` has General first, then chats with a `pendingPrompt` (waiting longest first), then `pinned` chats, then chats with a `draft` (`draft.at` descending; ended chats do not count), then `busy` chats, then the rest, each group by `lastMessage.at` descending (chats without messages last). Ended chats count as the rest. `src/channel/web/order.ts` is the ordering the server uses; reuse it in a client so a `chat.updated` lands in the same place. `usage` holds the account limits and per-chat usage; its types are in `src/core/usage-types.ts`.
 
 ### Attachments, pins and the file library
 
@@ -235,6 +238,14 @@ No body. `200 { ok: true }`. Emits `chat.cleared` and `chat.updated`. It hides h
 
 No body. `200 { toast }`. The new Session gets its own chat. `404 No session in this chat.`; `409` if the source Session's folder is no longer allowed (not in `REMOTE_AGENT_PROJECTS` or Claude Code's project keys). Forking a Session that has no transcript starts a Session that then fails to come up within 30 seconds and is cleaned up.
 
+### GET /activity
+
+`GET /api/activity?days=7&tz=420` → `200 { days, recent, since }`. `days` (1–30, default 7) is how many days to return; `tz` is the viewer's offset in minutes **east** of UTC (`-new Date().getTimezoneOffset()`), so a day is the viewer's day; a bad `tz` answers 400. `days` is oldest first, ending today, each `{ date: 'YYYY-MM-DD', sessionsStarted, turnsCompleted, workedMs }`; days with nothing are zeros. `recent` is the latest 8 lines, newest first: `{ id, at, firstAt, chatId, kind: 'started' | 'finished' | 'ended', name, turns, preview }`. Finished turns of one session that end within 30 minutes of each other are one line: `turns` counts them, `firstAt` is the oldest end and `at` the newest, and `preview` is the newest reply made before that end (one line, or `null`). Started and ended lines have `turns: 0` and `preview: null`. `name` is the session's title, the user's own name if they set one. `since` is when recording began (ms epoch) or `null`; days before it are empty because they were not recorded, not because nothing happened.
+
+The numbers come from an `activity` table the ChatLog writes as it happens: a session appearing, a turn starting or ending (`busy` changing), a session ending. General is not recorded. Rows older than 30 days are deleted. A turn's time is capped at 12 hours.
+
+`chat.activity` is the tool call a working Session is running now (`{ tool, summary, at }`, `at` being when it started). It is `null` when idle, ended, waiting on a Prompt, or between tool calls; a `chat.updated` event is sent when it changes.
+
 ### GET /projects and POST /projects/start
 
 `GET` → `200 { projects: { label: string, cwd: string }[] }`: existing folders from `REMOTE_AGENT_PROJECTS` and from the `projects` keys in `~/.claude.json`, each listed once. `hasTrustDialogAccepted` is not checked. `CLAUDE_CONFIG_PATH` can override the config location.
@@ -263,8 +274,11 @@ type Chat = {
   busy: boolean                 // the agent is working
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null   // at: ms since epoch
-  pinned: boolean               // true for General
+  pinned: boolean               // true for General (always), and for a Session the user pinned
   tmuxName: string | null
+  draft: { preview: string; at: number } | null   // the unsent message; at: last edit, ms since epoch
+  pendingPrompt: { promptId: string; kind: 'permission' | 'question'; summary: string; at: number; count: number } | null
+  activity: { tool: string; summary: string; at: number } | null
 }
 
 type Message = { id: string; chatId: string; seq: number; at: number } & (   // at: ms since epoch
@@ -275,6 +289,7 @@ type Message = { id: string; chatId: string; seq: number; at: number } & (   // 
   | { kind: 'prompt'; promptId: string; title: string; body: PromptBodyView;
       status: 'pending' | 'answered'; resolution: { note: string; source: 'local' | 'remote' } | null }
   | { kind: 'system'; text: string }                  // started, ended, reminders, errors
+  | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }           // answers in General
   | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number }[] }
 )
@@ -325,6 +340,7 @@ Send `presence` when the socket opens and whenever any of the three fields chang
 ### 3.4 When the server drops you
 
 - A client that sends no frame and answers no ping for about 90 seconds is dropped (browsers answer protocol pings on their own; send an occasional `ping` if you want to be sure).
+- A socket can look open after the network is gone (no `close` ever fires), so do not trust it: send a `ping` every 30 s and treat 10 s of silence (any message counts, not only the `pong`) as dead. Drop the socket and reconnect at once with `after=<last seq seen>`, which replays what was missed. When the user returns to the app after a quiet spell (the tab becomes visible, `online`, `pageshow`), probe with a `ping` and a 4 s deadline, and skip the retry delay if the socket is already gone. The web UI does this in `src/ui/liveness.ts` and `src/ui/use-web-channel.ts`.
 - A client that cannot keep up (more than 8 MiB of unsent data) is closed with code `1013`; reconnect and resume.
 - `1011` means the handshake failed on the server; `1001` means the server is stopping.
 - The maximum size of a frame you send is 16 MiB.
@@ -342,7 +358,7 @@ ws.onmessage = event => console.log(event.data)
 ## Part 4: Push notifications
 
 1. Register a service worker. From a user gesture (a settings toggle), `GET /api/push/key`, call `registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`, and `POST` the resulting subscription to `/api/push/subscriptions`. `DELETE` it with its `endpoint` to turn push off.
-2. The service worker receives `{ chatId, title, preview, kind }` where `kind` is `prompt` or `report`. `title` is at most 100 characters and `preview` at most 140; both are redacted. Show the notification and, on click, open `/?chat=<chatId>`; your app reads `chat` on load and opens that chat.
+2. The service worker receives `{ chatId, title, preview, kind, promptId? }` where `kind` is `prompt` or `report`; `promptId` is present on prompts only and names the Prompt that waits. `title` is at most 100 characters and `preview` at most 140; both are redacted. Show the notification and, on click, open `/?chat=<chatId>` (add `&prompt=<promptId>` when there is one); your app reads `chat` on load and opens that chat, and scrolls to the pending Prompt named by `prompt` if it is still pending.
 3. Push requires HTTPS (which `tailscale serve` provides). On iPhone and iPad it works only for a page added to the Home Screen.
 
 Rules, enforced by the server: Prompts always push (urgent, kept for an hour); reports push only in Away mode (normal urgency, kept for ten minutes); nothing pushes while any device is `visible` and `focused` (3.3). A subscription the push service reports as gone (404 or 410) is removed automatically. The full text is never in the notification; fetch it from the API.

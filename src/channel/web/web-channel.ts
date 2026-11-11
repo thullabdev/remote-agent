@@ -2,7 +2,7 @@ import type { Instruction, PromptBody, Report } from '../../../mod/remote-agent/
 import type { Log } from '../../bridge/prompts.ts'
 import type { PromptRow, SessionRow, Store } from '../../bridge/store.ts'
 import { permissionSummaryFull, plainResolutionNote, sessionLabel, threadTitle } from '../../bridge/views.ts'
-import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, ThreadRef } from '../types.ts'
+import type { Button, Channel, ChannelHandlers, MessageRef, PromptView, SessionStatus, ThreadRef } from '../types.ts'
 import type { ChatSink } from '../chat-sink.ts'
 import type { ChatLog } from './chat-log.ts'
 import type { PushEvent } from './push.ts'
@@ -86,12 +86,24 @@ export class WebChannel implements Channel, ChatSink {
     return message.id
   }
 
+  /** One startup card per launch: it is created as starting and rewritten in place when the session is ready or failed. */
+  async sessionStatus(thread: ThreadRef, status: SessionStatus): Promise<void> {
+    const body = { kind: 'session_status', state: status.state, cwd: status.cwd, message: status.message, detail: status.detail } as const
+    const latest = this.chatLog.latestSessionStatus(thread)
+    const inProgress = latest?.kind === 'session_status' && (latest.state === 'starting' || latest.state === 'resuming')
+    if (latest !== undefined && inProgress && (status.state === 'ready' || status.state === 'failed')) {
+      this.chatLog.updateMessage(latest.id, body)
+      return
+    }
+    this.chatLog.appendMessage(thread, body)
+  }
+
   async sendButtons(thread: ThreadRef | null, text: string, buttons: Button[]): Promise<MessageRef> {
     const picks = buttons.map(button => {
       if (button.data.kind !== 'launch') {
         throw new Error(`Web picker buttons must be launch buttons, got ${button.data.kind}`)
       }
-      return { label: button.label, choice: button.data.choice, pickerId: button.data.pickerId }
+      return { label: button.label, choice: button.data.choice, pickerId: button.data.pickerId, detail: button.detail, at: button.at }
     })
     const pickerId = picks[0]?.pickerId
     if (pickerId === undefined) {
@@ -104,7 +116,7 @@ export class WebChannel implements Channel, ChatSink {
       kind: 'picker',
       pickerId,
       text,
-      buttons: picks.map(({ label, choice }) => ({ label, choice })),
+      buttons: picks.map(({ label, choice, detail, at }) => ({ label, choice, ...(detail === undefined ? {} : { detail }), ...(at === undefined ? {} : { at }) })),
     })
     return message.id
   }
@@ -178,7 +190,7 @@ export class WebChannel implements Channel, ChatSink {
     const title = sessionLabel(session)
     const body = prompt.body
     const refs = this.appendPromptMessages(chatId, prompt.id, title, body)
-    this.push(chatId, 'prompt', promptPushText(body))
+    this.push(chatId, 'prompt', promptPushText(body), prompt.id)
     return refs
   }
 
@@ -186,7 +198,7 @@ export class WebChannel implements Channel, ChatSink {
   promptReminder(prompt: PromptRow, session: SessionRow): void {
     const chatId = this.chatFor(session)
     this.chatLog.appendMessage(chatId, { kind: 'system', text: `Still waiting for your answer (${this.chatTitle(chatId)})` })
-    this.push(chatId, 'prompt', promptPushText(prompt.body))
+    this.push(chatId, 'prompt', promptPushText(prompt.body), prompt.id)
   }
 
   private appendPromptMessages(chatId: string, promptId: string, title: string, body: PromptBody): string[] {
@@ -223,7 +235,7 @@ export class WebChannel implements Channel, ChatSink {
     if (answer === null || source === null) {
       return
     }
-    const note = plainResolutionNote(answer, source)
+    const note = plainResolutionNote(answer)
     for (const ref of refs) {
       const current = this.chatLog.findMessage(ref)
       if (current?.kind !== 'prompt') {
@@ -239,21 +251,39 @@ export class WebChannel implements Channel, ChatSink {
               })),
             }
           : current.body
+      // Each question's card says its own answer, not the list of all of them.
+      const own = body.kind === 'question' ? body.questions[0]?.answered ?? null : null
       this.chatLog.updateMessage(ref, {
         kind: 'prompt',
         promptId: current.promptId,
         title: current.title,
         body,
         status: 'answered',
-        resolution: { note, source },
+        resolution: { note: own === null ? note : `Answered: ${own}`, source },
       })
     }
+  }
+
+  /** One question of several was answered: its card shows the answer now, while the Prompt keeps waiting for the rest. */
+  promptPartAnswered(_prompt: PromptRow, ref: string, _questionIndex: number, value: string): void {
+    const current = this.chatLog.findMessage(ref)
+    if (current?.kind !== 'prompt' || current.body.kind !== 'question' || current.status === 'answered') {
+      return
+    }
+    this.chatLog.updateMessage(ref, {
+      kind: 'prompt',
+      promptId: current.promptId,
+      title: current.title,
+      body: { kind: 'question', questions: current.body.questions.map(question => ({ ...question, answered: value })) },
+      status: 'answered',
+      resolution: { note: `Answered: ${value}`, source: 'remote' },
+    })
   }
 
   instructionQueued(instruction: Instruction, session: SessionRow, clientId?: string | null, display?: { text: string; attachments: UploadRef[] }): Message {
     const sourceId = clientId === undefined || clientId === null ? instruction.id : clientSourceId(clientId)
     const attachments = display?.attachments ?? []
-    return this.chatLog.appendMessage(
+    const message = this.chatLog.appendMessage(
       this.chatFor(session),
       {
         kind: 'user_text',
@@ -264,6 +294,8 @@ export class WebChannel implements Channel, ChatSink {
       },
       { sourceId },
     )
+    this.nameFromFirstTask(session, display?.text ?? instruction.text)
+    return message
   }
 
   instructionDelivered(instructionId: string): void {
@@ -279,7 +311,13 @@ export class WebChannel implements Channel, ChatSink {
     if (current.status === 'delivered') {
       return
     }
-    this.chatLog.updateMessage(current.id, { kind: 'user_text', text: current.text, status: 'delivered', instructionId: current.instructionId })
+    this.chatLog.updateMessage(current.id, {
+      kind: 'user_text',
+      text: current.text,
+      status: 'delivered',
+      instructionId: current.instructionId,
+      ...(current.attachments !== undefined && current.attachments.length > 0 ? { attachments: current.attachments } : {}),
+    })
   }
 
   report(session: SessionRow, report: Report): void {
@@ -290,12 +328,15 @@ export class WebChannel implements Channel, ChatSink {
     this.transcriptAttach(session.id)
     const chatId = this.chatFor(session)
     if (report.kind === 'session_started') {
-      this.appendSystem(session, `Session started in ${session.cwd}`)
+      // A launched session already shows its folder on the startup card, so only a session that began elsewhere announces itself.
+      if (this.chatLog.latestSessionStatus(chatId) === undefined) {
+        this.appendSystem(session, `Session started in ${session.cwd}`, true)
+      }
       this.push(chatId, 'report', 'Session started')
       return
     }
     if (report.kind === 'session_ended') {
-      this.appendSystem(session, `Session ended (${report.reason})`)
+      this.appendSystem(session, `Session ended (${report.reason})`, true)
       this.push(chatId, 'report', 'Session ended')
       return
     }
@@ -317,8 +358,9 @@ export class WebChannel implements Channel, ChatSink {
 
   /**
    * The single place that flips a chat's busy flag. A value that is already set emits nothing, and an ended chat never becomes busy.
-   * Busy is a stand-in driven by instruction delivery and turn_complete; the transcript reader (a later task) becomes the real source.
-   * Until then a delivered instruction with no turn_complete (e.g. an Esc interrupt) leaves the chat busy until the session ends.
+   * Busy means a turn is open. The transcript reader is the main source (it ends the turn on turn_end and on an Esc interrupt);
+   * a delivered instruction also sets it at once, and turn_complete clears it. A Session waiting on a Prompt is still busy:
+   * the list uses Chat.pendingPrompt, not busy, to show that it needs the user.
    */
   busyChanged(sessionId: string, busy: boolean): void {
     const chatId = this.chatIdOf(sessionId)
@@ -347,17 +389,35 @@ export class WebChannel implements Channel, ChatSink {
     this.appendSystem(session, text)
   }
 
-  private appendSystem(session: SessionRow, text: string): void {
-    this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text })
+  /**
+   * A launched session is never named by Claude Code's hook, so its first task names it. A name that came from elsewhere
+   * (the hook, or the user's own rename) is left alone.
+   */
+  private nameFromFirstTask(session: SessionRow, text: string): void {
+    const current = this.store.getSession(session.id)
+    if (current === undefined || !current.spawned || current.title !== null) {
+      return
+    }
+    const name = nameFromTask(text)
+    if (name === null) {
+      return
+    }
+    this.store.setSessionTitle(current.id, name)
+    this.chatLog.updateChat(this.chatFor(current), { title: threadTitle({ ...current, title: name }) })
+  }
+
+  /** `quiet` marks lifecycle bookkeeping that should not raise the unread count. */
+  private appendSystem(session: SessionRow, text: string, quiet = false): void {
+    this.chatLog.appendMessage(this.chatFor(session), { kind: 'system', text }, { quiet })
   }
 
   /** Hands a push to the notifier without waiting for it. A push problem is logged and never reaches the chat or the Bridge. */
-  private push(chatId: string, kind: PushEvent['kind'], text: string): void {
+  private push(chatId: string, kind: PushEvent['kind'], text: string, promptId?: string): void {
     const notify = this.pushNotifier
     if (notify === null) {
       return
     }
-    const event: PushEvent = { kind, chatId, title: this.chatTitle(chatId), text }
+    const event: PushEvent = { kind, chatId, title: this.chatTitle(chatId), text, ...(promptId === undefined ? {} : { promptId }) }
     try {
       void notify(event).catch(error => {
         this.log('web push failed', error)
@@ -401,4 +461,15 @@ function promptPushText(body: PromptBody): string {
     return body.questions[0]?.question ?? ''
   }
   return permissionSummaryFull(body.tool, body.input)
+}
+
+const TASK_NAME_MAX = 48
+
+/** A short name for a session from its first task: the first line, in one line, clipped. Null when there is nothing to say. */
+export function nameFromTask(text: string): string | null {
+  const line = text.split('\n').map(part => part.replace(/\s+/g, ' ').trim()).find(part => part !== '')
+  if (line === undefined) {
+    return null
+  }
+  return line.length <= TASK_NAME_MAX ? line : `${line.slice(0, TASK_NAME_MAX - 1).trimEnd()}…`
 }

@@ -1,16 +1,15 @@
 import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { Chat, UploadRecord, UploadRef, UsageView } from '../../channel/web/protocol.ts'
-import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
-import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
+import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
+import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
+import { useDraft, type DraftApi } from '../use-draft.ts'
+import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
+import { LibraryDialog } from './library-dialog.tsx'
 import { UploadPicker } from './upload-picker.tsx'
-import { UsageButton, UsagePanel } from './usage-panel.tsx'
-import { useNow } from './usage-meters.tsx'
 
 type ChatComposerProps = {
   chat: Chat
-  usage: UsageView
   sending: boolean
   /** true: Enter sends and Shift+Enter adds a line. false: Enter adds a line and Ctrl/Cmd+Enter sends. */
   enterSends: boolean
@@ -22,6 +21,10 @@ type ChatComposerProps = {
   onDeleteUpload(upload: UploadRecord): void
   onSend(text: string, attachments: UploadRef[]): Promise<void>
   onResume(): Promise<void>
+  /** Loads and saves this chat's unsent draft. */
+  drafts: DraftApi
+  /** True while a freshly started Session waits for its first task: the box says so and takes focus. */
+  firstTask?: boolean
 }
 
 /** Whether a keydown in the composer should send the message, given the Enter preference. */
@@ -38,25 +41,40 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
-function ChatComposerView({ chat, usage, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume }: ChatComposerProps) {
-  const [text, setText] = useState('')
+const KIND_LABEL = { command: 'Command', flag: 'Option', value: 'Model' } as const
+
+function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts, firstTask = false }: ChatComposerProps) {
+  const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
+  // The text is the source of truth: a file whose reference was deleted by hand is detached, so it never goes unseen.
+  useEffect(() => {
+    setAttachments(current => {
+      const kept = referencedAttachments(text, current)
+      return kept.length === current.length ? current : kept
+    })
+  }, [text, setAttachments])
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
-  const now = useNow()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [attachOpen, setAttachOpen] = useState(false)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
-  const suggestions = matchingCommands(query, chat.id === 'general')
+  const suggestions: CommandSuggestion[] = argumentSuggestions(text, chat.id === 'general') ?? matchingCommands(query, chat.id === 'general')
   const suggestionsOpen = suggestions.length > 0 && !suggestionsDismissed
   const activeSuggestionIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1))
 
   useEffect(() => {
+    if (firstTask) {
+      inputRef.current?.focus()
+    }
+  }, [firstTask])
+
+  useEffect(() => {
     setSelectedSuggestion(0)
     setSuggestionsDismissed(false)
-  }, [query])
+  }, [query, text])
 
   useEffect(() => {
     const input = inputRef.current
@@ -85,28 +103,30 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
     }
   }, [])
 
-  const [attachments, setAttachments] = useState<UploadRef[]>([])
   const [uploading, setUploading] = useState(false)
   const [pickerIndex, setPickerIndex] = useState(0)
   const [pickerDismissed, setPickerDismissed] = useState(false)
   const [pickerNote, setPickerNote] = useState<string | null>(null)
   // The picker opens from an open @ token or from the attach button; both use the same list.
-  const mention = mentionQuery(text)
-  const pickerQuery = mention ?? ''
-  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled
-  const pickerUploads = pickerOpen ? filterUploads(library, pickerQuery) : []
+  // General takes no file attachments (the Bridge refuses them), so it has no attach button and no library picker.
+  const attachable = chat.id !== 'general'
+  const mention = attachable ? mentionQuery(text) : null
+  // From the attach button the picker filters by its own search; from an open @ token, by the token.
+  const pickerQuery = mention ?? search
+  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled && attachable
+  const pickerUploads = pickerOpen ? pickerOrder(filterUploads(library, pickerQuery), attachments.map(item => item.id)) : []
   const limitReached = attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE
 
   useEffect(() => {
     setPickerIndex(0)
     setPickerNote(null)
-  }, [mention])
+  }, [mention, search])
 
   useEffect(() => {
-    if (pickerOpen) {
+    if (pickerOpen || libraryOpen) {
       onRefreshLibrary()
     }
-  }, [pickerOpen, onRefreshLibrary])
+  }, [pickerOpen, libraryOpen, onRefreshLibrary])
 
   const addAttachment = (ref: UploadRef) => {
     setAttachments(current => {
@@ -127,10 +147,27 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
     setText(current => insertReference(current, ref.name))
   }
 
+  /** Takes the file out of the message: its reference goes from the text and it is no longer attached. */
+  const detach = (ref: UploadRef) => {
+    setAttachments(current => current.filter(item => item.id !== ref.id))
+    setText(current => removeReferences(current, ref.name))
+  }
+
+  /**
+   * From an open @ token, a pick writes the reference and closes the list. From the attach button, a tap toggles the file,
+   * so several can be chosen and the list stays open until Done.
+   */
   const pick = (upload: UploadRecord) => {
-    setAttachOpen(false)
+    if (mention !== null) {
+      attachReference(toRef(upload))
+      inputRef.current?.focus()
+      return
+    }
+    if (attachments.some(item => item.id === upload.id)) {
+      detach(toRef(upload))
+      return
+    }
     attachReference(toRef(upload))
-    inputRef.current?.focus()
   }
 
   const uploadFiles = async (files: File[]) => {
@@ -174,7 +211,8 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
         setPickerIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + pickerUploads.length) % pickerUploads.length)
         return
       }
-      if (event.key === 'Enter' && !event.nativeEvent.isComposing && pickerUploads[pickerIndex] !== undefined) {
+      // Enter picks only from an open @ token; from the attach button it sends the message as usual.
+      if (mention !== null && event.key === 'Enter' && !event.nativeEvent.isComposing && pickerUploads[pickerIndex] !== undefined) {
         event.preventDefault()
         pick(pickerUploads[pickerIndex]!)
         return
@@ -184,6 +222,17 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
       setPickerDismissed(true)
       setAttachOpen(false)
       return
+    }
+    if (event.key === 'Backspace' && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+      // A reference is one unit: Backspace after it removes the whole `@name`, and so detaches the file.
+      const input = event.currentTarget
+      const range = referenceBeforeCaret(text, input.selectionStart, attachments)
+      if (range !== null) {
+        event.preventDefault()
+        setText(current => current.slice(0, range.start) + current.slice(range.end))
+        requestAnimationFrame(() => input.setSelectionRange(range.start, range.start))
+        return
+      }
     }
     if (suggestionsOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -195,7 +244,8 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
       }
       if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing && suggestions[activeSuggestionIndex]) {
         event.preventDefault()
-        setText(current => insertCommand(current, suggestions[activeSuggestionIndex]!.name))
+        const chosen = suggestions[activeSuggestionIndex]!
+        setText(current => applySuggestion(current, chosen))
         inputRef.current?.focus()
         return
       }
@@ -213,7 +263,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
   return (
     <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
       {disabled && (
-        <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
+        <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
           <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
           <Button type="button" size="sm" onClick={() => void onResume()}>
             <RotateCcw aria-hidden="true" />
@@ -226,7 +276,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
           id="chat-command-suggestions"
           role="listbox"
           aria-label="Command suggestions"
-          className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-64 max-w-4xl overflow-auto rounded-2xl border border-border bg-card py-1 shadow-xl sm:left-6 sm:right-6"
+          className="absolute bottom-full left-3 right-3 z-10 mx-auto mb-1 max-h-64 max-w-4xl overflow-auto rounded-2xl bg-card py-1 shadow-xl sm:left-6 sm:right-6"
         >
           {suggestions.map((suggestion, index) => (
             <button
@@ -238,47 +288,61 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
               onMouseDown={event => event.preventDefault()}
               onMouseEnter={() => setSelectedSuggestion(index)}
               onClick={() => {
-                setText(current => insertCommand(current, suggestion.name))
+                setText(current => applySuggestion(current, suggestion))
                 inputRef.current?.focus()
               }}
               className={`flex w-full items-center gap-3 px-3 py-2 text-left ${index === activeSuggestionIndex ? 'bg-muted' : 'hover:bg-muted/70'}`}
             >
-              <span className="font-mono text-sm">/{suggestion.name}</span>
+              <span className="font-mono text-sm">{suggestion.kind === undefined || suggestion.kind === 'command' ? `/${suggestion.name}` : suggestion.name}</span>
               <span className="flex-1 truncate text-xs text-muted-foreground">{suggestion.description}</span>
-              <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Command</span>
+              <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{KIND_LABEL[suggestion.kind ?? 'command']}</span>
             </button>
           ))}
         </div>
       )}
-      <div className="mx-auto mb-1.5 flex max-w-4xl justify-end">
-        <UsageButton open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
-      </div>
-      <UsagePanel open={usageOpen} accounts={usage.accounts} session={usage.chats[chat.id]} now={now} />
       {pickerOpen && (
         <UploadPicker
           uploads={pickerUploads}
           query={pickerQuery}
+          search={mention === null ? { value: search, onChange: setSearch } : undefined}
           selected={pickerIndex}
           note={pickerNote ?? (limitReached ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.` : null)}
+          attachedIds={new Set(attachments.map(item => item.id))}
+          attachedCount={attachments.length}
+          limit={MAX_ATTACHMENTS_PER_MESSAGE}
           onHover={setPickerIndex}
           onPick={pick}
-          onDelete={onDeleteUpload}
           onUploadFiles={files => void uploadFiles(files)}
+          onManage={() => {
+            setAttachOpen(false)
+            setPickerDismissed(true)
+            setLibraryOpen(true)
+          }}
+          onDone={() => {
+            setAttachOpen(false)
+            setPickerDismissed(true)
+          }}
+        />
+      )}
+      {attachable && (
+        <LibraryDialog
+          open={libraryOpen}
+          onOpenChange={setLibraryOpen}
+          library={library}
+          onUpload={onUpload}
+          onDelete={onDeleteUpload}
         />
       )}
       {(attachments.length > 0 || uploading) && (
         <div className="mx-auto mb-1.5 flex max-w-4xl flex-wrap gap-1.5">
           {attachments.map(attachment => (
-            <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card py-1 pl-2.5 pr-1 text-xs">
+            <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-card py-1 pl-2.5 pr-1 text-xs">
               {isPdf(attachment.mime) ? <FileText className="size-3.5 shrink-0" aria-hidden="true" /> : <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />}
               <span className="truncate">{attachment.name}</span>
               <button
                 type="button"
                 aria-label={`Remove ${attachment.name}`}
-                onClick={() => {
-                  setAttachments(current => current.filter(item => item.id !== attachment.id))
-                  setText(current => removeReferences(current, attachment.name))
-                }}
+                onClick={() => detach(attachment)}
                 className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="size-3" aria-hidden="true" />
@@ -289,7 +353,7 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
         </div>
       )}
       <form onSubmit={submit} className="mx-auto max-w-4xl">
-        <div className={`flex items-end gap-2 rounded-3xl border border-border bg-card pl-4 pr-1.5 py-1.5 ${disabled ? 'opacity-65' : ''}`}>
+        <div className={`flex items-end gap-2 rounded-3xl bg-card pl-4 pr-1.5 py-1.5 shadow-[0_-4px_18px_-6px_rgb(0_0_0/.22),0_10px_28px_-12px_rgb(0_0_0/.35)] ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
           <textarea
             ref={inputRef}
@@ -305,26 +369,29 @@ function ChatComposerView({ chat, usage, sending, enterSends, library, onRefresh
             aria-controls={suggestionsOpen ? 'chat-command-suggestions' : undefined}
             aria-expanded={suggestionsOpen}
             aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
-            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : `Message ${chat.title}…`}
+            placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : firstTask ? 'What should Claude work on?' : `Message ${chat.title}…`}
             disabled={disabled}
-            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
+            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Attach file"
-            title="Attach an image or PDF"
-            aria-pressed={pickerOpen}
-            disabled={disabled || uploading || limitReached}
-            onClick={() => {
-              setPickerDismissed(false)
-              setAttachOpen(open => !open)
-            }}
-            className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
-          >
-            <Paperclip aria-hidden="true" />
-          </Button>
+          {attachable && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach file"
+              title="Attach an image or PDF"
+              aria-pressed={pickerOpen}
+              disabled={disabled || uploading || limitReached}
+              onClick={() => {
+                setPickerDismissed(false)
+                setSearch('')
+                setAttachOpen(open => !open)
+              }}
+              className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
+            >
+              <Paperclip aria-hidden="true" />
+            </Button>
+          )}
           <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>

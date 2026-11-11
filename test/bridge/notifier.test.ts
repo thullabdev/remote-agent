@@ -28,7 +28,7 @@ function addPrompt(id: string) {
 test('creates one thread for concurrent prompts', async () => {
   channel.createThreadDelayMs = 20
   await Promise.all([notifier.promptCreated(addPrompt('p:1')), notifier.promptCreated(addPrompt('p:2'))])
-  expect(channel.threads).toEqual([{ ref: 't1', title: 'app · abcdef12', closed: false }])
+  expect(channel.threads).toEqual([{ ref: 't1', title: 'app · New session', closed: false }])
   expect(channel.prompts.map(sent => sent.thread)).toEqual(['t1', 't1'])
   expect(store.getSession(session.sessionId)?.threadId).toBe('t1')
   expect(store.findPromptMessage(channel.prompts[0]!.refs[0]!)).toEqual({ promptId: 'p:1', questionIndex: 0 })
@@ -155,24 +155,24 @@ const titled = { session, title: 'fix login' }
 test('a topic created for an already named session carries the name', async () => {
   await notifier.updateTitle(titled)
   await notifier.promptCreated(addPrompt('p:1'))
-  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+  expect(channel.threads[0]!.title).toBe('app · fix login')
 })
 
 test('renames an existing topic when the session name changes, and only then', async () => {
   await notifier.promptCreated(addPrompt('p:1'))
   await notifier.updateTitle(titled)
-  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+  expect(channel.threads[0]!.title).toBe('app · fix login')
   channel.threads[0]!.title = 'edited by hand'
   await notifier.updateTitle(titled)
   expect(channel.threads[0]!.title).toBe('edited by hand')
   await notifier.updateTitle({ session, title: 'ship it' })
-  expect(channel.threads[0]!.title).toBe('app · abcdef12 · ship it')
+  expect(channel.threads[0]!.title).toBe('app · ship it')
 })
 
 test('an empty name changes nothing', async () => {
   await notifier.promptCreated(addPrompt('p:1'))
   await notifier.updateTitle({ session, title: '  ' })
-  expect(channel.threads[0]!.title).toBe('app · abcdef12')
+  expect(channel.threads[0]!.title).toBe('app · New session')
 })
 
 test('a failed rename is logged, swallowed and retried on the next call', async () => {
@@ -184,10 +184,10 @@ test('a failed rename is logged, swallowed and retried on the next call', async 
   channel.renameFails = true
   await notifier.updateTitle(titled)
   expect(logged).toHaveLength(1)
-  expect(channel.threads[0]!.title).toBe('app · abcdef12')
+  expect(channel.threads[0]!.title).toBe('app · New session')
   channel.renameFails = false
   await notifier.updateTitle(titled)
-  expect(channel.threads[0]!.title).toBe('app · abcdef12 · fix login')
+  expect(channel.threads[0]!.title).toBe('app · fix login')
 })
 
 test('closeSession ends the session and closes its thread silently, once', async () => {
@@ -244,6 +244,10 @@ class RecordingSink implements ChatSink {
 
   promptResolved(prompt: PromptRow, refs: string[]): void {
     this.calls.push(`promptResolved ${prompt.id} ${refs.join(',')}`)
+  }
+
+  promptPartAnswered(prompt: PromptRow, ref: string, questionIndex: number, value: string): void {
+    this.calls.push(`promptPartAnswered ${prompt.id} ${ref} #${questionIndex}=${value}`)
   }
 
   instructionQueued(): Message {
@@ -324,6 +328,18 @@ test('promptResolved hands the prompt and its message refs to the sink', async (
 
   expect(sink.calls.filter(call => call.startsWith('promptResolved'))).toEqual(['promptResolved p:1 m-q1'])
   expect(channel.resolved).toEqual([])
+})
+
+test('a partly answered prompt tells the sink which question message was answered', async () => {
+  const sink = new RecordingSink()
+  sink.refsToReturn = ['m-q1', 'm-q2']
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  await notifier.promptCreated(addPrompt('p:1'))
+
+  await notifier.promptPartAnswered(store.getPrompt('p:1')!, 1, 'b2')
+  await notifier.promptPartAnswered(store.getPrompt('p:1')!, 5, 'nope')
+
+  expect(sink.calls.filter(call => call.startsWith('promptPartAnswered'))).toEqual(['promptPartAnswered p:1 m-q2 #1=b2'])
 })
 
 test('no sink: notifier behaviour is unchanged and prompts still go through the channel', async () => {
@@ -468,4 +484,22 @@ test('a throwing sink.promptCreated propagates and stores no refs, so redelivery
   failing = false
   await notifier.redeliverUndelivered()
   expect(store.listPromptMessageRefs('p:1')).toHaveLength(1)
+})
+
+test('a second start of a session that is still running is warned in its chat, once per start; an ended session starts clean', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  store.setSessionChat(session.sessionId, 'c-app')
+  store.setSessionThread(session.sessionId, 'c-app')
+  const warnings = () => sink.calls.filter(call => call.startsWith('systemMessage')).length
+
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(0)
+
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(1)
+
+  await notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(1)
 })

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Chat, Message, ServerEvent } from '../channel/web/protocol.ts'
 import type { ApiClient, MessagePage, WebState } from './api.ts'
 import { applyServerEvent, createRealtimeState, mergeHistory, type RealtimeState } from './realtime.ts'
+import { Liveness } from './liveness.ts'
 
 export type ConnectionStatus = 'loading' | 'connected' | 'reconnecting' | 'error' | 'resyncing'
 
@@ -16,7 +17,7 @@ function isMessage(value: unknown): value is Message {
   if (typeof value.seq !== 'number' || typeof value.at !== 'number' || typeof value.kind !== 'string') {
     return false
   }
-  return ['user_text', 'agent_text', 'tool_run', 'prompt', 'system', 'command_reply', 'picker'].includes(value.kind)
+  return ['user_text', 'agent_text', 'tool_run', 'prompt', 'system', 'command_reply', 'picker', 'session_status'].includes(value.kind)
 }
 
 function isChat(value: unknown): value is Chat {
@@ -72,6 +73,7 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
   const stateRef = useRef<RealtimeState | null>(null)
   const activeChatRef = useRef(activeChatId)
   const socketRef = useRef<WebSocket | null>(null)
+  const reconnectNowRef = useRef<() => void>(() => {})
 
   const updateRealtime = useCallback((update: (current: RealtimeState) => RealtimeState) => {
     setRealtime(current => {
@@ -108,8 +110,9 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
     let stopped = false
     let refreshing = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
-    let pingTimer: ReturnType<typeof setInterval> | undefined
     let retryCount = 0
+    let liveness: Liveness | null = null
+    let abandonCurrent: (() => void) | null = null
     let socket: WebSocket | null = null
     let connect: (after: number) => void = () => {}
 
@@ -144,22 +147,68 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
         return
       }
       const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${scheme}//${window.location.host}/ws?after=${after}`)
-      socketRef.current = socket
+      const current = new WebSocket(`${scheme}//${window.location.host}/ws?after=${after}`)
+      socket = current
+      socketRef.current = current
+      let monitor: Liveness | null = null
+      let abandoned = false
 
-      socket.addEventListener('open', () => {
+      /** The connection looks open but has gone quiet: drop it and reconnect at once, replaying what was missed. */
+      const abandon = () => {
+        abandoned = true
+        if (liveness === monitor) {
+          liveness = null
+        }
+        if (socketRef.current === current) {
+          socketRef.current = null
+        }
+        try {
+          current.close()
+        } catch {
+          // Already closed: nothing to do.
+        }
+        if (stopped || refreshing) {
+          return
+        }
+        setStatus('reconnecting')
+        retryCount = 0
+        connect(stateRef.current?.eventSeq ?? after)
+      }
+
+      abandonCurrent = abandon
+
+      current.addEventListener('open', () => {
         retryCount = 0
         setError(null)
         setStatus('connected')
         sendPresence()
-        pingTimer = setInterval(() => {
-          if (socket?.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'ping' }))
-          }
-        }, 30_000)
+        monitor = new Liveness({
+          now: Date.now,
+          send: () => {
+            if (current.readyState === WebSocket.OPEN) {
+              current.send(JSON.stringify({ type: 'ping' }))
+            }
+          },
+          onDead: abandon,
+          schedule: (fn, ms) => {
+            const timer = setTimeout(fn, ms)
+            return () => clearTimeout(timer)
+          },
+          repeat: (fn, ms) => {
+            const timer = setInterval(fn, ms)
+            return () => clearInterval(timer)
+          },
+        })
+        liveness = monitor
+        monitor.start()
       })
 
-      socket.addEventListener('message', event => {
+      current.addEventListener('message', event => {
+        if (abandoned) {
+          return
+        }
+        // Anything from the server, a pong included, shows the connection is alive.
+        monitor?.heard()
         const serverEvent = typeof event.data === 'string' ? parseServerEvent(event.data) : null
         if (serverEvent === null || stopped) {
           return
@@ -167,7 +216,8 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
         if (serverEvent.type === 'resync') {
           refreshing = true
           setStatus('resyncing')
-          socket?.close()
+          monitor?.stop()
+          current.close()
           void api
             .getState()
             .then(next => {
@@ -184,25 +234,25 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
             })
           return
         }
-        updateRealtime(current => applyServerEvent(current, serverEvent))
+        updateRealtime(state => applyServerEvent(state, serverEvent))
       })
 
-      socket.addEventListener('close', () => {
-        if (pingTimer !== undefined) {
-          clearInterval(pingTimer)
-          pingTimer = undefined
+      current.addEventListener('close', () => {
+        monitor?.stop()
+        if (liveness === monitor) {
+          liveness = null
         }
-        if (socketRef.current === socket) {
+        if (socketRef.current === current) {
           socketRef.current = null
         }
-        if (stopped || refreshing) {
+        if (abandoned || stopped || refreshing) {
           return
         }
         scheduleReconnect(stateRef.current?.eventSeq ?? after)
       })
 
-      socket.addEventListener('error', () => {
-        if (!stopped) {
+      current.addEventListener('error', () => {
+        if (!abandoned && !stopped) {
           setStatus('reconnecting')
         }
       })
@@ -226,23 +276,61 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
       }
     }
 
+    /**
+     * Reconnects now, without waiting out the retry delay. A no-op while a socket is open or before the first load. A socket that is
+     * stuck connecting or closing (a dropped network can leave it there for minutes) is abandoned and replaced.
+     */
+    const reconnectNow = () => {
+      if (stopped || refreshing || stateRef.current === null) {
+        return
+      }
+      const existing = socketRef.current
+      if (existing !== null) {
+        if (existing.readyState !== WebSocket.OPEN) {
+          abandonCurrent?.()
+        }
+        return
+      }
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer)
+        retryTimer = undefined
+      }
+      retryCount = 0
+      setStatus('reconnecting')
+      connect(stateRef.current.eventSeq)
+    }
+    reconnectNowRef.current = reconnectNow
+
     const presenceChanged = () => sendPresence()
+    /** The user is back, or the network is: reconnect now if the socket is gone, probe it if it has been quiet. */
+    const returned = () => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      reconnectNow()
+      liveness?.returned()
+    }
     void refresh()
     window.addEventListener('focus', presenceChanged)
     window.addEventListener('blur', presenceChanged)
     document.addEventListener('visibilitychange', presenceChanged)
+    document.addEventListener('visibilitychange', returned)
+    window.addEventListener('online', returned)
+    window.addEventListener('pageshow', returned)
     window.addEventListener('pagehide', pagehide)
     return () => {
       stopped = true
       if (retryTimer !== undefined) {
         clearTimeout(retryTimer)
       }
-      if (pingTimer !== undefined) {
-        clearInterval(pingTimer)
-      }
+      liveness?.stop()
+      reconnectNowRef.current = () => {}
       window.removeEventListener('focus', presenceChanged)
       window.removeEventListener('blur', presenceChanged)
       document.removeEventListener('visibilitychange', presenceChanged)
+      document.removeEventListener('visibilitychange', returned)
+      window.removeEventListener('online', returned)
+      window.removeEventListener('pageshow', returned)
       window.removeEventListener('pagehide', pagehide)
       socket?.close()
       socketRef.current = null
@@ -280,6 +368,14 @@ export function useWebChannel(api: ApiClient, activeChatId: string | null) {
     status,
     error,
     reload: () => setReloadKey(value => value + 1),
+    /** Tries the connection again now: a full reload if the app never loaded, otherwise a reconnect that skips the retry delay. */
+    retry: () => {
+      if (stateRef.current === null) {
+        setReloadKey(value => value + 1)
+      } else {
+        reconnectNowRef.current()
+      }
+    },
     loadMessages,
     mergeMessage,
     markRead,

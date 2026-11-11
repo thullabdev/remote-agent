@@ -16,7 +16,12 @@ test('upsertSession derives the project and reopens ended sessions', () => {
   store.endSession('s1')
   expect(store.getSession('s1')?.endedAt).toBe(1_000)
   const reopened = store.upsertSession({ sessionId: 's1', cwd: '/home/u/Sites/app' })
-  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null, chatId: null })
+  expect(reopened).toEqual({ id: 's1', cwd: '/home/u/Sites/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null, chatId: null, launchCwd: '/home/u/Sites/app' })
+})
+
+test('a later report moves cwd but keeps the launch folder', () => {
+  store.upsertSession({ sessionId: 's1', cwd: '/home/u/Sites/app/.claude/worktrees/x' })
+  expect(store.getSession('s1')).toMatchObject({ cwd: '/home/u/Sites/app/.claude/worktrees/x', launchCwd: '/home/u/Sites/app' })
 })
 
 test('threads are stored and looked up', () => {
@@ -89,7 +94,7 @@ test('createSpawnedSession records the tmux name and is not started yet', () => 
   const row = store.createSpawnedSession({ id: 'sp1', cwd: '/home/u/Sites/api', tmuxName: 'ra-sp1' })
   expect(row).toEqual({
     id: 'sp1', cwd: '/home/u/Sites/api', project: 'api', threadId: null, title: null, endedAt: null,
-    spawned: true, tmuxName: 'ra-sp1', startedAt: null, chatId: null,
+    spawned: true, tmuxName: 'ra-sp1', startedAt: null, chatId: null, launchCwd: '/home/u/Sites/api',
   })
 })
 

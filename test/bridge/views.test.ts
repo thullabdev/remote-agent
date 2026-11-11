@@ -3,14 +3,14 @@ import { SETTLED_LOCALLY_MESSAGE } from '../../mod/remote-agent/hooks/protocol.t
 import type { PromptRow, SessionRow } from '../../src/bridge/store.ts'
 import { formatDuration, permissionSummary, promptView, reportText, resolutionNote, threadTitle } from '../../src/bridge/views.ts'
 
-const session: SessionRow = { id: 'abcdef1234567890', cwd: '/home/u/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null, chatId: null }
+const session: SessionRow = { id: 'abcdef1234567890', cwd: '/home/u/app', project: 'app', threadId: null, title: null, endedAt: null, spawned: false, tmuxName: null, startedAt: null, chatId: null, launchCwd: '/home/u/app' }
 
 function prompt(body: PromptRow['body']): PromptRow {
   return { id: 'q:toolu_1', sessionId: session.id, body, status: 'pending', answer: null, source: null, partial: {}, createdAt: 0, reminded: false }
 }
 
-test('thread title is project plus short session id', () => {
-  expect(threadTitle(session)).toBe('app · abcdef12')
+test('an unnamed session is the project plus New session, without a hash', () => {
+  expect(threadTitle(session)).toBe('app · New session')
 })
 
 test('permission view has Allow and Deny buttons and a redacted summary', () => {
@@ -94,10 +94,10 @@ test('a prompt settled in the terminal is reported as such, not as an allow or d
 })
 
 test('thread title appends the session name, collapsed and truncated to 128 characters', () => {
-  expect(threadTitle({ ...session, title: 'fix  the\nlogin bug' })).toBe('app · abcdef12 · fix the login bug')
-  expect(threadTitle({ ...session, title: '   ' })).toBe('app · abcdef12')
+  expect(threadTitle({ ...session, title: 'fix  the\nlogin bug' })).toBe('app · fix the login bug')
+  expect(threadTitle({ ...session, title: '   ' })).toBe('app · New session')
   const long = threadTitle({ ...session, title: 'x'.repeat(300) })
   expect(long).toHaveLength(128)
-  expect(long.startsWith('app · abcdef12 · xxx')).toBe(true)
+  expect(long.startsWith('app · xxx')).toBe(true)
   expect(long.endsWith('…')).toBe(true)
 })

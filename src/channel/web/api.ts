@@ -2,14 +2,15 @@ import { z } from 'zod'
 import type { AwayMode } from '../../bridge/notifier.ts'
 import { BadRequest } from '../../bridge/errors.ts'
 import type { Log } from '../../bridge/prompts.ts'
-import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../../bridge/spawner.ts'
+import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, isModelName, type Spawner } from '../../bridge/spawner.ts'
 import type { SessionRow, Store } from '../../bridge/store.ts'
 import type { Project } from '../../bridge/trusted.ts'
 import type { ChatSink } from '../chat-sink.ts'
 import type { ButtonData, ChannelHandlers } from '../types.ts'
-import type { ChatLog } from './chat-log.ts'
+import { MAX_PINNED_CHATS, type ChatLog } from './chat-log.ts'
+import { orderChats } from './order.ts'
 import type { PushService } from './push.ts'
-import { ActionSchema, AwaySchema, clientSourceId, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
+import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
 import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
 
 const GENERAL_ID = 'general'
@@ -23,7 +24,7 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume' | 'lastModel'>
   sink: Pick<ChatSink, 'instructionQueued'>
   /** The current accounts and per-chat usage, read fresh for each state request. */
   usage: () => UsageView
@@ -86,8 +87,11 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'end'], run: ({ deps }, id) => endChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'archive'], run: ({ deps }, id) => archiveChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'unarchive'], run: ({ deps }, id) => unarchiveChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'pin'], run: ({ deps, request }, id) => pinChat(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'draft'], run: ({ deps }, id) => getDraft(deps, id) },
+  { method: 'PUT', pattern: ['chats', ':id', 'draft'], run: ({ deps, request }, id) => saveDraft(deps, request, id) },
   { method: 'GET', pattern: ['uploads'], run: ({ deps }) => listUploads(deps) },
   { method: 'POST', pattern: ['uploads'], run: ({ deps, request }) => addUpload(deps, request) },
   { method: 'GET', pattern: ['uploads', ':id'], run: ({ deps, url }, id) => uploadFile(deps, id, url) },
@@ -96,7 +100,9 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['messages', ':id', 'pin'], run: ({ deps, request }, id) => pinMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
-  { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps, request }, id) => resumeChat(deps, request, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'resume-model'], run: ({ deps }, id) => resumeModel(deps, id) },
+  { method: 'GET', pattern: ['activity'], run: ({ deps, url }) => activity(deps, url) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
   { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
   { method: 'PUT', pattern: ['away'], run: ({ deps, request }) => setAway(deps, request) },
@@ -174,6 +180,21 @@ async function readBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
   } catch {
     throw new ApiError(400, 'The request body must be JSON.')
   }
+  return checkBody(raw, schema)
+}
+
+/** A JSON body already read as text, checked against the schema. */
+async function readJsonBody<T>(text: string, schema: z.ZodType<T>): Promise<T> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new ApiError(400, 'The request body must be JSON.')
+  }
+  return checkBody(raw, schema)
+}
+
+function checkBody<T>(raw: unknown, schema: z.ZodType<T>): T {
   const parsed = schema.safeParse(raw)
   if (!parsed.success) {
     const problems = parsed.error.issues.map(issue => `${issue.path.join('.') || 'body'}: ${issue.message}`)
@@ -206,21 +227,11 @@ function requireHandlers(deps: ApiDeps): ChannelHandlers {
   return handlers
 }
 
-function byRecency(a: Chat, b: Chat): number {
-  if (a.id === GENERAL_ID) {
-    return -1
-  }
-  if (b.id === GENERAL_ID) {
-    return 1
-  }
-  return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0)
-}
-
 function state(deps: ApiDeps): unknown {
   return {
     seq: deps.chatLog.currentSeq(),
     away: deps.away.isAway(),
-    chats: deps.chatLog.listChats().sort(byRecency),
+    chats: orderChats(deps.chatLog.listChats()),
     usage: deps.usage(),
   }
 }
@@ -273,9 +284,10 @@ function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; 
     if (record === undefined) {
       throw new ApiError(400, 'An attached file is no longer in the library.')
     }
-    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size }
+    const path = library.filePath(record)
+    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size, path }
     refs.push(ref)
-    files.push({ ref, path: library.filePath(record) })
+    files.push({ ref, path })
   }
   return { refs, files }
 }
@@ -321,7 +333,8 @@ function withUploadErrors<T>(action: () => T): T {
 }
 
 function listUploads(deps: ApiDeps): unknown {
-  return { uploads: requireUploads(deps).list() }
+  const uses = deps.chatLog.uploadUses()
+  return { uploads: requireUploads(deps).list().map(upload => ({ ...upload, uses: uses.get(upload.id) ?? 0 })) }
 }
 
 /** Uploads travel as JSON with base64 data, so the JSON Content-Type guard applies to them too. */
@@ -492,6 +505,22 @@ function unarchiveChat(deps: ApiDeps, chatId: string): unknown {
   return { toast: 'Session restored.' }
 }
 
+async function pinChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const { pinned } = await readBody(request, PinSchema)
+  const chat = requireChat(deps, chatId)
+  if (chat.id === GENERAL_ID) {
+    throw new ApiError(409, 'General is always at the top.')
+  }
+  if (pinned && chat.archived) {
+    throw new ApiError(409, 'An archived Session cannot be pinned.')
+  }
+  if (pinned && !chat.pinned && deps.chatLog.pinnedChatCount() >= MAX_PINNED_CHATS) {
+    throw new ApiError(409, `You can pin up to ${MAX_PINNED_CHATS} Sessions. Unpin one first.`)
+  }
+  deps.chatLog.setChatPinned(chatId, pinned)
+  return { toast: pinned ? 'Session pinned.' : 'Session unpinned.' }
+}
+
 async function renameChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
   const { title } = await readBody(request, RenameChatSchema)
   const chat = requireChat(deps, chatId)
@@ -503,9 +532,31 @@ async function renameChat(deps: ApiDeps, request: Request, chatId: string): Prom
   return { toast: name === '' ? 'Session name reset.' : 'Session renamed.' }
 }
 
+/** The dashboard's numbers. `tz` is the viewer's offset east of UTC in minutes, so "today" is theirs. */
+function activity(deps: ApiDeps, url: URL): unknown {
+  const days = Math.min(30, Math.max(1, Math.floor(Number(url.searchParams.get('days') ?? 7)) || 7))
+  const tz = Number(url.searchParams.get('tz') ?? 0)
+  if (!Number.isInteger(tz) || Math.abs(tz) > 14 * 60) {
+    throw new ApiError(400, 'tz must be minutes east of UTC.')
+  }
+  return deps.chatLog.getActivity({ days, offsetMinutes: tz })
+}
+
 function listPins(deps: ApiDeps, chatId: string): unknown {
   requireChat(deps, chatId)
   return { pins: deps.chatLog.listPins(chatId) }
+}
+
+function getDraft(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  return { draft: deps.chatLog.getDraft(chatId) }
+}
+
+async function saveDraft(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const draft = await readBody(request, DraftSchema)
+  requireChat(deps, chatId)
+  deps.chatLog.setDraft(chatId, draft)
+  return { ok: true }
 }
 
 async function pinMessage(deps: ApiDeps, request: Request, messageId: string): Promise<unknown> {
@@ -537,10 +588,28 @@ async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   return { toast }
 }
 
-async function resumeChat(deps: ApiDeps, chatId: string): Promise<unknown> {
+/** The model a resumed Session would use by default: the one it last ran on, or null when unknown. */
+async function resumeModel(deps: ApiDeps, chatId: string): Promise<unknown> {
   requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
-  const toast = await deps.spawner.resume(session.id)
+  return { model: await deps.spawner.lastModel(session.id) }
+}
+
+const ResumeChatSchema = z.object({
+  /** Null resumes on the model the Session was last using; a name starts it on that model. */
+  model: z
+    .string()
+    .refine(isModelName, 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.')
+    .nullable(),
+})
+
+async function resumeChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  // No body means no model chosen, as before the model choice existed; a body is validated like any other.
+  const text = (await request.text()).trim()
+  const model = text === '' ? null : (await readJsonBody(text, ResumeChatSchema)).model
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const toast = await deps.spawner.resume(session.id, model)
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }

@@ -129,7 +129,9 @@ function parseEntry(value: unknown): TranscriptEntry[] {
     return []
   }
   // Sidechain and meta lines are internal (a sub-agent's work, or injected context), not the chat's conversation.
-  if (value.isSidechain === true || value.isMeta === true) {
+  // A compaction summary is written as a user line, but Claude Code made it, not the user, and nothing follows it until the user
+  // writes again: shown as a message it would be a wall of text, and counted as a turn it would leave the chat busy.
+  if (value.isSidechain === true || value.isMeta === true || value.isCompactSummary === true) {
     return []
   }
   const uuid = typeof value.uuid === 'string' ? value.uuid : null

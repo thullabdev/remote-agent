@@ -53,3 +53,32 @@ export function truncate(text: string, max: number): string {
 export function escapeHtml(text: string): string {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
+
+/** Markdown reduced to the plain words a reader would see, on one line. For previews, not for rendering. */
+export function stripMarkdown(markdown: string): string {
+  const plain = markdown
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*$/gm, '')
+    .replace(/^ {0,3}#{1,6}[ \t]+/gm, '')
+    .replace(/^ {0,3}>[ \t]?/gm, '')
+    .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/gm, '')
+    .replace(/^ {0,3}(?:[-*_][ \t]*){3,}$/gm, '')
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|?[ \t]*$/gm, '')
+    .replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_row, cells: string) => cells.replaceAll('|', ' '))
+    .replace(/<\/?[A-Za-z][^<>]*>/g, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`+([^`]+)`+/g, '$1')
+    .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2')
+    .replace(/\*(?=\S)([^*]*?\S)\*/g, '$1')
+    .replace(/(?<![A-Za-z0-9_])_(?=\S)([^_]*?\S)_(?![A-Za-z0-9_])/g, '$1')
+    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, '$1')
+  return plain.replace(/\s+/g, ' ').trim()
+}
+
+/** The first `max` characters of `text`, cut between characters so an emoji is never split in half. */
+export function clipChars(text: string, max: number): string {
+  if (text.length <= max) {
+    return text
+  }
+  return Array.from(text.slice(0, max * 2)).slice(0, max).join('')
+}

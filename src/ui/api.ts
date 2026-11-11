@@ -1,4 +1,4 @@
-import type { Chat, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { ActivityView, Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
 
 export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
@@ -37,12 +37,20 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   archiveChats(chatIds: string[]): Promise<{ toast: string }>
   unarchiveChat(chatId: string): Promise<{ toast: string }>
   renameChat(chatId: string, title: string): Promise<{ toast: string }>
+  pinChat(chatId: string, pinned: boolean): Promise<{ toast: string }>
   pinMessage(messageId: string, pinned: boolean): Promise<{ toast: string }>
   listPins(chatId: string): Promise<{ pins: PinView[] }>
+  getDraft(chatId: string): Promise<{ draft: Draft | null }>
+  saveDraft(chatId: string, draft: Draft): Promise<{ ok: true }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
-  resumeChat(chatId: string): Promise<{ toast: string }>
+  /** `model` null resumes on the model the Session last used; a name starts it on that model. */
+  resumeChat(chatId: string, model?: string | null): Promise<{ toast: string }>
+  /** The model the Session last ran on, or null when unknown. */
+  resumeModel(chatId: string): Promise<{ model: string | null }>
   getProjects(): Promise<{ projects: Project[] }>
+  /** The dashboard's numbers for `days` days, in this device's time zone. */
+  getActivity(days?: number): Promise<ActivityView>
   startProject(body: { cwd: string; model?: string }): Promise<{ toast: string }>
   getPushKey(): Promise<{ key: string }>
   subscribePush(subscription: PushSubscriptionRecord): Promise<{ ok: true }>
@@ -76,6 +84,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       headers: { 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
+  }
+
+  function put<T>(path: string, body: unknown): Promise<T> {
+    return request<T>(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   }
 
   function del<T>(path: string): Promise<T> {
@@ -119,12 +131,17 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     },
     unarchiveChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/unarchive`),
     renameChat: (chatId, title) => post(`/api/chats/${encodeURIComponent(chatId)}/rename`, { title }),
+    pinChat: (chatId, pinned) => post(`/api/chats/${encodeURIComponent(chatId)}/pin`, { pinned }),
     pinMessage: (messageId, pinned) => post(`/api/messages/${encodeURIComponent(messageId)}/pin`, { pinned }),
     listPins: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/pins`),
+    getDraft: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/draft`),
+    saveDraft: (chatId, draft) => put(`/api/chats/${encodeURIComponent(chatId)}/draft`, draft),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
-    resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),
+    resumeChat: (chatId, model = null) => post(`/api/chats/${encodeURIComponent(chatId)}/resume`, { model }),
+    resumeModel: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/resume-model`),
     getProjects: () => get('/api/projects'),
+    getActivity: (days = 7) => get(`/api/activity?days=${days}&tz=${-new Date().getTimezoneOffset()}`),
     startProject: body => post('/api/projects/start', body),
     getPushKey: () => get('/api/push/key'),
     subscribePush: subscription => post('/api/push/subscriptions', { subscription }),

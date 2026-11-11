@@ -1,4 +1,6 @@
-import type { Message } from '../channel/web/protocol.ts'
+import { chatState } from '../channel/web/chat-state.ts'
+import type { Chat, Message, PendingPrompt } from '../channel/web/protocol.ts'
+import type { ConnectionStatus } from './use-web-channel.ts'
 
 export type MessageGroup = { kind: 'message'; message: Message } | { kind: 'tool-group'; messages: Extract<Message, { kind: 'tool_run' }>[] }
 
@@ -245,4 +247,177 @@ export function toolInputText(input: unknown): string {
   } catch {
     return String(input)
   }
+}
+
+/** What a pending Prompt is, in the words the list uses. */
+export function pendingPromptLabel(prompt: PendingPrompt): string {
+  return prompt.kind === 'permission' ? 'Permission' : 'Question'
+}
+
+/** The look of the "needs you" state: the --status-needs token, not the accent, so it is never mistaken for an unread count. */
+export const NEEDS_YOU_TEXT_CLASS = 'text-status-needs'
+export const NEEDS_YOU_BADGE_CLASS = 'border-status-needs/30 bg-status-needs/10 text-status-needs'
+
+/** A stable hue (0-359) for a project or title, so sessions of one project share a color. */
+export function avatarHue(key: string): number {
+  let hash = 0
+  for (const char of key) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
+  }
+  return hash % 360
+}
+
+/** What an avatar shows for a session, so the list row and the chat header agree: the project's letter and color. */
+export function chatAvatar(chat: { id: string; title: string; project: string | null }): { fallback: string; hue: number | undefined } {
+  if (chat.id === 'general') {
+    return { fallback: '⌘', hue: undefined }
+  }
+  const key = chat.project ?? chat.title
+  return { fallback: key, hue: avatarHue(key) }
+}
+
+/** The same age as formatRelativeTime, in words a screen reader can say ("12 minutes ago"). */
+export function relativeTimeWords(at: number, now = Date.now()): string {
+  const delta = Math.max(0, now - at)
+  if (delta < 60_000) {
+    return 'just now'
+  }
+  if (delta < 3_600_000) {
+    const minutes = Math.floor(delta / 60_000)
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`
+  }
+  if (delta < 86_400_000) {
+    const hours = Math.floor(delta / 3_600_000)
+    return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  }
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(at)
+}
+
+/** The accessible name of a chat row. It starts with the state, so a screen reader user hears what matters first. */
+export function chatRowLabel(chat: Chat, now = Date.now()): string {
+  const state = chatState(chat)
+  const parts: string[] = []
+  if (state === 'needs_you' && chat.pendingPrompt !== null) {
+    parts.push('Needs you', `${chat.pendingPrompt.kind}: ${chat.pendingPrompt.summary}`)
+  } else if (state === 'working') {
+    parts.push('Working')
+  } else if (state === 'ended') {
+    parts.push('Ended')
+  }
+  parts.push(chat.title)
+  if (chat.pinned && chat.id !== 'general') {
+    parts.push('pinned')
+  }
+  if (chat.id !== 'general') {
+    parts.push(chat.spawned ? 'spawned session' : 'computer session')
+  }
+  if (chat.project !== null) {
+    parts.push(chat.project)
+  }
+  if (chat.lastMessage !== null) {
+    parts.push(relativeTimeWords(chat.lastMessage.at, now))
+  }
+  if (chat.unread > 0) {
+    parts.push(`${chat.unread} unread`)
+  }
+  if (chat.draft !== null) {
+    parts.push('has a draft')
+  }
+  return parts.join(', ')
+}
+
+/** The message to scroll to for a Prompt that waits: its first pending message. Undefined once it is answered or if it is not loaded. */
+export function pendingPromptMessage(messages: Message[], promptId: string): Message | undefined {
+  return messages.find(message => message.kind === 'prompt' && message.promptId === promptId && message.status === 'pending')
+}
+
+/** What a tap on a chat row asks for besides opening it: the pending Prompt of a session that needs you. */
+export function rowOpenTarget(chat: Chat): { promptId: string } | undefined {
+  return chatState(chat) === 'needs_you' && chat.pendingPrompt !== null ? { promptId: chat.pendingPrompt.promptId } : undefined
+}
+
+/** The chat and Prompt a link names (`/?chat=<id>&prompt=<id>`, from a notification or a shared link). A Prompt needs its chat. */
+export function deepLink(search: string): { chatId: string | null; promptId: string | null } {
+  const params = new URLSearchParams(search)
+  const chatId = params.get('chat') || null
+  return { chatId, promptId: chatId === null ? null : params.get('prompt') || null }
+}
+
+export type Segment = { text: string; match: boolean }
+
+/**
+ * Splits `text` into runs that match a search word and runs that do not, so the match can be marked. Matching ignores case and is
+ * literal (a "." in a search is a dot, not a pattern); overlapping and touching matches become one run.
+ */
+export function highlightSegments(text: string, terms: string[]): Segment[] {
+  if (text === '') {
+    return []
+  }
+  const lower = text.toLowerCase()
+  // A few characters change length when lowercased; marking by position would then be wrong, so show the text plain.
+  if (lower.length !== text.length) {
+    return [{ text, match: false }]
+  }
+  const ranges: [number, number][] = []
+  for (const term of terms) {
+    const needle = term.toLowerCase()
+    for (let from = needle === '' ? lower.length : 0; ; ) {
+      const at = lower.indexOf(needle, from)
+      if (at < 0) {
+        break
+      }
+      ranges.push([at, at + needle.length])
+      from = at + 1
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0])
+  const merged: [number, number][] = []
+  for (const range of ranges) {
+    const last = merged.at(-1)
+    if (last !== undefined && range[0] <= last[1]) {
+      last[1] = Math.max(last[1], range[1])
+    } else {
+      merged.push([range[0], range[1]])
+    }
+  }
+  const segments: Segment[] = []
+  let cursor = 0
+  for (const [start, end] of merged) {
+    if (start > cursor) {
+      segments.push({ text: text.slice(cursor, start), match: false })
+    }
+    segments.push({ text: text.slice(start, end), match: true })
+    cursor = end
+  }
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), match: false })
+  }
+  return segments
+}
+
+const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
+  loading: 'Connecting to your computer…',
+  reconnecting: "Can't reach your computer. Reconnecting…",
+  resyncing: 'Syncing recent activity…',
+  error: "Can't reach your computer.",
+}
+
+/** What to tell the user about the connection, or undefined while it is fine. One wording for the list and for an open chat. */
+export function connectionNoticeText(status: ConnectionStatus): string | undefined {
+  return CONNECTION_NOTICE[status]
+}
+
+/** "Today 14:20", "Yesterday 09:05", or "10 Nov 14:20" for anything older. Local time, for a picker row's first line. */
+export function pickerWhen(at: number, now = Date.now()): string {
+  const date = new Date(at)
+  const clock = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (date.toDateString() === new Date(now).toDateString()) {
+    return `Today ${clock}`
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `Yesterday ${clock}`
+  }
+  return `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${clock}`
 }

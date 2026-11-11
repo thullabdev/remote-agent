@@ -3,6 +3,54 @@ import type { UsageView } from '../../core/usage-types.ts'
 
 // Wire shapes for the web channel: the ChatLog, the HTTP API and the browser UI share them (handoff §4-§5).
 
+/** What a Session is blocked on, for the chat list. Present only while the chat is active and a Prompt waits for an Answer. */
+export type PendingPrompt = {
+  /** The oldest pending Prompt, so the list can open straight to it. */
+  promptId: string
+  kind: 'permission' | 'question'
+  /** One line of plain text: "Bash: bun test" for a Permission Request, the first question for a Question. */
+  summary: string
+  /** When the oldest pending Prompt was raised (ms epoch), for "waiting 4m". */
+  at: number
+  /** How many Prompts wait, counting a multi-question Prompt once. */
+  count: number
+}
+
+/** What a working Session is doing right now: its running tool call. */
+export type ChatActivity = {
+  tool: string
+  /** The command, file or URL the tool acts on; empty when there is none. */
+  summary: string
+  /** When the tool call started (ms epoch), for "12s". */
+  at: number
+}
+
+/** One day of the dashboard's Today card. `date` is YYYY-MM-DD in the viewer's zone. */
+export type ActivityDay = { date: string; sessionsStarted: number; turnsCompleted: number; workedMs: number }
+
+/** A line of the dashboard's recent activity. */
+/**
+ * A line of recent activity. A finished burst covers `turns` turns from `firstAt` to `at`; `preview` is the newest reply of that
+ * burst, cut to one line, or null when none was found. Started and ended lines have no turns and no preview.
+ */
+export type ActivityEvent = {
+  id: number
+  at: number
+  firstAt: number
+  chatId: string
+  kind: 'started' | 'finished' | 'ended'
+  name: string
+  turns: number
+  preview: string | null
+}
+
+export type ActivityView = {
+  days: ActivityDay[]
+  recent: ActivityEvent[]
+  /** When recording began (ms epoch), or null before anything was recorded; days before it are empty, not quiet. */
+  since: number | null
+}
+
 export type Chat = {
   id: string
   title: string
@@ -14,8 +62,14 @@ export type Chat = {
   busy: boolean
   unread: number
   lastMessage: { seq: number; at: number; preview: string } | null
+  /** The unsent draft for this chat. `at` is when it was last edited: chats with a draft are listed first, newest edit on top. */
+  draft: { preview: string; at: number } | null
   pinned: boolean
   tmuxName: string | null
+  /** Set while the Session waits for a human Answer. Wins over `busy`, which stays true because the turn is still open. */
+  pendingPrompt: PendingPrompt | null
+  /** The running tool call while the Session works. Null when idle, ended, waiting on a Prompt, or between tool calls. */
+  activity: ChatActivity | null
 }
 
 export type PromptBodyView =
@@ -52,16 +106,22 @@ export type MessageBody =
       resolution: { note: string; source: 'local' | 'remote' } | null
     }
   | { kind: 'system'; text: string }
+  /** A Spawned Session's startup: one card that moves from starting to ready or failed. */
+  | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }
-  | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number }[] }
+  /** `detail` is a second line under the label; `at` is when the item was made, shown as a relative time. */
+  | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number; detail?: string; at?: number }[] }
 
 export type MessageKind = MessageBody['kind']
 
-/** An uploaded file as a message shows it: enough to display it, not where it is stored. */
-export type UploadRef = { id: string; name: string; mime: string; size: number }
+/**
+ * An uploaded file as a message shows it. `path` is where the Session reads the file; the Bridge sets it when it sends the
+ * message, so the chat can show exactly what the Session received.
+ */
+export type UploadRef = { id: string; name: string; mime: string; size: number; path?: string }
 
-/** A library entry as the picker lists it. */
-export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean }
+/** A library entry as the library lists it. `uses` counts the messages that attached it. */
+export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean; uses?: number }
 
 /** A pinned message as the chat details list shows it. */
 export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }
@@ -126,3 +186,23 @@ export const ReadSchema = z.object({ seq: z.number().int().min(0) })
 export const AwaySchema = z.object({ away: z.boolean() })
 
 export const PinSchema = z.object({ pinned: z.boolean() })
+
+/** Longest draft kept for a chat; the composer is a single message, so this is generous. */
+export const MAX_DRAFT_CHARS = 20_000
+
+/** An unsent message kept per chat, so it can be finished on another device. */
+export const DraftSchema = z.object({
+  text: z.string().max(MAX_DRAFT_CHARS),
+  attachments: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        name: z.string().max(255),
+        mime: z.string().max(100),
+        size: z.number().int().nonnegative(),
+      }),
+    )
+    .max(5),
+})
+
+export type Draft = z.infer<typeof DraftSchema>

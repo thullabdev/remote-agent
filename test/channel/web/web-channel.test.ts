@@ -134,13 +134,13 @@ test('markResolved flips the messages to answered with the note', async () => {
   const thread = await channel.createThread('app')
   const refs = await channel.sendPrompt(thread, view)
 
-  await channel.markResolved(thread, refs, 'Answered on the laptop')
+  await channel.markResolved(thread, refs, 'Answered on the computer')
 
   for (const ref of refs) {
     expect(chatLog.findMessage(ref)).toMatchObject({
       kind: 'prompt',
       status: 'answered',
-      resolution: { note: 'Answered on the laptop', source: 'remote' },
+      resolution: { note: 'Answered on the computer', source: 'remote' },
     })
   }
   expect(chatLog.listMessages(thread, { limit: 10 }).messages.map(message => message.kind)).toEqual(['prompt', 'prompt'])
@@ -270,7 +270,8 @@ test('resolution marks each question message answered', async () => {
 
   const first = chatLog.findMessage(refs[0]!)
   const second = chatLog.findMessage(refs[1]!)
-  expect(first).toMatchObject({ status: 'answered', resolution: { note: 'Answered (remote): sqlite / unit', source: 'remote' } })
+  expect(first).toMatchObject({ status: 'answered', resolution: { note: 'Answered: sqlite', source: 'remote' } })
+  expect(second).toMatchObject({ status: 'answered', resolution: { note: 'Answered: unit', source: 'remote' } })
   expect(first?.kind === 'prompt' && first.body.kind === 'question' ? first.body.questions[0]?.answered : null).toBe('sqlite')
   expect(second?.kind === 'prompt' && second.body.kind === 'question' ? second.body.questions[0]?.answered : null).toBe('unit')
 })
@@ -289,6 +290,31 @@ test('turn_complete appends agent_text when no transcript probe says active, and
   channel.report(session, turn('Second turn'))
   channel.report(session, turn(''))
   expect(chatLog.listMessages(chatId, { limit: 10 }).messages).toHaveLength(1)
+})
+
+// CL-18(b) (docs/ui-critique-chat-list-review.md): lifecycle messages are history for the list, not something to read.
+test('the Session started and Session ended messages do not count as unread, but stay in the log', () => {
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+  channel.sessionSeen(session)
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+
+  channel.report(session, { kind: 'session_started' })
+  channel.report(session, { kind: 'session_ended', reason: 'exit' })
+
+  expect(chatLog.getChat(chatId)?.unread).toBe(0)
+  const texts = chatLog.listMessages(chatId, { limit: 50 }).messages.flatMap(message => (message.kind === 'system' ? [message.text] : []))
+  expect(texts).toEqual([`Session started in ${webSession.cwd}`, 'Session ended (exit)'])
+})
+
+test('a reminder that a prompt is still waiting still counts as unread', async () => {
+  store.upsertSession(webSession)
+  const session = store.getSession(webSession.sessionId)!
+  const prompt = insertPrompt('p9', { kind: 'permission', tool: 'Bash', input: { command: 'ls' } })
+
+  channel.promptReminder(prompt, session)
+
+  expect(chatLog.getChat(store.getSession(webSession.sessionId)!.chatId!)?.unread).toBe(1)
 })
 
 test('first mod request for an unseen session creates exactly one chat', () => {
@@ -502,6 +528,67 @@ function sessionRow() {
   return store.getSession(webSession.sessionId)!
 }
 
+const twoQuestionBody: PromptBody = {
+  kind: 'question',
+  questions: [
+    { question: 'Where?', header: 'Where', multiSelect: false, options: [{ label: 'Top', description: '' }, { label: 'Bottom', description: '' }] },
+    { question: 'Which?', header: 'Which', multiSelect: false, options: [{ label: 'One', description: '' }, { label: 'Two', description: '' }] },
+  ],
+}
+
+test('answering one question of several flips only its card to answered with its own answer, and the chat still needs you', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:two', twoQuestionBody)
+  const refs = channel.promptCreated(prompt, session)
+  const chatId = store.getSession(webSession.sessionId)!.chatId!
+  expect(chatLog.getChat(chatId)?.pendingPrompt).toMatchObject({ promptId: 'p:two', count: 1 })
+
+  channel.promptPartAnswered(prompt, refs[0]!, 0, 'Bottom')
+
+  const [first, second] = refs.map(ref => chatLog.findMessage(ref))
+  expect(first).toMatchObject({ kind: 'prompt', status: 'answered', resolution: { note: 'Answered: Bottom', source: 'remote' } })
+  expect(first?.kind === 'prompt' && first.body.kind === 'question' ? first.body.questions[0]?.answered : null).toBe('Bottom')
+  expect(second).toMatchObject({ kind: 'prompt', status: 'pending', resolution: null })
+  expect(chatLog.getChat(chatId)?.pendingPrompt).toMatchObject({ promptId: 'p:two', count: 1 })
+})
+
+test('when every question is answered each card keeps its own answer, not the joined list', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:two-done', twoQuestionBody)
+  const refs = channel.promptCreated(prompt, session)
+  channel.promptPartAnswered(prompt, refs[0]!, 0, 'Bottom')
+  store.resolvePrompt('p:two-done', { kind: 'question', answers: { 'Where?': 'Bottom', 'Which?': 'Two' } }, 'remote')
+
+  channel.promptResolved(store.getPrompt('p:two-done')!, refs)
+
+  const notes = refs.map(ref => {
+    const message = chatLog.findMessage(ref)
+    return message?.kind === 'prompt' ? message.resolution?.note : null
+  })
+  expect(notes).toEqual(['Answered: Bottom', 'Answered: Two'])
+  expect(chatLog.getChat(store.getSession(webSession.sessionId)!.chatId!)?.pendingPrompt).toBeNull()
+})
+
+test('a permission request resolves with a plain note: Allowed, or Denied with the feedback', () => {
+  const session = sessionRow()
+  const allow = insertPrompt('p:allow', permissionBody)
+  const allowRefs = channel.promptCreated(allow, session)
+  store.resolvePrompt('p:allow', { kind: 'permission', decision: 'allow' }, 'remote')
+  channel.promptResolved(store.getPrompt('p:allow')!, allowRefs)
+
+  const deny = insertPrompt('p:deny', permissionBody)
+  const denyRefs = channel.promptCreated(deny, session)
+  store.resolvePrompt('p:deny', { kind: 'permission', decision: 'deny', message: 'use pnpm' }, 'remote')
+  channel.promptResolved(store.getPrompt('p:deny')!, denyRefs)
+
+  const noteOf = (ref: string) => {
+    const message = chatLog.findMessage(ref)
+    return message?.kind === 'prompt' ? message.resolution?.note : null
+  }
+  expect(noteOf(allowRefs[0]!)).toBe('Allowed')
+  expect(noteOf(denyRefs[0]!)).toBe('Denied: use pnpm')
+})
+
 test('a stale prompt creates one system message and one push', () => {
   const session = sessionRow()
   const prompt = insertPrompt('p:stale', permissionBody)
@@ -515,6 +602,30 @@ test('a stale prompt creates one system message and one push', () => {
   expect(messages.map(message => message.kind)).toEqual(['system'])
   expect(messages[0]).toMatchObject({ kind: 'system', text: `Still waiting for your answer (${chat.title})` })
   expect(pushes).toMatchObject([{ kind: 'prompt', chatId, title: chat.title }])
+})
+
+test('a prompt push and its reminder name the prompt, so a notification can open the chat at it', () => {
+  const session = sessionRow()
+  const prompt = insertPrompt('p:named', permissionBody)
+  const pushes = recordPushes()
+
+  channel.promptCreated(prompt, session)
+  channel.promptReminder(prompt, session)
+
+  expect(pushes).toMatchObject([
+    { kind: 'prompt', promptId: 'p:named' },
+    { kind: 'prompt', promptId: 'p:named' },
+  ])
+})
+
+test('a report push does not name a prompt', () => {
+  const session = sessionRow()
+  const pushes = recordPushes()
+
+  channel.report(session, turn('Done'))
+
+  expect(pushes[0]).toBeDefined()
+  expect(pushes[0]).not.toHaveProperty('promptId')
 })
 
 test('a turn_complete in Away mode pushes, out of Away mode does not', () => {
@@ -665,4 +776,38 @@ test('usageChanged broadcasts an ephemeral usage.updated event without touching 
 
 test('usageChanged without a broadcaster does nothing', () => {
   expect(() => channel.usageChanged({ accounts: [], chats: {} })).not.toThrow()
+})
+
+test('the first task names a launched session that has no name, and later tasks leave the name alone', () => {
+  const session = store.createSpawnedSession({ id: 'abcdef1234', cwd: '/home/u/app', tmuxName: 'ra-abcdef12' })
+  void session
+  const row = store.getSession('abcdef1234')!
+  channel.sessionSeen(row)
+  const queue = (text: string) => channel.instructionQueued({ id: `i${text.length}`, text } as never, store.getSession('abcdef1234')!)
+
+  queue('Fix the login bug on the billing page\nand add a test')
+  expect(chatsWithoutGeneral()[0]?.title).toBe('app · Fix the login bug on the billing page')
+  expect(store.getSession('abcdef1234')?.title).toBe('Fix the login bug on the billing page')
+
+  queue('Now something else')
+  expect(chatsWithoutGeneral()[0]?.title).toBe('app · Fix the login bug on the billing page')
+})
+
+test('a session that already has a name is not renamed, and a command can be the first task', () => {
+  store.createSpawnedSession({ id: 'abcdef1234', cwd: '/home/u/app', tmuxName: 'ra-abcdef12' })
+  channel.sessionSeen(store.getSession('abcdef1234')!)
+  store.setSessionTitle('abcdef1234', 'Named elsewhere')
+  channel.instructionQueued({ id: 'i2', text: 'Something' } as never, store.getSession('abcdef1234')!)
+  expect(store.getSession('abcdef1234')?.title).toBe('Named elsewhere')
+})
+
+test('nameFromTask takes the first line, collapses spaces and clips long ones', async () => {
+  const { nameFromTask } = await import('../../../src/channel/web/web-channel.ts')
+  expect(nameFromTask('  fix   the\tbug  ')).toBe('fix the bug')
+  expect(nameFromTask('\n\nsecond line first')).toBe('second line first')
+  expect(nameFromTask('/clear')).toBe('/clear')
+  expect(nameFromTask('   ')).toBeNull()
+  const long = nameFromTask('x'.repeat(100))!
+  expect(long).toHaveLength(48)
+  expect(long.endsWith('…')).toBe(true)
 })

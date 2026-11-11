@@ -17,13 +17,21 @@ describe('device appearance preferences', () => {
 
   test('persists and restores valid choices while ignoring unknown values', () => {
     const storage = createStorage()
-    const saved: Preferences = { theme: 'dark', palette: 'nord', accent: 'teal', glow: 'strong', density: 'compact', font: 'large', enter: 'newline' }
+    const saved: Preferences = { theme: 'dark', palette: 'nord', accent: 'teal', glow: 'strong', density: 'compact', font: 'large', enter: 'newline', codeWrap: 'wrap', generalView: 'chat' }
     savePreferences(saved, storage)
     expect(readPreferences(storage)).toEqual(saved)
 
     const invalid = createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'neon', palette: 'hotdog', accent: 'olive' }) })
     expect(readPreferences(invalid)).toEqual({ ...DEFAULT_PREFERENCES, accent: 'olive' })
     expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ enter: 'maybe' }) })).enter).toBe('newline')
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ codeWrap: 'sideways' }) })).codeWrap).toBe('scroll')
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ theme: 'dark' }) })).codeWrap).toBe('scroll')
+  })
+
+  test('General opens to the dashboard unless the chat was chosen', () => {
+    expect(DEFAULT_PREFERENCES.generalView).toBe('dashboard')
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ generalView: 'chat' }) })).generalView).toBe('chat')
+    expect(readPreferences(createStorage({ 'remote-agent.preferences.v1': JSON.stringify({ generalView: 'tiles' }) })).generalView).toBe('dashboard')
   })
 
   test('resolves system appearance without changing the saved preference', () => {

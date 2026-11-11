@@ -42,6 +42,8 @@ export class Notifier implements PromptEvents {
   private readonly creating = new Map<string, Promise<ThreadRef>>()
   private readonly resolvedNotified = new Set<string>()
   private readonly delivering = new Set<string>()
+  /** Sessions whose start was reported and not yet ended, since this bridge started. A second start for one is a second process. */
+  private readonly running = new Set<string>()
 
   constructor(
     private readonly store: Store,
@@ -189,6 +191,18 @@ export class Notifier implements PromptEvents {
     await this.channel.markResolved(session.threadId, refs, resolutionNote(prompt.answer, prompt.source))
   }
 
+  /** One question of a multi-question Prompt was answered: its message flips to answered while the others keep waiting. */
+  async promptPartAnswered(prompt: PromptRow, questionIndex: number, value: string): Promise<void> {
+    const ref = this.store.listPromptMessageRefs(prompt.id)[questionIndex]
+    const sink = this.sink
+    if (ref === undefined || sink?.promptPartAnswered === undefined) {
+      return
+    }
+    this.sinkStep('promptPartAnswered', () => {
+      sink.promptPartAnswered?.(prompt, ref, questionIndex, value)
+    })
+  }
+
   async promptReminder(prompt: PromptRow): Promise<void> {
     const session = this.store.getSession(prompt.sessionId)
     if (session === undefined || session.threadId === null) {
@@ -208,8 +222,15 @@ export class Notifier implements PromptEvents {
   async report(request: ReportRequest): Promise<void> {
     const session = this.store.upsertSession(request.session)
     if (request.report.kind === 'session_ended') {
+      this.running.delete(session.id)
       await this.endSession(session, reportText(request.report, session), request.report)
       return
+    }
+    if (request.report.kind === 'session_started') {
+      if (this.running.has(session.id)) {
+        this.warnSecondProcess(session)
+      }
+      this.running.add(session.id)
     }
     const sink = this.sink
     if (sink !== undefined) {
@@ -225,6 +246,21 @@ export class Notifier implements PromptEvents {
     }
     const thread = await this.ensureThread(session.id)
     await this.channel.sendText(thread, reportText(request.report, session), null)
+  }
+
+  /**
+   * Both processes write the same transcript, which corrupts it. The bridge cannot stop a terminal from resuming a Session, so it
+   * says so in the chat; the user ends one of the two.
+   */
+  private warnSecondProcess(session: SessionRow): void {
+    const text = 'Another Claude process started this session while it was running. Both write to the same transcript: end one of them.'
+    if (this.sink === undefined) {
+      this.log(`second process for running session ${session.id}`, undefined)
+      return
+    }
+    this.sinkStep('systemMessage', () => {
+      this.sink?.systemMessage(session.id, text)
+    })
   }
 
   async instructionDelivered(instruction: Instruction): Promise<void> {

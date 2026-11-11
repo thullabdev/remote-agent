@@ -1,17 +1,23 @@
-import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, X } from 'lucide-react'
+import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
+import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
+import { newChatToOpen } from './new-chat.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { ChatList } from './components/chat-list.tsx'
+import { Dashboard } from './components/dashboard.tsx'
+import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
+import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
+import { connectionNoticeText, deepLink, pendingPromptMessage } from './presentation.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useWebChannel } from './use-web-channel.ts'
@@ -22,14 +28,39 @@ type PendingMessage = {
   error: string | null
 }
 
+/** How long after a session is requested a new chat may appear and be opened for the user. */
+const NEW_CHAT_WATCH_MS = 30_000
+
+const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
+/** The feed renders a loaded page on a later frame, so retry the scroll for a few frames. False when the message never appears. */
+async function scrollWhenRendered(messageId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (scrollToMessage(messageId)) {
+      return true
+    }
+    await nextFrame()
+  }
+  return false
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
 
 export function App() {
   const api = useMemo(() => createApiClient(), [])
-  const [activeChatId, setActiveChatId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('chat'))
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
+  // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
+  const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
+    const link = deepLink(window.location.search)
+    return link.chatId !== null && link.promptId !== null ? { chatId: link.chatId, promptId: link.promptId } : null
+  })
   const [infoOpen, setInfoOpen] = useState(false)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  // The chats listed when a session was requested, and until when a new one is opened for the user.
+  const newChatWatch = useRef<{ known: ReadonlyMap<string, Chat['status']>; until: number } | null>(null)
+  const chatsRef = useRef<Chat[]>([])
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
@@ -38,29 +69,27 @@ export function App() {
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
   const [pendingMessages, setPendingMessages] = useState<Record<string, PendingMessage[]>>({})
   const [busyChatIds, setBusyChatIds] = useState<Set<string>>(new Set())
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { realtime, status, error, reload, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
+  const toastId = useRef(0)
+  const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
   const push = usePushSubscription(api)
 
-  const notify = useCallback((message: string) => {
-    setToast(message)
-    if (toastTimer.current !== null) {
-      clearTimeout(toastTimer.current)
-    }
-    toastTimer.current = setTimeout(() => setToast(null), 4200)
+  const notify = useCallback((message: string, kind: ToastKind = 'success') => {
+    toastId.current += 1
+    setToast({ id: toastId.current, message, kind })
   }, [])
 
   const handleError = useCallback((reason: unknown) => {
     if (reason instanceof RequestError && reason.accessDenied) {
       setAccessDenied(true)
     }
-    notify(errorText(reason))
+    notify(errorText(reason), 'error')
   }, [notify])
 
   const chats = realtime?.chats ?? []
+  chatsRef.current = chats
   const activeChat = chats.find(chat => chat.id === activeChatId) ?? null
   const messages = activeChatId === null ? [] : realtime?.messages[activeChatId] ?? []
   const pendingForChat = activeChatId === null ? [] : pendingMessages[activeChatId] ?? []
@@ -83,7 +112,7 @@ export function App() {
     try {
       savePreferences(preferences)
     } catch {
-      notify('Could not save appearance settings on this device.')
+      notify('Could not save appearance settings on this device.', 'error')
     }
   }, [preferences, notify])
 
@@ -95,7 +124,8 @@ export function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      setActiveChatId(new URLSearchParams(window.location.search).get('chat'))
+      setActiveChatId(deepLink(window.location.search).chatId)
+      setFocusPrompt(null)
       setInfoOpen(false)
     }
     window.addEventListener('popstate', handlePopState)
@@ -118,16 +148,14 @@ export function App() {
     void markRead(activeChatId).catch(handleError)
   }, [activeChatId, handleError, markRead, realtime?.messages[activeChatId ?? '']])
 
-  useEffect(() => () => {
-    if (toastTimer.current !== null) {
-      clearTimeout(toastTimer.current)
-    }
-  }, [])
-
-  const openChat = useCallback((chatId: string | null) => {
+  const openChat = useCallback((chatId: string | null, focus?: { promptId: string }) => {
+    // Opening a chat by hand, or from the redirect itself, ends any wait for a new chat.
+    newChatWatch.current = null
     setActiveChatId(chatId)
+    setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
+    url.searchParams.delete('prompt')
     if (chatId === null) {
       url.searchParams.delete('chat')
     } else {
@@ -135,6 +163,24 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  // After a session is requested, the first chat that appears (not General, not one already listed) is opened for the user.
+  const armNewChatWatch = useCallback(() => {
+    newChatWatch.current = { known: new Map(chatsRef.current.map(chat => [chat.id, chat.status])), until: Date.now() + NEW_CHAT_WATCH_MS }
+  }, [])
+
+  useEffect(() => {
+    const watch = newChatWatch.current
+    if (watch === null) {
+      return
+    }
+    const created = newChatToOpen(chats, watch.known, watch.until, Date.now())
+    if (created !== undefined) {
+      openChat(created.id)
+    } else if (Date.now() > watch.until) {
+      newChatWatch.current = null
+    }
+  }, [chats, openChat])
 
   const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string, attachmentIds: string[]) => {
     setBusyChatIds(current => new Set(current).add(chat.id))
@@ -232,17 +278,34 @@ export function App() {
       .catch(handleError)
   }
 
+  /**
+   * Sends an answer and tells the card whether it worked: the toast is kept, and a failure is rethrown so the card can say so
+   * next to the choice that was pressed instead of leaving it looking untouched.
+   */
+  const sendAnswer = useCallback(async (send: () => Promise<{ toast?: string }>) => {
+    try {
+      const result = await send()
+      if (result.toast) {
+        notify(result.toast)
+      }
+    } catch (reason) {
+      handleError(reason)
+      throw reason
+    }
+  }, [handleError, notify])
+
   const handlePromptAction = useCallback(async (chatId: string, body: { promptId: string; questionIndex: number; optionIndex: number }) => {
-    await runChatAction(() => api.performAction(chatId, body))
-  }, [api, runChatAction])
+    await sendAnswer(() => api.performAction(chatId, body))
+  }, [api, sendAnswer])
 
   const handlePromptReply = useCallback(async (promptId: string, body: { questionIndex: number; text: string }) => {
-    await runChatAction(() => api.replyToPrompt(promptId, body))
-  }, [api, runChatAction])
+    await sendAnswer(() => api.replyToPrompt(promptId, body))
+  }, [api, sendAnswer])
 
   const handlePickerAction = useCallback(async (chatId: string, body: { pickerId: string; choice: number }) => {
+    armNewChatWatch()
     await runChatAction(() => api.performAction(chatId, body))
-  }, [api, runChatAction])
+  }, [api, armNewChatWatch, runChatAction])
 
   const runInfoAction = useCallback(async (action: () => Promise<{ toast: string }>) => {
     try {
@@ -259,7 +322,7 @@ export function App() {
 
   const uploadFromComposer = useCallback(async (file: File): Promise<UploadRef | null> => {
     if (file.size > MAX_UPLOAD_BYTES) {
-      notify('That file is larger than 10 MB.')
+      notify('That file is larger than 10 MB.', 'error')
       return null
     }
     try {
@@ -317,9 +380,37 @@ export function App() {
     void runInfoAction(() => api.pinMessage(message.id, message.pinned !== true)).then(() => setPinsVersion(version => version + 1))
   }, [api, runInfoAction])
 
-  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => (activeChat === null ? Promise.resolve() : sendMessage(activeChat, text, attachments)), [activeChat, sendMessage])
+  const loadActivity = useCallback(() => api.getActivity(), [api])
+  const showingDashboard = activeChat?.id === 'general' && preferences.generalView === 'dashboard'
+  const setGeneralView = useCallback((generalView: Preferences['generalView']) => setPreferences(current => ({ ...current, generalView })), [])
 
-  const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
+  // A command typed on the dashboard is answered in the chat, so show it.
+  const sendFromComposer = useCallback((text: string, attachments: UploadRef[]) => {
+    if (activeChat === null) {
+      return Promise.resolve()
+    }
+    if (activeChat.id === 'general') {
+      setGeneralView('chat')
+      if (text.trim().startsWith('/new')) {
+        armNewChatWatch()
+      }
+    }
+    return sendMessage(activeChat, text, attachments)
+  }, [activeChat, armNewChatWatch, sendMessage, setGeneralView])
+
+  // Resuming asks for the model first; the dialog then calls the resume.
+  const resumeActive = useCallback(() => {
+    if (activeChatId !== null) {
+      setResumeOpen(true)
+    }
+    return Promise.resolve()
+  }, [activeChatId])
+
+  // A launched session that reported ready and has not been given a task yet.
+  const awaitingFirstTask = useMemo(
+    () => messages.some(message => message.kind === 'session_status' && message.state === 'ready') && !messages.some(message => message.kind === 'user_text'),
+    [messages],
+  )
 
   const pendingItems = useMemo(() => {
     if (activeChat === null) {
@@ -334,7 +425,7 @@ export function App() {
   }, [activeChat, pendingForChat, retryMessage])
 
   const openLinkedChat = () => {
-    const chatId = new URLSearchParams(window.location.search).get('chat')
+    const chatId = deepLink(window.location.search).chatId
     if (chatId && chats.some(chat => chat.id === chatId)) {
       setActiveChatId(chatId)
     }
@@ -348,7 +439,6 @@ export function App() {
     if (chatId === null) {
       return
     }
-    const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     let before = messages[0]?.seq
     let hasMore = realtime?.hasMore[chatId] ?? false
     if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
@@ -367,17 +457,47 @@ export function App() {
         })
       }
     }
-    // The feed renders the loaded page on a later frame, so retry the scroll for a few frames.
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (scrollToMessage(pin.id)) {
-        return
-      }
-      await nextFrame()
+    if (await scrollWhenRendered(pin.id)) {
+      return
     }
-    notify('That message could not be found in this chat.')
+    notify('That message could not be found in this chat.', 'error')
   }
 
-  // The chat's pins load when the chat is opened, and again after a pin change or a manual refresh. Opening the details does not fetch.
+  /** Scrolls to the Prompt a session waits on, loading older pages if it is above the loaded ones. Quiet if it was answered meanwhile. */
+  const revealPrompt = async (chatId: string, promptId: string) => {
+    let found = pendingPromptMessage(messages, promptId)
+    let before = messages[0]?.seq
+    let hasMore = realtime?.hasMore[chatId] ?? false
+    while (found === undefined && before !== undefined && hasMore) {
+      const page = await loadMessages(chatId, before)
+      found = pendingPromptMessage(page.messages, promptId)
+      hasMore = page.hasMore
+      if (page.messages.length === 0) {
+        break
+      }
+      before = page.messages[0]?.seq ?? before
+    }
+    if (found !== undefined) {
+      await scrollWhenRendered(found.id)
+    }
+  }
+
+  // Once the chat's messages are loaded, scroll to the Prompt that was asked for, then drop it so a reload does not scroll again.
+  useEffect(() => {
+    if (focusPrompt === null || activeChatId !== focusPrompt.chatId || realtime === null || !realtime.loadedChats.has(focusPrompt.chatId)) {
+      return
+    }
+    const target = focusPrompt
+    setFocusPrompt(null)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('prompt')) {
+      url.searchParams.delete('prompt')
+      window.history.replaceState(null, '', url)
+    }
+    void revealPrompt(target.chatId, target.promptId).catch(handleError)
+  }, [focusPrompt, activeChatId, realtime?.loadedChats])
+
+  // The chat's bookmarks load when the chat is opened, after a change, and whenever the details open (another device may have changed them).
   useEffect(() => {
     if (activeChatId === null) {
       return
@@ -385,7 +505,7 @@ export function App() {
     api.listPins(activeChatId).then(result => {
       setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
-  }, [activeChatId, pinsVersion, api, handleError])
+  }, [activeChatId, pinsVersion, infoOpen, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -401,12 +521,12 @@ export function App() {
     return (
       <FullPageState
         icon={<AlertCircle className="size-5" />}
-        title="Could not connect to the Bridge"
+        title="Could not reach your computer"
         detail={
           !navigator.onLine
-            ? 'You are offline. The app shell is available, but Chats and actions need a connection to the Bridge.'
+            ? 'You are offline. The app is available, but your sessions and actions need a connection to your computer.'
             : error === null
-              ? 'Check that the Bridge is running and try again.'
+              ? 'Check that Remote Agent is running on your computer and try again.'
               : errorText(error)
         }
         action={<Button onClick={reload}><RefreshCw />Try again</Button>}
@@ -414,21 +534,29 @@ export function App() {
     )
   }
   if (realtime === null) {
-    return <FullPageState icon={<LoaderCircle className="size-5 animate-spin" />} title="Connecting to the Bridge…" detail="Loading your Chats and Sessions." />
+    return <FullPageState icon={<LoaderCircle className="size-5 animate-spin" />} title="Connecting to your computer…" detail="Loading your sessions." />
   }
 
   return (
-    <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font}`}>
+    <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font} code-${preferences.codeWrap}`}>
       <ChatList
         chats={chats}
         activeId={activeChatId}
         status={status}
         onOpen={openChat}
+        onRetry={retry}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
+        }}
+        onPinSelected={async (chatIds, pinned) => {
+          let toast = ''
+          for (const chatId of chatIds) {
+            toast = (await api.pinChat(chatId, pinned)).toast
+          }
+          notify(toast)
         }}
         onActionError={handleError}
       />
@@ -454,22 +582,55 @@ export function App() {
           <>
             <section className="flex min-w-0 flex-1 flex-col">
               <ChatHeader
+                key={`header:${activeChat.id}`}
                 chat={activeChat}
                 status={status}
                 onBack={() => openChat(null)}
                 onInfo={() => setInfoOpen(value => !value)}
                 infoOpen={infoOpen}
                 usage={realtime.usage.chats[activeChat.id]}
+                accounts={realtime.usage.accounts}
+                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
+                view={preferences.generalView}
+                onView={setGeneralView}
+                summary={summaryText(dashboardCounts(chats))}
+                needsYou={dashboardCounts(chats).needsYou}
               />
-              {status !== 'connected' && (
-                <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-3 py-2 text-center text-xs text-amber-900 dark:text-amber-200" role="status">
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  {status === 'resyncing' ? 'Syncing missed activity…' : status === 'loading' ? 'Connecting to the Bridge…' : 'Connection lost. Reconnecting automatically…'}
+              {connectionNoticeText(status) !== undefined && (
+                <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
+                  <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
+                  {connectionNoticeText(status)}
+                  {(status === 'reconnecting' || status === 'error') && (
+                    <button type="button" onClick={retry} className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground hover:bg-background/60">
+                      Retry
+                    </button>
+                  )}
                 </div>
               )}
               <div className="chat-glow flex min-h-0 flex-1 flex-col">
+                {showingDashboard ? (
+                  <Dashboard
+                    loadActivity={loadActivity}
+                    chats={chats}
+                    usage={realtime.usage}
+                    away={realtime.away}
+                    online={status === 'connected'}
+                    onOpenChat={openChat}
+                    onPromptAction={handlePromptAction}
+                    onToggleAway={toggleAway}
+                    onNewSession={() => setNewSessionOpen(true)}
+                    onStartProject={cwd => {
+                      armNewChatWatch()
+                      return runChatAction(() => api.startProject({ cwd }))
+                    }}
+                    onResume={chatId => {
+                      armNewChatWatch()
+                      return runChatAction(() => api.resumeChat(chatId))
+                    }}
+                  />
+                ) : (
                 <MessageFeed
-                  key={activeChat.id}
+                  key={`feed:${activeChat.id}`}
                   chat={activeChat}
                   messages={messages}
                   pendingMessages={pendingItems}
@@ -481,9 +642,11 @@ export function App() {
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
                 />
+                )}
                 <ChatComposer
+                  key={`composer:${activeChat.id}`}
+                  drafts={api}
                   chat={activeChat}
-                  usage={realtime.usage}
                   sending={busyChatIds.has(activeChat.id)}
                   enterSends={preferences.enter === 'send'}
                   library={library}
@@ -492,25 +655,28 @@ export function App() {
                   onDeleteUpload={deleteFromLibrary}
                   onSend={sendFromComposer}
                   onResume={resumeActive}
+                  firstTask={awaitingFirstTask}
                 />
               </div>
             </section>
-            {infoOpen && (
+            {infoOpen && activeChat.id !== 'general' && (
               <ChatInfo
                 chat={activeChat}
-                messageCount={messages.length}
-                usage={realtime.usage}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}
                 onUnarchive={() => runInfoAction(() => api.unarchiveChat(activeChat.id))}
                 onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
-                onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history cleared on all devices.' })))}
+                onPin={pinned => runInfoAction(() => api.pinChat(activeChat.id, pinned))}
+                onNotify={message => notify(message, 'error')}
+                onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
-                onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                onResume={() => {
+                  setResumeOpen(true)
+                  return Promise.resolve()
+                }}
                 pins={pinsByChat[activeChat.id] ?? []}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
-                onRefreshPins={() => setPinsVersion(version => version + 1)}
                 onJump={pin => {
                   setInfoOpen(false)
                   void jumpToPin(pin).catch(handleError)
@@ -520,7 +686,7 @@ export function App() {
           </>
         ) : (
           <div className="chat-glow hidden min-w-0 flex-1 flex-col items-center justify-center px-8 text-center md:flex">
-            <div className="grid size-16 place-items-center rounded-3xl border border-border bg-card shadow-sm">
+            <div className="grid size-16 place-items-center rounded-3xl bg-card shadow-sm">
               <MessageSquareText className="size-6 text-muted-foreground" aria-hidden="true" />
             </div>
             <p className="mt-5 font-display text-xl font-semibold tracking-tight">Your Sessions, at a glance.</p>
@@ -534,12 +700,16 @@ export function App() {
         )}
       </main>
 
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm shadow-xl" role="status" aria-live="polite">
-          <span className="min-w-0">{toast}</span>
-          <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Dismiss notification" onClick={() => setToast(null)}><X className="size-4" /></button>
-        </div>
+      {activeChat !== null && (
+        <ResumeDialog
+          open={resumeOpen}
+          api={api}
+          chatId={activeChat.id}
+          onOpenChange={setResumeOpen}
+          onResume={model => void runInfoAction(() => api.resumeChat(activeChat.id, model))}
+        />
       )}
+      {toast && <Toast key={toast.id} toast={toast} onDismiss={() => setToast(null)} />}
 
       <SettingsDialog
         open={settingsOpen}
@@ -557,6 +727,7 @@ export function App() {
         api={api}
         onOpenChange={setNewSessionOpen}
         onStarted={notify}
+        onStarting={armNewChatWatch}
       />
     </div>
   )
@@ -565,7 +736,7 @@ export function App() {
 function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
   return (
     <main className="grain flex h-full items-center justify-center bg-background px-6 text-foreground">
-      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-7 text-center shadow-sm sm:p-9">
+      <div className="w-full max-w-md rounded-3xl bg-card p-7 text-center shadow-sm sm:p-9">
         <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
         <h1 className="mt-5 font-display text-xl font-semibold">{title}</h1>
         <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">{detail}</p>

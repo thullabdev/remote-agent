@@ -1,9 +1,12 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
-import { redactSecrets, truncate } from '../../core/text.ts'
-import type { Chat, Message, MessageBody, MessageKind, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
+import { ACTIVITY_KEEP_DAYS, buildDays, groupRecent, type ActivityKind, type ActivityRow, type RecentRow } from './activity.ts'
+import type { ActivityView, Chat, ChatActivity, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
+/** How many sessions the user can pin (General is always at the top and does not count), so pinning cannot recreate a crowded list. */
+export const MAX_PINNED_CHATS = 5
 /** A reconnect further behind than this gets a resync instead of a replay, so one client cannot load the whole feed. */
 export const MAX_REPLAY_EVENTS = 5_000
 export const MAX_REPLAY_BYTES = 4 * 1024 * 1024
@@ -11,12 +14,17 @@ export const MAX_REPLAY_BYTES = 4 * 1024 * 1024
 export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number }
 
 const PREVIEW_MAX = 140
+const RECENT_ACTIVITY = 8
+/** Raw activity rows read to make RECENT_ACTIVITY lines: enough for a long burst. */
+const RECENT_SCAN = 200
+const PRUNE_EVERY_MS = 86_400_000
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
 const MESSAGE_ADDED_COLUMNS: [string, string][] = [
   ['counts_unread', 'counts_unread INTEGER NOT NULL DEFAULT 1'],
   ['pinned', 'pinned INTEGER NOT NULL DEFAULT 0'],
 ]
+const DRAFT_ADDED_COLUMNS: [string, string][] = [['updated_at', 'updated_at INTEGER NOT NULL DEFAULT 0']]
 const CHAT_ADDED_COLUMNS: [string, string][] = [
   ['archived', 'archived INTEGER NOT NULL DEFAULT 0'],
   ['custom_title', 'custom_title TEXT'],
@@ -47,11 +55,21 @@ CREATE TABLE IF NOT EXISTS read_cursors (
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint TEXT PRIMARY KEY, subscription TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, chat_id TEXT NOT NULL, kind TEXT NOT NULL, ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS activity_at ON activity (at);
+CREATE TABLE IF NOT EXISTS drafts (
+  chat_id TEXT PRIMARY KEY REFERENCES chats(id), text TEXT NOT NULL, attachments TEXT NOT NULL
+);
 `
 
 const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.pinned, c.hidden_before_seq,
   c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
-  COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor
+  COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
+  (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
+  (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments,
+  (SELECT d.updated_at FROM drafts d WHERE d.chat_id = c.id) AS draft_at
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
 const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned'
@@ -70,6 +88,9 @@ type ChatRecord = {
   spawned: number | null
   tmux_name: string | null
   cursor: number
+  draft_text: string | null
+  draft_attachments: string | null
+  draft_at: number | null
 }
 
 type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number }
@@ -107,10 +128,66 @@ function normalizeBody(body: MessageBody): MessageBody {
   }
 }
 
+/** Longest source text read for a preview, so a huge message is not scanned in full. */
+const PREVIEW_SOURCE_MAX = 2_000
+
+/** A short hint of what a tool call acts on: its command (first line), file or URL. Empty when there is none. */
+function toolHint(input: unknown): string {
+  if (input === null || typeof input !== 'object') {
+    return ''
+  }
+  const record = input as Record<string, unknown>
+  const value = [record.command, record.file_path, record.url].find(item => typeof item === 'string' && item.trim() !== '')
+  return typeof value === 'string' ? (value.trim().split('\n')[0] ?? '') : ''
+}
+
 function previewOf(body: MessageBody): string {
-  const source =
-    body.kind === 'agent_text' ? body.markdown : body.kind === 'prompt' ? body.title : body.kind === 'tool_run' ? body.tool : body.text
-  return source.slice(0, PREVIEW_MAX)
+  const plain = (text: string): string => clipChars(stripMarkdown(text.slice(0, PREVIEW_SOURCE_MAX)), PREVIEW_MAX)
+  switch (body.kind) {
+    case 'agent_text':
+      return plain(body.markdown)
+    case 'prompt':
+      return clipChars(promptSummary(body.body), PREVIEW_MAX)
+    case 'tool_run': {
+      const hint = toolHint(body.input)
+      const label = body.status === 'running' ? `Running ${body.tool}` : body.status === 'error' ? `${body.tool} failed` : `Ran ${body.tool}`
+      return clipChars(hint === '' ? label : `${label}: ${hint}`, PREVIEW_MAX)
+    }
+    case 'user_text':
+      return clipChars(`You: ${body.text.replace(/\s+/g, ' ').trim()}`, PREVIEW_MAX)
+    case 'command_reply':
+    case 'system':
+      return plain(body.text)
+    case 'picker':
+      return clipChars(body.text, PREVIEW_MAX)
+    case 'session_status':
+      return body.state === 'ready' ? 'Ready for your first task' : body.state === 'failed' ? (body.message ?? 'Could not start') : 'Starting the session…'
+  }
+}
+
+/** One plain line describing what a pending Prompt asks, for the chat list. */
+function promptSummary(body: PromptBodyView): string {
+  if (body.kind === 'question') {
+    return stripMarkdown(body.questions[0]?.question ?? '').slice(0, PREVIEW_MAX)
+  }
+  const text = body.tool === 'Bash' ? body.summary.replace(/^\$ /, '') : (body.summary.split('\n')[0] ?? '')
+  return `${body.tool}: ${text.replace(/\s+/g, ' ').trim()}`.slice(0, PREVIEW_MAX)
+}
+
+/** What the chat list shows for an unsent draft: its text, or how many files it holds. Null when there is no draft. */
+function draftPreview(text: string | null, attachments: string | null, at: number | null): { preview: string; at: number } | null {
+  if (text === null) {
+    return null
+  }
+  const words = text.replace(/\s+/g, ' ').trim()
+  const files = attachments === null ? 0 : (JSON.parse(attachments) as unknown[]).length
+  if (words === '' && files === 0) {
+    return null
+  }
+  if (words !== '') {
+    return { preview: words.slice(0, PREVIEW_MAX), at: at ?? 0 }
+  }
+  return { preview: files === 1 ? '1 attached file' : `${files} attached files`, at: at ?? 0 }
 }
 
 function toMessage(record: MessageRecord): Message {
@@ -135,6 +212,7 @@ export class ChatLog {
   private dispatching = false
   private readonly maxReplayEvents: number
   private readonly maxReplayBytes: number
+  private lastActivityPrune = 0
 
   constructor(
     private readonly store: Store,
@@ -150,6 +228,12 @@ export class ChatLog {
     for (const [name, definition] of MESSAGE_ADDED_COLUMNS) {
       if (!columns.has(name)) {
         this.db.exec(`ALTER TABLE messages ADD COLUMN ${definition}`)
+      }
+    }
+    const draftColumns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(drafts)').all().map(column => column.name))
+    for (const [name, definition] of DRAFT_ADDED_COLUMNS) {
+      if (!draftColumns.has(name)) {
+        this.db.exec(`ALTER TABLE drafts ADD COLUMN ${definition}`)
       }
     }
     const chatColumns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(chats)').all().map(column => column.name))
@@ -181,6 +265,7 @@ export class ChatLog {
       this.db
         .query('INSERT INTO chats (id, session_id, title, created_at) VALUES (?, ?, ?, ?)')
         .run(input.id, input.sessionId, input.title, this.now())
+      this.recordActivity('started', input.id)
       return { value: this.chatOrThrow(input.id), events: [this.emitChat(input.id)] }
     })
   }
@@ -206,6 +291,12 @@ export class ChatLog {
         busy: patch.busy ?? current.busy,
       }
       this.db.query('UPDATE chats SET title = ?, status = ?, busy = ? WHERE id = ?').run(next.title, next.status, next.busy ? 1 : 0, id)
+      if (next.busy !== current.busy) {
+        this.recordTurn(id, next.busy)
+      }
+      if (next.status === 'ended' && current.status !== 'ended') {
+        this.recordActivity('ended', id)
+      }
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -219,13 +310,30 @@ export class ChatLog {
     })
   }
 
+  /** Pins a session to the top of the list (below sessions that need the user), or unpins it. General is always pinned and is left alone. */
+  setChatPinned(id: string, pinned: boolean): Chat {
+    return this.write(() => {
+      const current = this.chatOrThrow(id)
+      if (current.pinned === pinned) {
+        return { value: current, events: [] }
+      }
+      this.db.query('UPDATE chats SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+      return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
+    })
+  }
+
+  pinnedChatCount(): number {
+    return this.db.query<{ n: number }, [string]>('SELECT count(*) AS n FROM chats WHERE pinned = 1 AND id != ?').get(GENERAL_ID)?.n ?? 0
+  }
+
+  /** Archiving unpins: a pin on a session that is hidden from the list would come back unseen when it is restored. */
   setArchived(id: string, archived: boolean): Chat {
     return this.write(() => {
       const current = this.chatOrThrow(id)
       if (current.archived === archived) {
         return { value: current, events: [] }
       }
-      this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+      this.db.query(`UPDATE chats SET archived = ?, pinned = CASE WHEN ? = 1 AND id != ? THEN 0 ELSE pinned END WHERE id = ?`).run(archived ? 1 : 0, archived ? 1 : 0, GENERAL_ID, id)
       return { value: this.chatOrThrow(id), events: [this.emitChat(id)] }
     })
   }
@@ -238,7 +346,7 @@ export class ChatLog {
         if (current.archived === archived) {
           continue
         }
-        this.db.query('UPDATE chats SET archived = ? WHERE id = ?').run(archived ? 1 : 0, id)
+        this.db.query(`UPDATE chats SET archived = ?, pinned = CASE WHEN ? = 1 AND id != ? THEN 0 ELSE pinned END WHERE id = ?`).run(archived ? 1 : 0, archived ? 1 : 0, GENERAL_ID, id)
         events.push(this.emitChat(id))
       }
       return { value: ids.map(id => this.chatOrThrow(id)), events }
@@ -247,9 +355,10 @@ export class ChatLog {
 
   /**
    * `at` is the message's time (default: now); it is what lastMessage.at and the list order use. `history` marks backfilled
-   * transcript messages, which are stored as read. Seq stays creation order either way.
+   * transcript messages, which are stored as read. `quiet` does the same for a message that is bookkeeping, not news (session
+   * started or ended): it stays in the log but never adds to the unread count. Seq stays creation order either way.
    */
-  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string; at?: number; history?: boolean } = {}): Message {
+  appendMessage(chatId: string, body: MessageBody, options: { sourceId?: string; at?: number; history?: boolean; quiet?: boolean } = {}): Message {
     const stored = normalizeBody(body)
     const sourceId = options.sourceId ?? null
     return this.write(() => {
@@ -262,7 +371,7 @@ export class ChatLog {
           `INSERT INTO messages (id, chat_id, seq, kind, body, source_id, created_at, counts_unread) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(chat_id, source_id) DO NOTHING`,
         )
-        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at, options.history === true ? 0 : 1)
+        .run(id, chatId, seq, stored.kind, JSON.stringify(stored), sourceId, at, options.history === true || options.quiet === true ? 0 : 1)
       if (sourceId !== null && inserted.changes === 0) {
         return { value: this.messageBySource(chatId, sourceId), events: [] }
       }
@@ -287,7 +396,8 @@ export class ChatLog {
         return { value: message, events: [] }
       }
       const events = [this.emit('message.updated', { message })]
-      if (this.lastVisible(current.chatId)?.seq === current.seq) {
+      const promptStatusChanged = current.kind === 'prompt' && stored.kind === 'prompt' && current.status !== stored.status
+      if (promptStatusChanged || this.lastVisible(current.chatId)?.seq === current.seq) {
         events.push(this.emitChat(current.chatId))
       }
       return { value: message, events }
@@ -328,6 +438,15 @@ export class ChatLog {
     })
   }
 
+  /** The time of the newest conversation message the chat recorded itself, not a typed client message. Null when it has none. */
+  lastRecordedAt(chatId: string): number | null {
+    return this.db
+      .query<{ at: number | null }, [string]>(
+        "SELECT MAX(created_at) AS at FROM messages WHERE chat_id = ? AND kind IN ('agent_text', 'tool_run', 'user_text') AND (source_id IS NULL OR source_id NOT LIKE 'client:%')",
+      )
+      .get(chatId)?.at ?? null
+  }
+
   isClaimed(chatId: string, key: string): boolean {
     return this.db.query<{ found: number }, [string, string]>('SELECT 1 AS found FROM source_claims WHERE chat_id = ? AND key = ?').get(chatId, key) !== null
   }
@@ -344,6 +463,24 @@ export class ChatLog {
       )
       .get(chatId, text)
     return record === null ? undefined : toMessage(record)
+  }
+
+  /** How many messages attached each library file, by file id. Only files that were attached appear. */
+  uploadUses(): Map<string, number> {
+    const uses = new Map<string, number>()
+    const rows = this.db.query<{ body: string }, []>(`SELECT body FROM messages WHERE body LIKE '%"attachments"%'`).all()
+    for (const row of rows) {
+      const ids = new Set<string>()
+      for (const attachment of (JSON.parse(row.body) as { attachments?: { id?: unknown }[] }).attachments ?? []) {
+        if (typeof attachment.id === 'string') {
+          ids.add(attachment.id)
+        }
+      }
+      for (const id of ids) {
+        uses.set(id, (uses.get(id) ?? 0) + 1)
+      }
+    }
+    return uses
   }
 
   /** The user_text message created for an Instruction, whatever source id it was appended with. */
@@ -373,6 +510,33 @@ export class ChatLog {
   }
 
   /** Pinned messages of a chat in order, with a short preview for the chat details list. */
+  /** The unsent message for this chat, or null. Drafts are not events: other devices read them when they open the chat. */
+  getDraft(chatId: string): Draft | null {
+    const row = this.db.query<{ text: string; attachments: string }, [string]>('SELECT text, attachments FROM drafts WHERE chat_id = ?').get(chatId)
+    return row === null ? null : { text: row.text, attachments: JSON.parse(row.attachments) as Draft['attachments'] }
+  }
+
+  /** Saves the draft; an empty one removes it. */
+  setDraft(chatId: string, draft: Draft): void {
+    this.write(() => {
+      const previous = this.chatOrThrow(chatId).draft
+      if (draft.text === '' && draft.attachments.length === 0) {
+        this.db.query('DELETE FROM drafts WHERE chat_id = ?').run(chatId)
+      } else {
+        this.db
+          .query(
+            `INSERT INTO drafts (chat_id, text, attachments, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, attachments = excluded.attachments, updated_at = excluded.updated_at`,
+          )
+          .run(chatId, draft.text, JSON.stringify(draft.attachments), this.now())
+      }
+      // The chat list shows the draft, so other devices hear about it. Only a change to what the list shows is sent.
+      const current = this.chatOrThrow(chatId).draft
+      const changed = JSON.stringify(previous) !== JSON.stringify(current)
+      return { value: undefined, events: changed ? [this.emitChat(chatId)] : [] }
+    })
+  }
+
   listPins(chatId: string): { id: string; seq: number; at: number; kind: MessageKind; preview: string }[] {
     const rows = this.db
       .query<MessageRecord, [string, number]>(
@@ -380,6 +544,14 @@ export class ChatLog {
       )
       .all(chatId, this.hiddenBefore(chatId))
     return rows.map(toMessage).map(message => ({ id: message.id, seq: message.seq, at: message.at, kind: message.kind, preview: previewOf(message) }))
+  }
+
+  /** The newest startup card of a chat, or undefined when it never had one. */
+  latestSessionStatus(chatId: string): Message | undefined {
+    const record = this.db
+      .query<MessageRecord, [string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND kind = 'session_status' ORDER BY seq DESC LIMIT 1`)
+      .get(chatId)
+    return record === null ? undefined : toMessage(record)
   }
 
   findMessage(id: string): Message | undefined {
@@ -585,6 +757,73 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  private recordActivity(kind: ActivityKind, chatId: string, ms = 0): void {
+    if (chatId === GENERAL_ID) {
+      return
+    }
+    const at = this.now()
+    this.db.query('INSERT INTO activity (at, chat_id, kind, ms) VALUES (?, ?, ?, ?)').run(at, chatId, kind, ms)
+    if (at - this.lastActivityPrune > PRUNE_EVERY_MS) {
+      this.lastActivityPrune = at
+      this.db.query('DELETE FROM activity WHERE at < ?').run(at - ACTIVITY_KEEP_DAYS * 86_400_000)
+    }
+  }
+
+  /** A turn began or ended. An end carries how long the turn ran, when its start was seen. */
+  private recordTurn(chatId: string, started: boolean): void {
+    if (started) {
+      this.recordActivity('turn_start', chatId)
+      return
+    }
+    const last = this.db
+      .query<{ at: number; kind: string }, [string]>(`SELECT at, kind FROM activity WHERE chat_id = ? AND kind IN ('turn_start', 'turn_end') ORDER BY id DESC LIMIT 1`)
+      .get(chatId)
+    this.recordActivity('turn_end', chatId, last?.kind === 'turn_start' ? Math.max(0, this.now() - last.at) : 0)
+  }
+
+  /** The dashboard's numbers: `days` days ending today in the viewer's zone (`offsetMinutes` east of UTC), and the latest events. */
+  getActivity(options: { days: number; offsetMinutes: number }): ActivityView {
+    const now = this.now()
+    const rows = this.db
+      .query<ActivityRow, [number]>(`SELECT at, kind, ms FROM activity WHERE at >= ? ORDER BY id`)
+      .all(now - (options.days + 1) * 86_400_000)
+    // More raw rows than lines: a burst of turns is many rows but one line.
+    const scanned = this.db
+      .query<{ id: number; at: number; chat_id: string; kind: string; name: string }, []>(
+        `SELECT a.id, a.at, a.chat_id, a.kind, COALESCE(c.custom_title, c.title) AS name
+         FROM activity a JOIN chats c ON c.id = a.chat_id
+         WHERE a.kind IN ('started', 'turn_end', 'ended') ORDER BY a.id DESC LIMIT ${RECENT_SCAN}`,
+      )
+      .all()
+      .map(row => ({ id: row.id, at: row.at, chatId: row.chat_id, kind: row.kind as ActivityKind, name: row.name }))
+    const recent = groupRecent(scanned, RECENT_ACTIVITY).map(event => (event.kind === 'finished' ? { ...event, preview: this.replyAt(event.chatId, event.at) } : event))
+    const first = this.db.query<{ at: number | null }, []>('SELECT MIN(at) AS at FROM activity').get()?.at ?? null
+    return { days: buildDays(rows, now, options.days, options.offsetMinutes), recent, since: first }
+  }
+
+  /** The newest reply the chat had by `at` (cut to one line), or null when it has none in view. */
+  private replyAt(chatId: string, at: number): string | null {
+    const record = this.db
+      .query<MessageRecord, [string, number, number]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'agent_text' AND created_at <= ? ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(chatId, this.hiddenBefore(chatId), at)
+    const message = record === null ? undefined : toMessage(record)
+    return message === undefined ? null : previewOf(message)
+  }
+
+  /** The tool call a working Session is running, newest first; null when none is running. */
+  private runningTool(chatId: string, hiddenBefore: number): ChatActivity | null {
+    const record = this.db
+      .query<MessageRecord, [string, number]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'tool_run' ORDER BY seq DESC LIMIT 1`)
+      .get(chatId, hiddenBefore)
+    const message = record === null ? undefined : toMessage(record)
+    if (message === undefined || message.kind !== 'tool_run' || message.status !== 'running') {
+      return null
+    }
+    return { tool: message.tool, summary: clipChars(toolHint(message.input), PREVIEW_MAX), at: message.at }
+  }
+
   private maxSeq(table: 'events' | 'messages'): number {
     return this.db.query<{ seq: number }, []>(`SELECT COALESCE(MAX(seq), 0) AS seq FROM ${table}`).get()?.seq ?? 0
   }
@@ -595,6 +834,7 @@ export class ChatLog {
       .query<{ count: number }, [string, number]>(`SELECT COUNT(*) AS count FROM messages WHERE chat_id = ? AND seq > ? AND kind IN ${UNREAD_KINDS} AND counts_unread = 1`)
       .get(record.id, floor)
     const last = this.lastVisible(record.id)
+    const pendingPrompt = record.status === 'active' ? this.pendingPrompt(record.id, record.hidden_before_seq) : null
     return {
       id: record.id,
       title: record.custom_title ?? record.title,
@@ -606,8 +846,31 @@ export class ChatLog {
       busy: record.busy === 1,
       unread: unread?.count ?? 0,
       lastMessage: last === undefined ? null : { seq: last.seq, at: last.at, preview: previewOf(last) },
+      draft: draftPreview(record.draft_text, record.draft_attachments, record.draft_at),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
+      pendingPrompt,
+      activity: record.status === 'active' && record.busy === 1 && pendingPrompt === null ? this.runningTool(record.id, record.hidden_before_seq) : null,
+    }
+  }
+
+  private pendingPrompt(chatId: string, hiddenBefore: number): PendingPrompt | null {
+    const rows = this.db
+      .query<MessageRecord, [string, number]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'prompt' AND json_extract(body, '$.status') = 'pending' ORDER BY seq`,
+      )
+      .all(chatId, hiddenBefore)
+    const prompts = rows.map(toMessage).filter(message => message.kind === 'prompt')
+    const first = prompts[0]
+    if (first === undefined || first.kind !== 'prompt') {
+      return null
+    }
+    return {
+      promptId: first.promptId,
+      kind: first.body.kind,
+      summary: promptSummary(first.body),
+      at: first.at,
+      count: new Set(prompts.map(message => message.kind === 'prompt' && message.promptId)).size,
     }
   }
 }

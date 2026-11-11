@@ -14,16 +14,18 @@ const chat: Chat = {
   archived: false,
   busy: false,
   unread: 0,
-  lastMessage: null,
+  lastMessage: null, draft: null,
   pinned: false,
   tmuxName: null,
+  pendingPrompt: null, activity: null,
 }
+
+const noDrafts = { getDraft: async () => ({ draft: null }), saveDraft: async () => ({ ok: true as const }) }
 
 describe('chat composer surface', () => {
   test('preserves the rounded input wrapper without a focus border or ring', () => {
     const markup = renderToStaticMarkup(createElement(ChatComposer, {
       chat,
-      usage: { accounts: [], chats: {} },
       sending: false,
       enterSends: true,
       library: [],
@@ -31,11 +33,11 @@ describe('chat composer surface', () => {
       onUpload: async () => null,
       onDeleteUpload: () => {},
       onSend: async () => {},
-      onResume: async () => {},
+      onResume: async () => {}, drafts: noDrafts,
     }))
 
     expect(markup).toContain('chat-composer-dock')
-    expect(markup).toContain('rounded-3xl border border-border bg-card')
+    expect(markup).toContain('rounded-3xl bg-card')
     expect(markup).toContain('chat-composer-input')
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).not.toContain('id="chat-usage-panel"')
@@ -70,7 +72,6 @@ describe('Enter key preference', () => {
 test('the attach button is a toggle for the library picker', () => {
   const markup = renderToStaticMarkup(createElement(ChatComposer, {
     chat,
-    usage: { accounts: [], chats: {} } as never,
     sending: false,
     enterSends: true,
     library: [],
@@ -78,9 +79,38 @@ test('the attach button is a toggle for the library picker', () => {
     onUpload: async () => null,
     onDeleteUpload: () => {},
     onSend: async () => {},
-    onResume: async () => {},
+    onResume: async () => {}, drafts: noDrafts,
   }))
   expect(markup).toContain('aria-label="Attach file"')
   expect(markup).toContain('aria-pressed="false"')
 })
 
+test('General has no attach button, since the Bridge refuses attachments there', () => {
+  const markup = renderToStaticMarkup(createElement(ChatComposer, {
+    chat: { ...chat, id: 'general', title: 'General' },
+    sending: false,
+    enterSends: true,
+    library: [],
+    onRefreshLibrary: () => {},
+    onUpload: async () => null,
+    onDeleteUpload: () => {},
+    onSend: async () => {},
+    onResume: async () => {}, drafts: noDrafts,
+  }))
+  expect(markup).not.toContain('aria-label="Attach file"')
+  expect(markup).not.toContain('id="chat-upload-picker"')
+})
+
+
+describe('first task', () => {
+  const render = (firstTask: boolean): string => renderToStaticMarkup(createElement(ChatComposer, {
+    chat: { ...chat, spawned: true, title: 'api · New session' },
+    sending: false, enterSends: true, library: [], onRefreshLibrary: () => {}, onUpload: async () => null,
+    onDeleteUpload: () => {}, onSend: async () => {}, onResume: async () => {}, drafts: noDrafts, firstTask,
+  }))
+
+  test('a session waiting for its first task asks what Claude should work on', () => {
+    expect(render(true)).toContain('placeholder="What should Claude work on?"')
+    expect(render(false)).toContain('placeholder="Message api · New session…"')
+  })
+})

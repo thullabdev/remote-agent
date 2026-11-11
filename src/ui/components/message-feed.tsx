@@ -1,14 +1,17 @@
-import { ArrowDown, Bookmark, Check, CheckCheck, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, ImageIcon, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { SessionStatusCard } from './session-status-card.tsx'
+import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
-import { commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
+import { NEEDS_YOU_BADGE_CLASS, commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
-import { isPdf, uploadUrl } from '../uploads.ts'
+import { isPdf, isReferenced, segmentReferences, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
+import { PickerRows } from './picker-rows.tsx'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -163,12 +166,12 @@ function MessageFeedView({
               {group.nodes}
             </section>
           ))}
-          {chat.busy && (
+          {chatState(chat) === 'working' && (
             <div className="flex items-center gap-3 px-1 py-2" aria-label="Session is working">
-              <div className="grid size-8 place-items-center rounded-xl border border-border bg-card">
+              <div className="grid size-8 place-items-center rounded-xl bg-card">
                 <span className="font-display text-sm">✳</span>
               </div>
-              <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="flex items-center gap-1.5 rounded-2xl bg-card px-4 py-3">
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot size-1.5 rounded-full bg-muted-foreground" />
@@ -198,7 +201,7 @@ function MessageFeedView({
 function DateSeparator({ at }: { at: number }) {
   return (
     <div className="sticky top-2 z-10 flex justify-center py-1">
-      <span className="rounded-full border border-border bg-card/95 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+      <span className="rounded-full border border-border/60 bg-card px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-sm">
         {formatDayLabel(at)}
       </span>
     </div>
@@ -216,6 +219,16 @@ type MessageCardProps = {
   onTogglePin?: MessageFeedProps['onTogglePin']
 }
 
+const PIN_HOLD_MS = 500
+
+/** Shows that a message is pinned. Pinning itself is done by holding the message (see PressToPin). */
+function PinMark({ pinned }: { pinned: boolean }) {
+  if (!pinned) {
+    return null
+  }
+  return <Bookmark className="size-3 fill-current" aria-label="Pinned" role="img" />
+}
+
 function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) {
   return (
     <button
@@ -231,33 +244,82 @@ function PinButton({ pinned, onToggle }: { pinned: boolean; onToggle(): void }) 
   )
 }
 
+/**
+ * Holding a message for a moment toggles its pin, so the feed carries no per-message buttons. Taps on controls
+ * inside the message (links, buttons) do not start a hold. A hold also suppresses the long-press context menu.
+ */
+function PressToPin({ onToggle, children, className }: { onToggle(): void; children: ReactNode; className?: string }) {
+  const timer = useRef<number | null>(null)
+  const fired = useRef(false)
+
+  const cancel = () => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+
+  useEffect(() => cancel, [])
+
+  return (
+    <div
+      className={className}
+      onPointerDown={event => {
+        if ((event.target as HTMLElement).closest('a, button, input, label, textarea, select, summary') !== null) {
+          return
+        }
+        fired.current = false
+        cancel()
+        timer.current = window.setTimeout(() => {
+          timer.current = null
+          fired.current = true
+          navigator.vibrate?.(12)
+          onToggle()
+        }, PIN_HOLD_MS)
+      }}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onPointerMove={cancel}
+      onContextMenu={event => {
+        if (fired.current) {
+          event.preventDefault()
+        }
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
 function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
+    const attachments = message.attachments ?? []
+    // Files the text names show inline; a file the text does not name (older messages) keeps its own row.
+    const unreferenced = attachments.filter(attachment => !isReferenced(message.text, attachment.name))
     return (
       <div className="flex justify-end">
-        <div className="max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-[var(--message-pad,_.7rem)] text-primary-foreground shadow-sm sm:max-w-[76%]">
-          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
-          {message.attachments !== undefined && message.attachments.length > 0 && (
+        <PressToPin
+          className="max-w-[88%] rounded-2xl rounded-br-md bg-accent px-4 py-[var(--message-pad,_.7rem)] text-foreground shadow-sm sm:max-w-[76%]"
+          onToggle={() => onTogglePin?.(message)}
+        >
+          {message.text !== '' && (
+            <p className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">
+              <MessageText text={message.text} files={attachments} />
+            </p>
+          )}
+          {unreferenced.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {message.attachments.map(attachment => (
+              {unreferenced.map(attachment => (
                 <AttachmentView key={attachment.id} attachment={attachment} />
               ))}
             </div>
           )}
-          <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
-            {message.status === 'queued' ? (
-              <>
-                <span>Queued</span>
-                <Check className="size-3" aria-hidden="true" />
-              </>
-            ) : (
-              <>
-                <span>Delivered</span>
-                <CheckCheck className="size-3" aria-hidden="true" />
-              </>
-            )}
+          {attachments.some(attachment => attachment.path !== undefined) && <SentPaths files={attachments} />}
+          <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+            {message.status === 'queued' && <span>Sending…</span>}
+            <PinMark pinned={message.pinned === true} />
             <time dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
-            {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
           </div>
           {pendingError && (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-black/10 px-2 py-1.5 text-xs">
@@ -265,7 +327,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
               {onRetry && <button className="font-semibold underline" onClick={onRetry}>Retry</button>}
             </div>
           )}
-        </div>
+        </PressToPin>
       </div>
     )
   }
@@ -284,23 +346,19 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
 
   if (message.kind === 'picker') {
     return (
-      <article className="max-w-[88%] rounded-2xl rounded-bl-md border border-border bg-card p-4 shadow-sm sm:max-w-[76%]">
+      <article className="max-w-[88%] rounded-2xl rounded-bl-md bg-card p-4 shadow-sm sm:max-w-[76%]">
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.text}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {message.buttons.map(button => (
-            <Button
-              key={`${message.pickerId}-${button.choice}`}
-              variant="outline"
-              size="sm"
-              onClick={() => void onPickerAction?.(message.chatId, { pickerId: message.pickerId, choice: button.choice })}
-            >
-              {button.label}
-            </Button>
-          ))}
-        </div>
+        <PickerRows
+          buttons={message.buttons}
+          onPick={choice => onPickerAction?.(message.chatId, { pickerId: message.pickerId, choice }) ?? Promise.resolve()}
+        />
         <MessageTime at={message.at} />
       </article>
     )
+  }
+
+  if (message.kind === 'session_status') {
+    return <SessionStatusCard message={message} />
   }
 
   if (message.kind === 'system') {
@@ -316,7 +374,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
 
   if (message.kind === 'command_reply') {
     return (
-      <article className="max-w-[88%] rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 shadow-sm sm:max-w-[76%]">
+      <article className="max-w-[88%] rounded-2xl rounded-bl-md bg-card px-4 py-3 shadow-sm sm:max-w-[76%]">
         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</div>
         <MessageTime at={message.at} />
       </article>
@@ -327,22 +385,19 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
     // agent_text messages do not carry an agent id yet, so they show the default agent.
     const agent = agentInfo(undefined)
     return (
-      <article className="flex w-full gap-3">
-        <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-muted">
-          <Sparkles className="size-4" aria-hidden="true" />
+      <article className="min-w-0 w-full max-w-2xl px-4 py-[var(--message-pad,_.7rem)]">
+        <div className="mb-2 flex items-center gap-2 text-sm">
+          <span className="font-display font-semibold">{agent.name}</span>
+          <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
+          <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+          {onTogglePin && (
+            <span className="ml-auto">
+              <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
+            </span>
+          )}
         </div>
-        <div className="min-w-0 max-w-2xl flex-1">
-          <div className="mb-2 flex items-center gap-2 text-sm">
-            <span className="font-display font-semibold">{agent.name}</span>
-            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
-            <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
-            {onTogglePin && (
-              <span className="ml-auto">
-                <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
-              </span>
-            )}
-          </div>
-          <div className="prose prose-sm max-w-none break-words text-[var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+        <div className="min-w-0">
+          <div className="prose max-w-none break-words text-[length:var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
             <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
               <MarkdownBody markdown={message.markdown} />
             </Suspense>
@@ -353,6 +408,47 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   }
 
   return null
+}
+
+/** The message text, with each file it names replaced by one inline chip for that file. */
+function MessageText({ text, files }: { text: string; files: UploadRef[] }) {
+  return (
+    <>
+      {segmentReferences(text, files).map((segment, index) =>
+        'file' in segment ? <FileChip key={index} file={segment.file} /> : <span key={index}>{segment.text}</span>,
+      )}
+    </>
+  )
+}
+
+function FileChip({ file }: { file: UploadRef }) {
+  const Icon = isPdf(file.mime) ? FileText : ImageIcon
+  return (
+    <a
+      href={uploadUrl(file.id)}
+      target="_blank"
+      rel="noreferrer"
+      title={file.name}
+      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md bg-black/10 px-1.5 py-px align-baseline text-[0.9em] font-medium"
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{file.name}</span>
+    </a>
+  )
+}
+
+/** What the Session received for this message: the path of each file, shown on demand. */
+function SentPaths({ files }: { files: UploadRef[] }) {
+  return (
+    <details className="mt-1.5 text-[11px] text-foreground/70">
+      <summary className="cursor-pointer select-none">Session received {files.length === 1 ? 'the file' : `${files.length} files`}</summary>
+      <ul className="mt-1 grid gap-0.5 break-all font-mono">
+        {files.map(file => (
+          <li key={file.id}>{file.path ?? file.name}</li>
+        ))}
+      </ul>
+    </details>
+  )
 }
 
 /** An attached library file: the image itself, or a PDF link. A file that was deleted from the library shows as removed. */
@@ -385,7 +481,7 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
   const running = messages.some(message => message.status === 'running') && !interrupted
   const failed = messages.some(message => message.status === 'error')
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card/75 shadow-sm">
+    <section className={`overflow-hidden rounded-2xl bg-card/75 shadow-sm ${expanded || running ? 'border border-foreground/8' : ''}`}>
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/60"
@@ -421,7 +517,7 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
                 {message.result !== null && (
                   <div className="min-w-0">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Result {message.resultTruncated && <span className="normal-case">(truncated by Bridge)</span>}
+                      Result {message.resultTruncated && <span className="normal-case">(shortened)</span>}
                     </div>
                     <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">{message.result}</CodeBlock>
                   </div>
@@ -439,7 +535,7 @@ function ToolInput({ input }: { input: unknown }) {
   const commandInput = commandToolInput(input)
   if (commandInput !== null) {
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <CodeBlock preClassName="max-w-full overflow-x-auto overscroll-x-contain whitespace-pre px-3 py-2.5 pr-11 font-mono text-[11px] leading-relaxed">
           <code>{commandInput.command}</code>
         </CodeBlock>
@@ -447,12 +543,12 @@ function ToolInput({ input }: { input: unknown }) {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-3 py-2 text-xs text-muted-foreground">
             {commandInput.description !== undefined && <span className="min-w-0 flex-1">{commandInput.description}</span>}
             {commandInput.timeout !== undefined && (
-              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="shrink-0 rounded-md bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
                 Timeout · {commandInput.timeout} ms
               </span>
             )}
             {commandInput.runInBackground !== undefined && (
-              <span className="shrink-0 rounded-md border border-border bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="shrink-0 rounded-md bg-card/70 px-1.5 py-0.5 font-mono text-[10px]">
                 {commandInput.runInBackground ? 'Background' : 'Foreground'}
               </span>
             )}
@@ -468,7 +564,7 @@ function ToolInput({ input }: { input: unknown }) {
     const added = lines.filter(line => line.kind === 'add').length
     const removed = lines.filter(line => line.kind === 'remove').length
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Edit</span>
           <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{editInput.filePath}</code>
@@ -484,7 +580,7 @@ function ToolInput({ input }: { input: unknown }) {
   const writeInput = writeToolInput(input)
   if (writeInput !== null) {
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted">
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</span>
           <code className="min-w-0 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
@@ -557,46 +653,134 @@ function DiffText({ line }: { line: DiffLine }) {
   )
 }
 
+/**
+ * What the card shows about an answer the user just gave: which choice was pressed, and whether it is still being sent, was sent
+ * (the session has not confirmed yet), or failed. The tapped choice stays marked, so the card never looks as if nothing happened.
+ */
+export type PromptFeedback =
+  | { phase: 'idle' }
+  | { phase: 'sending' | 'sent'; key: string }
+  | { phase: 'error'; message: string }
+
 type PromptCardProps = {
   message: Extract<Message, { kind: 'prompt' }>
   questionIndex: number
   onAction?: MessageFeedProps['onPromptAction']
   onReply?: MessageFeedProps['onPromptReply']
+  /** Where the card starts. Only tests set it. */
+  initialFeedback?: PromptFeedback
 }
 
-function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardProps) {
+type ChoicePhase = 'sending' | 'sent'
+
+/** Marks a button that was pressed: a spinner while sending, a check once sent. */
+function ChoiceMark({ phase }: { phase: ChoicePhase | undefined }) {
+  if (phase === undefined) {
+    return null
+  }
+  return phase === 'sending' ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" /> : <Check className="size-4 shrink-0" aria-hidden="true" />
+}
+
+function pressedLabel(phase: ChoicePhase | undefined, idle: string, sending: string, sent: string): string {
+  return phase === 'sending' ? sending : phase === 'sent' ? sent : idle
+}
+
+/** The note of a resolution, with where it was answered when the note does not already say. */
+function resolutionText(resolution: { note: string; source: 'local' | 'remote' } | null): string {
+  if (resolution === null) {
+    return 'Answered'
+  }
+  return resolution.source === 'local' && !resolution.note.toLowerCase().includes('terminal') ? `${resolution.note} (in the terminal)` : resolution.note
+}
+
+/** What was decided, in plain sight: the chosen answer (the chosen option marked among the others), or Allowed / Denied. */
+function AnsweredResult({ message }: { message: Extract<Message, { kind: 'prompt' }> }) {
+  const note = resolutionText(message.resolution)
+  if (message.body.kind === 'permission') {
+    const denied = note.startsWith('Denied')
+    return (
+      <div data-result="true" className="flex items-start gap-2 px-4 py-3">
+        {denied ? <X className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Check className="mt-0.5 size-4 shrink-0 text-status-working" aria-hidden="true" />}
+        <p className="text-sm font-medium">{note}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-3 px-4 py-3">
+      {message.body.questions.map((question, index) => {
+        const answered = question.answered
+        return (
+          <div key={`${message.id}-result-${index}`} className="grid gap-2">
+            {question.options.length > 0 && (
+              <div className="grid gap-1.5">
+                {question.options.map((option, optionIndex) => {
+                  const chosen = answered === option.label
+                  return (
+                    <div
+                      key={`${message.id}-result-option-${optionIndex}`}
+                      data-chosen={chosen ? 'true' : undefined}
+                      className={`flex items-start gap-3 rounded-xl p-3 ${chosen ? 'border border-primary bg-primary/10' : 'bg-background/40 opacity-50'}`}
+                    >
+                      <span className="mt-0.5 grid size-4 shrink-0 place-items-center">{chosen && <Check className="size-4" aria-hidden="true" />}</span>
+                      <span className="block text-sm font-medium">{option.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <div data-result="true" className="flex items-start gap-2">
+              <Check className="mt-0.5 size-4 shrink-0 text-status-working" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">You answered</p>
+                <p className="text-sm font-medium">{answered ?? note}</p>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+      {message.resolution?.source === 'local' && <p className="text-xs text-muted-foreground">Answered in the terminal</p>}
+    </div>
+  )
+}
+
+export function PromptCard({ message, questionIndex, onAction, onReply, initialFeedback = { phase: 'idle' } }: PromptCardProps) {
   const [selected, setSelected] = useState<number[]>([])
   const [answer, setAnswer] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const pending = message.status === 'pending' && !submitting
-  const run = async (action: () => Promise<void>) => {
-    setSubmitting(true)
+  const [feedback, setFeedback] = useState<PromptFeedback>(initialFeedback)
+  const active = feedback.phase === 'sending' || feedback.phase === 'sent' ? feedback : null
+  const canAct = message.status === 'pending' && active === null
+  const choiceOf = (key: string): ChoicePhase | undefined => (active !== null && active.key === key ? active.phase : undefined)
+  const run = async (key: string, action: () => Promise<void>) => {
+    setFeedback({ phase: 'sending', key })
     try {
       await action()
-    } finally {
-      setSubmitting(false)
+      setFeedback({ phase: 'sent', key })
+    } catch (reason) {
+      setFeedback({ phase: 'error', message: reason instanceof Error ? reason.message : 'Could not send your answer. Try again.' })
     }
   }
+  const choose = (key: string, optionIndex: number, index: number) =>
+    void run(key, () => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: index, optionIndex }) ?? Promise.resolve())
 
   return (
-    <article className={`max-w-full overflow-hidden rounded-2xl border shadow-sm sm:max-w-[92%] ${
-      message.status === 'pending' ? 'border-amber-500/40 bg-card' : 'border-border bg-card/75'
+    <article className={`max-w-full overflow-hidden rounded-2xl shadow-sm sm:max-w-[92%] ${
+      message.status === 'pending' ? 'border border-status-needs/40 bg-card' : 'bg-card/75'
     }`}>
       <div className="flex items-start gap-3 border-b border-border/70 px-4 py-3.5">
         <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl ${
-          message.status === 'pending' ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground'
+          message.status === 'pending' ? 'bg-status-needs/10 text-status-needs' : 'bg-muted text-muted-foreground'
         }`}>
           {message.body.kind === 'permission' ? <ShieldIcon /> : <MessageCircleIcon />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold">{message.title}</p>
-            {message.status === 'pending' ? <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">Needs you</Badge> : <Badge>Answered</Badge>}
+            {message.status === 'pending' ? <Badge className={NEEDS_YOU_BADGE_CLASS}>Needs you</Badge> : <Badge>Answered</Badge>}
           </div>
           {message.body.kind === 'question' ? (
             message.body.questions.map((question, index) => (
               <div key={`${message.id}-${index}`} className="mt-2">
-                {question.header && <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{question.header}</p>}
+                {question.header && <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{question.header}</p>}
                 <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{question.question}</p>
               </div>
             ))
@@ -622,10 +806,11 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                   const checked = selected.includes(optionIndex)
                   if (question.multiSelect) {
                     return (
-                      <label key={`${message.id}-option-${optionIndex}`} className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background/70 p-3 hover:bg-muted/60">
+                      <label key={`${message.id}-option-${optionIndex}`} className="flex cursor-pointer items-start gap-3 rounded-xl bg-background/70 p-3 hover:bg-muted/60">
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!canAct}
                           onChange={() => setSelected(current => checked ? current.filter(item => item !== optionIndex) : [...current, optionIndex])}
                           className="mt-1 accent-[var(--primary)]"
                         />
@@ -636,16 +821,24 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
                       </label>
                     )
                   }
+                  const key = `option:${optionIndex}`
+                  const phase = choiceOf(key)
                   return (
                     <button
                       type="button"
                       key={`${message.id}-option-${optionIndex}`}
-                      disabled={!pending}
-                      className="rounded-xl border border-border bg-background/70 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-50"
-                      onClick={() => void run(() => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: index, optionIndex }) ?? Promise.resolve())}
+                      disabled={!canAct}
+                      data-choice={phase}
+                      className={`flex items-start gap-3 rounded-xl p-3 text-left transition-colors ${
+                        phase !== undefined ? 'border border-primary bg-primary/10' : 'bg-background/70 hover:bg-muted disabled:opacity-50'
+                      }`}
+                      onClick={() => choose(key, optionIndex, index)}
                     >
-                      <span className="block text-sm font-medium">{option.label}</span>
-                      {option.description && <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">{option.label}</span>
+                        {option.description && <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>}
+                      </span>
+                      <ChoiceMark phase={phase} />
                     </button>
                   )
                 })}
@@ -653,58 +846,76 @@ function PromptCard({ message, questionIndex, onAction, onReply }: PromptCardPro
             )
           })}
           <div className="flex gap-2">
-            <Input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Write an answer…" disabled={!pending} />
+            <Input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Write an answer…" disabled={!canAct} />
             <Button
               variant="secondary"
-              disabled={!pending || answer.trim() === ''}
-              onClick={() => void run(() => onReply?.(message.promptId, { questionIndex, text: answer.trim() }) ?? Promise.resolve())}
+              disabled={!canAct || answer.trim() === ''}
+              onClick={() => void run('text', () => onReply?.(message.promptId, { questionIndex, text: answer.trim() }) ?? Promise.resolve())}
             >
-              Send
+              <ChoiceMark phase={choiceOf('text')} />
+              {pressedLabel(choiceOf('text'), 'Send', 'Sending…', 'Sent')}
             </Button>
           </div>
-          {message.body.questions.some(question => question.multiSelect) && selected.length > 0 && (
+          {message.body.questions.some(question => question.multiSelect) && (selected.length > 0 || choiceOf('multi') !== undefined) && (
             <Button
               variant="outline"
-              disabled={!pending}
-              onClick={() => void run(() => onReply?.(message.promptId, { questionIndex, text: [...selected].sort((a, b) => a - b).map(index => index + 1).join(',') }) ?? Promise.resolve())}
+              disabled={!canAct}
+              onClick={() => void run('multi', () => onReply?.(message.promptId, { questionIndex, text: [...selected].sort((a, b) => a - b).map(index => index + 1).join(',') }) ?? Promise.resolve())}
             >
-              Submit {selected.length} selected
+              <ChoiceMark phase={choiceOf('multi')} />
+              {pressedLabel(choiceOf('multi'), `Submit ${selected.length} selected`, 'Sending…', 'Sent')}
             </Button>
           )}
+          <FeedbackLine feedback={feedback} />
         </div>
       )}
 
       {message.status === 'pending' && message.body.kind === 'permission' && (
         <div className="grid gap-3 p-4">
-          <Textarea value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Optional feedback if you deny…" disabled={!pending} className="min-h-20" />
+          <Textarea value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Optional feedback if you deny…" disabled={!canAct} className="min-h-20" />
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
-              disabled={!pending}
-              onClick={() => void run(() => answer.trim()
+              disabled={!canAct}
+              data-choice={choiceOf('deny')}
+              onClick={() => void run('deny', () => answer.trim()
                 ? onReply?.(message.promptId, { questionIndex: 0, text: answer.trim() }) ?? Promise.resolve()
                 : onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 1 }) ?? Promise.resolve())}
             >
-              Deny
+              <ChoiceMark phase={choiceOf('deny')} />
+              {pressedLabel(choiceOf('deny'), 'Deny', 'Denying…', 'Denied')}
             </Button>
             <Button
-              disabled={!pending}
-              onClick={() => void run(() => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 0 }) ?? Promise.resolve())}
+              disabled={!canAct}
+              data-choice={choiceOf('allow')}
+              onClick={() => void run('allow', () => onAction?.(message.chatId, { promptId: message.promptId, questionIndex: 0, optionIndex: 0 }) ?? Promise.resolve())}
             >
-              Allow
+              <ChoiceMark phase={choiceOf('allow')} />
+              {pressedLabel(choiceOf('allow'), 'Allow', 'Allowing…', 'Allowed')}
             </Button>
           </div>
+          <FeedbackLine feedback={feedback} />
         </div>
       )}
 
-      {message.status === 'answered' && (
-        <div className="px-4 py-3 text-xs text-muted-foreground">
-          {message.resolution?.note ?? 'Answered'}
-          {message.resolution?.source === 'local' && ' in the terminal'}
-        </div>
-      )}
+      {message.status === 'answered' && <AnsweredResult message={message} />}
       {message.status === 'pending' && message.body.kind === 'permission' && <MessageTime at={message.at} />}
     </article>
+  )
+}
+
+/** One line under the choices that says what is happening with the answer, so the user is never left guessing. */
+function FeedbackLine({ feedback }: { feedback: PromptFeedback }) {
+  if (feedback.phase === 'idle') {
+    return null
+  }
+  if (feedback.phase === 'error') {
+    return <p role="alert" className="text-sm text-red-600 dark:text-red-400">{feedback.message}</p>
+  }
+  return (
+    <p role="status" className="text-sm text-muted-foreground">
+      {feedback.phase === 'sending' ? 'Sending your answer…' : 'Sent. Waiting for the session to continue…'}
+    </p>
   )
 }
 

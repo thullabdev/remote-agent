@@ -9,8 +9,8 @@ One Claude Code conversation on the user's machine, identified by its Claude `se
 _Avoid_: agent, run, instance
 
 **Spawned Session**:
-A Session the Bridge started on the user's request from the Channel, running in a detached tmux session the user can attach to. Only Spawned Sessions can be ended from the Channel.
-_Avoid_: remote session, bot session
+A Session the Bridge started on the user's request from the Channel, running in a detached tmux session the user can attach to. Only Spawned Sessions can be ended from the Channel. Any other Session was started by the user on their computer; the web chat labels those "Computer" and offers a Computer / Spawned source filter.
+_Avoid_: remote session, bot session, laptop session
 
 **Trusted folder**:
 An existing directory listed in `REMOTE_AGENT_PROJECTS` or as a project key in Claude Code's `~/.claude.json`. Matched exactly, so subfolders are not allowed. The only places a Spawned Session may start.

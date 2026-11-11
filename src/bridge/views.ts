@@ -30,18 +30,19 @@ export function cleanSessionName(name: string): string {
   return name.replace(/\s+/g, ' ').trim()
 }
 
+/** What a session is called in lists: its project and what it is about. Until it has a name it is "New session". */
 export function threadTitle(session: SessionRow): string {
-  const label = sessionLabel(session)
   const name = cleanSessionName(session.title ?? '')
+  const prefix = `${session.project} · `
   if (name === '') {
-    return label.slice(0, THREAD_TITLE_MAX)
+    return `${prefix}New session`.slice(0, THREAD_TITLE_MAX)
   }
-  const budget = THREAD_TITLE_MAX - label.length - ' · '.length
+  const budget = THREAD_TITLE_MAX - prefix.length
   if (budget < 1) {
-    return label.slice(0, THREAD_TITLE_MAX)
+    return prefix.slice(0, THREAD_TITLE_MAX)
   }
   const shown = name.length <= budget ? name : `${name.slice(0, budget - 1)}…`
-  return `${label} · ${shown}`
+  return `${prefix}${shown}`
 }
 
 export function formatDuration(ms: number): string {
@@ -143,17 +144,14 @@ export function resolutionNote(answer: Answer, source: AnswerSource): string {
 }
 
 /** The resolution note as plain text for the web channel: no emoji and no clipping. */
-export function plainResolutionNote(answer: Answer, source: AnswerSource): string {
+export function plainResolutionNote(answer: Answer): string {
   if (answer.kind === 'permission') {
     if (answer.message === SETTLED_LOCALLY_MESSAGE) {
       return 'Answered in the terminal'
     }
-    const head = `${answer.decision === 'allow' ? 'Allowed' : 'Denied'} (${source})`
+    const head = answer.decision === 'allow' ? 'Allowed' : 'Denied'
     return answer.message === undefined ? head : `${head}: ${answer.message}`
   }
   const values = Object.values(answer.answers)
-  if (values.length === 0) {
-    return `Dismissed (${source})`
-  }
-  return `Answered (${source}): ${values.join(' / ')}`
+  return values.length === 0 ? 'Dismissed' : `Answered: ${values.join(' / ')}`
 }

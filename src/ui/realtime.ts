@@ -1,4 +1,5 @@
 import type { Chat, Message, ServerEvent, UsageView } from '../channel/web/protocol.ts'
+import { orderChats } from '../channel/web/order.ts'
 import type { WebState } from './api.ts'
 
 export type RealtimeState = {
@@ -12,29 +13,22 @@ export type RealtimeState = {
   hiddenBeforeSeq: Record<string, number>
 }
 
+/** A server older than this UI (or a cached bundle talking to a newer one) may omit fields the UI now reads. */
+function withDefaults(chat: Chat): Chat {
+  return chat.pendingPrompt === undefined ? { ...chat, pendingPrompt: null } : chat
+}
+
 export function createRealtimeState(state: WebState): RealtimeState {
   return {
     eventSeq: state.seq,
     away: state.away,
     usage: state.usage,
-    chats: state.chats,
+    chats: orderChats(state.chats.map(withDefaults)),
     messages: {},
     hasMore: {},
     loadedChats: new Set(),
     hiddenBeforeSeq: {},
   }
-}
-
-function orderChats(chats: Chat[]): Chat[] {
-  return [...chats].sort((a, b) => {
-    if (a.id === 'general') {
-      return -1
-    }
-    if (b.id === 'general') {
-      return 1
-    }
-    return (b.lastMessage?.at ?? 0) - (a.lastMessage?.at ?? 0)
-  })
 }
 
 function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
@@ -85,7 +79,7 @@ export function applyServerEvent(state: RealtimeState, event: ServerEvent): Real
     }
     case 'chat.updated': {
       const chats = next.chats.filter(chat => chat.id !== event.chat.id)
-      next = { ...next, chats: orderChats([...chats, event.chat]) }
+      next = { ...next, chats: orderChats([...chats, withDefaults(event.chat)]) }
       break
     }
     case 'chat.cleared': {

@@ -5,16 +5,37 @@ import { Button } from './ui/button.tsx'
 
 type ClipboardLike = { writeText(text: string): Promise<void> }
 
-export async function copyToClipboard(text: string, clipboard: ClipboardLike | undefined = globalThis.navigator?.clipboard): Promise<boolean> {
-  if (clipboard === undefined) {
+// The async clipboard API only exists on secure origins; over plain http on a LAN the old selection-based copy still works.
+function legacyCopy(text: string): boolean {
+  if (typeof document === 'undefined') {
     return false
   }
+  const field = document.createElement('textarea')
+  field.value = text
+  field.setAttribute('readonly', '')
+  field.style.position = 'fixed'
+  field.style.opacity = '0'
+  document.body.appendChild(field)
+  field.select()
   try {
-    await clipboard.writeText(text)
-    return true
+    return document.execCommand('copy')
   } catch {
     return false
+  } finally {
+    field.remove()
   }
+}
+
+export async function copyToClipboard(text: string, clipboard: ClipboardLike | undefined = globalThis.navigator?.clipboard): Promise<boolean> {
+  if (clipboard !== undefined) {
+    try {
+      await clipboard.writeText(text)
+      return true
+    } catch {
+      // Fall through to the legacy copy below.
+    }
+  }
+  return legacyCopy(text)
 }
 
 type CodeBlockProps = {
@@ -41,7 +62,7 @@ export function CodeBlock({ children, className, preClassName }: CodeBlockProps)
   }
 
   return (
-    <div className={cn('relative min-w-0 max-w-full', className)}>
+    <div className={cn('code-block relative min-w-0 max-w-full', className)}>
       <div className="max-w-full overflow-x-auto overscroll-x-contain">
         <pre ref={preRef} className={preClassName}>{children}</pre>
       </div>

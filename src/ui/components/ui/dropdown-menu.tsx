@@ -9,7 +9,7 @@ export function DropdownMenuContent({ className, sideOffset = 6, ...props }: Dro
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
-        className={cn('z-50 min-w-44 overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-xl', className)}
+        className={cn('z-50 min-w-44 overflow-hidden rounded-xl bg-card p-1.5 text-foreground shadow-xl', className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

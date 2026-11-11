@@ -16,9 +16,10 @@ const general: Chat = {
   archived: false,
   busy: false,
   unread: 0,
-  lastMessage: null,
+  lastMessage: null, draft: null,
   pinned: true,
   tmuxName: null,
+  pendingPrompt: null, activity: null,
 }
 
 const first: Message = { id: 'm_1', chatId: 'general', seq: 1, at: 10, kind: 'agent_text', markdown: 'hello' }
@@ -37,6 +38,28 @@ describe('Web Channel event state', () => {
     expect(afterDuplicate).toBe(afterCreate)
     expect(afterUpdate.eventSeq).toBe(4)
     expect(afterUpdate.messages.general).toEqual([answered])
+  })
+
+  test('a chat from a server that does not send pendingPrompt defaults to null', () => {
+    const { pendingPrompt: _omitted, ...legacy } = general
+    const initial = createRealtimeState({ seq: 1, away: false, chats: [legacy as Chat], usage: noUsage })
+    expect(initial.chats[0]?.pendingPrompt).toBeNull()
+
+    const updated = applyServerEvent(initial, { type: 'chat.updated', seq: 2, chat: { ...legacy, unread: 1 } as Chat })
+    expect(updated.chats[0]).toMatchObject({ unread: 1, pendingPrompt: null, activity: null })
+  })
+
+  test('a chat that starts needing the user moves above newer chats, on load and on chat.updated', () => {
+    const at = (id: string, time: number): Chat => ({ ...general, id, title: id, pinned: false, lastMessage: { seq: time, at: time, preview: '' } })
+    const ids = (state: { chats: Chat[] }): string[] => state.chats.map(chat => chat.id)
+    const blocked = { ...at('blocked', 10), pendingPrompt: { promptId: 'p', kind: 'permission' as const, summary: 'Bash: ls', at: 10, count: 1 } }
+
+    const loaded = createRealtimeState({ seq: 1, away: false, chats: [at('newer', 50), blocked, general], usage: noUsage })
+    expect(ids(loaded)).toEqual(['general', 'blocked', 'newer'])
+
+    const before = createRealtimeState({ seq: 1, away: false, chats: [general, at('newer', 50), at('blocked', 10)], usage: noUsage })
+    expect(ids(before)).toEqual(['general', 'newer', 'blocked'])
+    expect(ids(applyServerEvent(before, { type: 'chat.updated', seq: 2, chat: blocked }))).toEqual(['general', 'blocked', 'newer'])
   })
 
   test('a clear event removes only messages at or before the server cutoff', () => {
