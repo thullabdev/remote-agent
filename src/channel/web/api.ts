@@ -284,9 +284,10 @@ function resolveAttachments(deps: ApiDeps, ids: string[]): { refs: UploadRef[]; 
     if (record === undefined) {
       throw new ApiError(400, 'An attached file is no longer in the library.')
     }
-    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size }
+    const path = library.filePath(record)
+    const ref = { id: record.id, name: record.name, mime: record.mime, size: record.size, path }
     refs.push(ref)
-    files.push({ ref, path: library.filePath(record) })
+    files.push({ ref, path })
   }
   return { refs, files }
 }
@@ -332,7 +333,8 @@ function withUploadErrors<T>(action: () => T): T {
 }
 
 function listUploads(deps: ApiDeps): unknown {
-  return { uploads: requireUploads(deps).list() }
+  const uses = deps.chatLog.uploadUses()
+  return { uploads: requireUploads(deps).list().map(upload => ({ ...upload, uses: uses.get(upload.id) ?? 0 })) }
 }
 
 /** Uploads travel as JSON with base64 data, so the JSON Content-Type guard applies to them too. */

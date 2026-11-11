@@ -114,11 +114,14 @@ export type MessageBody =
 
 export type MessageKind = MessageBody['kind']
 
-/** An uploaded file as a message shows it: enough to display it, not where it is stored. */
-export type UploadRef = { id: string; name: string; mime: string; size: number }
+/**
+ * An uploaded file as a message shows it. `path` is where the Session reads the file; the Bridge sets it when it sends the
+ * message, so the chat can show exactly what the Session received.
+ */
+export type UploadRef = { id: string; name: string; mime: string; size: number; path?: string }
 
-/** A library entry as the picker lists it. */
-export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean }
+/** A library entry as the library lists it. `uses` counts the messages that attached it. */
+export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean; uses?: number }
 
 /** A pinned message as the chat details list shows it. */
 export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }

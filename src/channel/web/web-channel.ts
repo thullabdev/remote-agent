@@ -311,7 +311,13 @@ export class WebChannel implements Channel, ChatSink {
     if (current.status === 'delivered') {
       return
     }
-    this.chatLog.updateMessage(current.id, { kind: 'user_text', text: current.text, status: 'delivered', instructionId: current.instructionId })
+    this.chatLog.updateMessage(current.id, {
+      kind: 'user_text',
+      text: current.text,
+      status: 'delivered',
+      instructionId: current.instructionId,
+      ...(current.attachments !== undefined && current.attachments.length > 0 ? { attachments: current.attachments } : {}),
+    })
   }
 
   report(session: SessionRow, report: Report): void {

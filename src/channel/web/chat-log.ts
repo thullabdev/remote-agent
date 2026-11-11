@@ -465,6 +465,24 @@ export class ChatLog {
     return record === null ? undefined : toMessage(record)
   }
 
+  /** How many messages attached each library file, by file id. Only files that were attached appear. */
+  uploadUses(): Map<string, number> {
+    const uses = new Map<string, number>()
+    const rows = this.db.query<{ body: string }, []>(`SELECT body FROM messages WHERE body LIKE '%"attachments"%'`).all()
+    for (const row of rows) {
+      const ids = new Set<string>()
+      for (const attachment of (JSON.parse(row.body) as { attachments?: { id?: unknown }[] }).attachments ?? []) {
+        if (typeof attachment.id === 'string') {
+          ids.add(attachment.id)
+        }
+      }
+      for (const id of ids) {
+        uses.set(id, (uses.get(id) ?? 0) + 1)
+      }
+    }
+    return uses
+  }
+
   /** The user_text message created for an Instruction, whatever source id it was appended with. */
   findByInstructionId(instructionId: string): Message | undefined {
     const record = this.db

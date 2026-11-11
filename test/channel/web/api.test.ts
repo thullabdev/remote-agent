@@ -817,10 +817,19 @@ test('a message with attachments shows their names and tells the Session where t
   const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-1', text: 'Compare this', attachmentIds: [body.upload.id] })
 
   expect(sent.status).toBe(200)
-  expect(sent.body.message).toMatchObject({ kind: 'user_text', text: 'Compare this', attachments: [{ id: body.upload.id, name: 'diagram.png', mime: 'image/png' }] })
-  const instruction = store.listPendingInstructions('s1').at(-1)!
   const path = uploadsLibrary!.filePath(uploadsLibrary!.get(body.upload.id)!)
+  expect(sent.body.message).toMatchObject({ kind: 'user_text', text: 'Compare this', attachments: [{ id: body.upload.id, name: 'diagram.png', mime: 'image/png', path }] })
+  const instruction = store.listPendingInstructions('s1').at(-1)!
   expect(instruction.text).toBe(`Compare this\n\nAttached files (read them with the Read tool):\n- ${path}`)
+  expect((await call('GET', '/api/uploads')).body.uploads[0]).toMatchObject({ id: body.upload.id, uses: 1 })
+})
+
+test('a delivered message keeps its attachments', async () => {
+  const chatId = seedSession()
+  const { body } = await upload('kept.png', PNG_BYTES)
+  const sent = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c-kept', text: 'Look', attachmentIds: [body.upload.id] })
+  channel.instructionDelivered(store.listPendingInstructions('s1').at(-1)!.id)
+  expect(chatLog.findMessage(sent.body.message.id)).toMatchObject({ kind: 'user_text', status: 'delivered', attachments: [{ id: body.upload.id }] })
 })
 
 test('a file-only message is allowed; the Session gets the paths alone', async () => {
