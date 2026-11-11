@@ -652,7 +652,7 @@ test('General is not counted, and an ended session is recorded once', () => {
   expect(view.recent.map(event => [event.chatId, event.kind])).toEqual([['c1', 'ended'], ['c1', 'started']])
 })
 
-test('recent activity names the session by its title, newest first, capped at eight', () => {
+test('recent activity names the session by its title, newest first, with a burst of turns as one line', () => {
   for (let turn = 0; turn < 6; turn += 1) {
     clock += 1_000
     log.updateChat('c1', { busy: true })
@@ -660,8 +660,9 @@ test('recent activity names the session by its title, newest first, capped at ei
     log.updateChat('c1', { busy: false })
   }
   const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
-  expect(recent).toHaveLength(7)
-  expect(recent[0]).toMatchObject({ kind: 'finished', name: 'app session' })
+  // Six turns close together are one burst, so one line, then the start.
+  expect(recent).toHaveLength(2)
+  expect(recent[0]).toMatchObject({ kind: 'finished', name: 'app session', turns: 6, preview: null })
   log.setCustomTitle('c1', 'Fix billing')
   expect(log.getActivity({ days: 1, offsetMinutes: 0 }).recent[0]?.name).toBe('Fix billing')
   expect(recent[recent.length - 1]?.kind).toBe('started')
@@ -675,4 +676,21 @@ test('a turn whose start was never seen counts as finished with no time, and old
   const view = log.getActivity({ days: 1, offsetMinutes: 0 })
   expect(view.days[0]).toMatchObject({ turnsCompleted: 1, sessionsStarted: 0 })
   expect(view.since).toBe(clock)
+})
+
+test('a finished burst shows the newest reply made before its last turn ended', () => {
+  log.updateChat('c1', { busy: true })
+  clock = 2_000
+  log.appendMessage('c1', agent('First answer'))
+  clock = 3_000
+  log.updateChat('c1', { busy: false })
+  clock = 4_000
+  log.updateChat('c1', { busy: true })
+  clock = 5_000
+  log.appendMessage('c1', agent('Second answer, the one that matters'))
+  clock = 6_000
+  log.updateChat('c1', { busy: false })
+
+  const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
+  expect(recent[0]).toMatchObject({ kind: 'finished', turns: 2, preview: 'Second answer, the one that matters' })
 })

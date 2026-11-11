@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { buildDays, dayKey, MAX_TURN_MS, type ActivityRow } from '../../../src/channel/web/activity.ts'
+import { BURST_MS, buildDays, dayKey, groupRecent, MAX_TURN_MS, type ActivityRow, type RecentRow } from '../../../src/channel/web/activity.ts'
 
 const HOUR = 3_600_000
 const noon = Date.UTC(2026, 10, 10, 12)
@@ -36,4 +36,27 @@ test('rows land on their day, and starts and turn ends are counted separately', 
 test('a turn longer than the cap counts as the cap', () => {
   const [today] = buildDays([{ at: noon, kind: 'turn_end', ms: 100 * HOUR }], noon, 1, 0)
   expect(today?.workedMs).toBe(MAX_TURN_MS)
+})
+
+const row = (id: number, at: number, kind: RecentRow['kind'], chatId = 'a', name = 'api'): RecentRow => ({ id, at, chatId, kind, name })
+
+test('finished turns of one session within the burst window are one line, newest first', () => {
+  const rows = [row(5, 3_000, 'turn_end'), row(4, 2_000, 'turn_end'), row(3, 1_000, 'turn_end')]
+  expect(groupRecent(rows, 8)).toEqual([
+    { id: 5, at: 3_000, firstAt: 1_000, chatId: 'a', kind: 'finished', name: 'api', turns: 3, preview: null },
+  ])
+})
+
+test('a turn long after the burst starts a new line, and a start or end breaks the burst', () => {
+  const gap = BURST_MS + 1
+  const rows = [row(4, 3_000 + gap, 'turn_end'), row(3, 3_000, 'turn_end'), row(2, 2_000, 'started'), row(1, 1_000, 'turn_end')]
+  const lines = groupRecent(rows, 8)
+  expect(lines.map(line => [line.kind, line.turns])).toEqual([['finished', 1], ['finished', 1], ['started', 0], ['finished', 1]])
+})
+
+test('bursts of different sessions do not merge, and the limit counts lines', () => {
+  const rows = [row(3, 3_000, 'turn_end', 'a'), row(2, 2_000, 'turn_end', 'b'), row(1, 1_000, 'turn_end', 'a')]
+  // Session a's two ends merge into one line even though session b's end falls between them.
+  expect(groupRecent(rows, 8).map(line => [line.chatId, line.turns])).toEqual([['a', 2], ['b', 1]])
+  expect(groupRecent(rows, 1)).toHaveLength(1)
 })

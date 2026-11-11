@@ -102,8 +102,8 @@ const day = (date: string, turns: number, worked: number, started = 0) => ({ dat
 const activityView: ActivityView = {
   days: [day('2026-11-04', 0, 0), day('2026-11-05', 2, 1_800_000), day('2026-11-06', 0, 0), day('2026-11-07', 1, 600_000), day('2026-11-08', 0, 0), day('2026-11-09', 4, 3_600_000), day('2026-11-10', 3, 4_500_000, 2)],
   recent: [
-    { id: 3, at: Date.now() - 4 * 60_000, chatId: 'a', kind: 'finished', name: 'api' },
-    { id: 2, at: Date.now() - 60 * 60_000, chatId: 'b', kind: 'started', name: 'web' },
+    { id: 3, at: Date.now() - 4 * 60_000, firstAt: Date.now() - 20 * 60_000, chatId: 'a', kind: 'finished', name: 'api', turns: 7, preview: 'Review Span Selection' },
+    { id: 2, at: Date.now() - 60 * 60_000, firstAt: Date.now() - 60 * 60_000, chatId: 'b', kind: 'started', name: 'web', turns: 0, preview: null },
   ],
   since: Date.UTC(2026, 10, 4),
 }
@@ -130,8 +130,11 @@ test('the Today card says when recording began partway through the window, and w
 
 test('the activity feed lists events with their session and age', () => {
   const html = renderToStaticMarkup(createElement(ActivityFeed, { view: activityView, now: Date.now(), onOpen: () => {} }))
-  expect(html).toContain('api</span> finished')
-  expect(html).toContain('web</span> started')
+  expect(html).toContain('>api<')
+  expect(html).toContain('Finished 7 turns')
+  expect(html).toContain('Review Span Selection')
+  expect(html).toContain('Started')
+  expect(html).toContain('>Last hour<')
   expect(html).toContain('4m ago')
 })
 

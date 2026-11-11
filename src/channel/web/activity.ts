@@ -39,3 +39,52 @@ export function buildDays(rows: ActivityRow[], now: number, days: number, offset
   }
   return [...buckets.values()]
 }
+
+/** Finished turns of one session this close together (by their ends) are one burst, shown as one line. */
+export const BURST_MS = 30 * 60_000
+
+export type RecentRow = { id: number; at: number; chatId: string; kind: ActivityKind; name: string }
+
+/** A line of recent activity. `turns` counts finished turns (0 for started and ended); `firstAt` is the burst's oldest end. */
+export type RecentEvent = {
+  id: number
+  at: number
+  firstAt: number
+  chatId: string
+  kind: 'started' | 'finished' | 'ended'
+  name: string
+  turns: number
+  preview: string | null
+}
+
+/**
+ * Newest first in, newest first out. A started or ended session breaks its own burst; finished turns join the open burst of
+ * their session while they stay within BURST_MS of its oldest end. The result stops at `limit` lines.
+ */
+export function groupRecent(rows: RecentRow[], limit: number): RecentEvent[] {
+  const events: RecentEvent[] = []
+  const open = new Map<string, RecentEvent>()
+  for (const row of rows) {
+    if (row.kind === 'turn_end') {
+      const burst = open.get(row.chatId)
+      if (burst !== undefined && burst.firstAt - row.at <= BURST_MS) {
+        burst.turns += 1
+        burst.firstAt = row.at
+        continue
+      }
+      if (events.length >= limit) {
+        break
+      }
+      const event: RecentEvent = { id: row.id, at: row.at, firstAt: row.at, chatId: row.chatId, kind: 'finished', name: row.name, turns: 1, preview: null }
+      events.push(event)
+      open.set(row.chatId, event)
+      continue
+    }
+    open.delete(row.chatId)
+    if (events.length >= limit) {
+      break
+    }
+    events.push({ id: row.id, at: row.at, firstAt: row.at, chatId: row.chatId, kind: row.kind === 'started' ? 'started' : 'ended', name: row.name, turns: 0, preview: null })
+  }
+  return events
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, UsageView } from '../../src/channel/web/protocol.ts'
-import { activityDescription, busiestContext, eventVerb, formatWorked, lastActivityAt, projectTiles, dashboardCounts, lastEnded, needsYouItems, recentProjects, summaryText, workingItems } from '../../src/ui/dashboard-model.ts'
+import { activityBuckets, activityDescription, activityTime, busiestContext, eventVerb, formatWorked, lastActivityAt, projectTiles, dashboardCounts, lastEnded, needsYouItems, recentProjects, summaryText, workingItems } from '../../src/ui/dashboard-model.ts'
 
 function chat(id: string, patch: Partial<Chat> = {}): Chat {
   return {
@@ -162,5 +162,25 @@ describe('lastActivityAt', () => {
   test('is the newest message across live and ended sessions, or null', () => {
     expect(lastActivityAt([chat('a')])).toBeNull()
     expect(lastActivityAt([chat('a', { lastMessage: message(4) }), chat('b', { status: 'ended', lastMessage: message(9) }), chat('general', { lastMessage: message(99) })])).toBe(9)
+  })
+})
+
+describe('recent activity groups and times', () => {
+  const now = new Date(2026, 10, 11, 15, 0).getTime()
+  const line = (id: number, at: number) => ({ id, at, firstAt: at, chatId: 'a', kind: 'finished' as const, name: 'api', turns: 1, preview: null })
+
+  test('lines fall under Last hour, Earlier today, Yesterday and Earlier, in order', () => {
+    const lines = [line(1, now - 5 * 60_000), line(2, now - 2 * 3_600_000), line(3, new Date(2026, 10, 10, 20).getTime()), line(4, new Date(2026, 10, 2, 9).getTime())]
+    expect(activityBuckets(lines, now).map(bucket => [bucket.label, bucket.events.map(event => event.id)])).toEqual([
+      ['Last hour', [1]],
+      ['Earlier today', [2]],
+      ['Yesterday', [3]],
+      ['Earlier', [4]],
+    ])
+  })
+
+  test('an hour or less reads as an age, and older lines read as the clock time', () => {
+    expect(activityTime(now - 5 * 60_000, now)).toBe('5m ago')
+    expect(activityTime(new Date(2026, 10, 11, 9, 7).getTime(), now)).toBe('09:07')
   })
 })

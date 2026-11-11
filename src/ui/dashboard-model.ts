@@ -6,6 +6,12 @@ import type { UsageView } from '../channel/web/protocol.ts'
 
 const GENERAL_ID = 'general'
 
+/** Minutes or hours as a short label, "5m" or "2h 10m"; the same wording as the dashboard's other ages. */
+function formatDuration(ms: number): string {
+  const minutes = Math.max(1, Math.floor(ms / 60_000))
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
 /** The sessions a person can act on: not General, not archived. */
 function sessionsOf(chats: Chat[]): Chat[] {
   return chats.filter(chat => chat.id !== GENERAL_ID && !chat.archived)
@@ -218,4 +224,29 @@ export function lastActivityAt(chats: Chat[]): number | null {
     }
   }
   return latest
+}
+
+export type ActivityBucket = { label: string; events: ActivityEvent[] }
+
+/** Groups recent lines under "Last hour", "Earlier today", "Yesterday" or "Earlier", keeping their order. Empty groups are left out. */
+export function activityBuckets(events: ActivityEvent[], now: number): ActivityBucket[] {
+  const today = new Date(now).toDateString()
+  const yesterday = new Date(now - 86_400_000).toDateString()
+  const buckets: ActivityBucket[] = []
+  for (const event of events) {
+    const day = new Date(event.at).toDateString()
+    const label = now - event.at < 3_600_000 ? 'Last hour' : day === today ? 'Earlier today' : day === yesterday ? 'Yesterday' : 'Earlier'
+    const last = buckets[buckets.length - 1]
+    if (last !== undefined && last.label === label) {
+      last.events.push(event)
+    } else {
+      buckets.push({ label, events: [event] })
+    }
+  }
+  return buckets
+}
+
+/** "5m ago" within the hour, then the clock time, so an older line is exact. */
+export function activityTime(at: number, now: number): string {
+  return now - at < 3_600_000 ? `${formatDuration(now - at)} ago` : new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
 }

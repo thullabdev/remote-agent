@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
-import { ACTIVITY_KEEP_DAYS, buildDays, type ActivityKind, type ActivityRow } from './activity.ts'
+import { ACTIVITY_KEEP_DAYS, buildDays, groupRecent, type ActivityKind, type ActivityRow, type RecentRow } from './activity.ts'
 import type { ActivityView, Chat, ChatActivity, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
@@ -15,6 +15,8 @@ export type ChatLogLimits = { maxReplayEvents?: number; maxReplayBytes?: number 
 
 const PREVIEW_MAX = 140
 const RECENT_ACTIVITY = 8
+/** Raw activity rows read to make RECENT_ACTIVITY lines: enough for a long burst. */
+const RECENT_SCAN = 200
 const PRUNE_EVERY_MS = 86_400_000
 const GENERAL_ID = 'general'
 const UNREAD_KINDS = `('agent_text', 'prompt', 'system')`
@@ -758,16 +760,29 @@ export class ChatLog {
     const rows = this.db
       .query<ActivityRow, [number]>(`SELECT at, kind, ms FROM activity WHERE at >= ? ORDER BY id`)
       .all(now - (options.days + 1) * 86_400_000)
-    const recent = this.db
+    // More raw rows than lines: a burst of turns is many rows but one line.
+    const scanned = this.db
       .query<{ id: number; at: number; chat_id: string; kind: string; name: string }, []>(
         `SELECT a.id, a.at, a.chat_id, a.kind, COALESCE(c.custom_title, c.title) AS name
          FROM activity a JOIN chats c ON c.id = a.chat_id
-         WHERE a.kind IN ('started', 'turn_end', 'ended') ORDER BY a.id DESC LIMIT ${RECENT_ACTIVITY}`,
+         WHERE a.kind IN ('started', 'turn_end', 'ended') ORDER BY a.id DESC LIMIT ${RECENT_SCAN}`,
       )
       .all()
-      .map(row => ({ id: row.id, at: row.at, chatId: row.chat_id, kind: row.kind === 'turn_end' ? ('finished' as const) : (row.kind as 'started' | 'ended'), name: row.name }))
+      .map(row => ({ id: row.id, at: row.at, chatId: row.chat_id, kind: row.kind as ActivityKind, name: row.name }))
+    const recent = groupRecent(scanned, RECENT_ACTIVITY).map(event => (event.kind === 'finished' ? { ...event, preview: this.replyAt(event.chatId, event.at) } : event))
     const first = this.db.query<{ at: number | null }, []>('SELECT MIN(at) AS at FROM activity').get()?.at ?? null
     return { days: buildDays(rows, now, options.days, options.offsetMinutes), recent, since: first }
+  }
+
+  /** The newest reply the chat had by `at` (cut to one line), or null when it has none in view. */
+  private replyAt(chatId: string, at: number): string | null {
+    const record = this.db
+      .query<MessageRecord, [string, number, number]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE chat_id = ? AND seq > ? AND kind = 'agent_text' AND created_at <= ? ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(chatId, this.hiddenBefore(chatId), at)
+    const message = record === null ? undefined : toMessage(record)
+    return message === undefined ? null : previewOf(message)
   }
 
   /** The tool call a working Session is running, newest first; null when none is running. */

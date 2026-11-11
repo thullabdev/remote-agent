@@ -1,11 +1,12 @@
 import { CircleCheck, Gauge, MessageCircleQuestion, Moon, Plus, Power, RotateCcw, Shield } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { ActivityView, Chat, UsageView } from '../../channel/web/protocol.ts'
+import type { ActivityEvent, ActivityView, Chat, UsageView } from '../../channel/web/protocol.ts'
 import {
+  activityBuckets,
   activityDescription,
+  activityTime,
   busiestContext,
   dashboardCounts,
-  eventVerb,
   lastActivityAt,
   projectTiles,
   type ProjectTile,
@@ -244,24 +245,51 @@ export function TodayCard({ view, failed }: { view: ActivityView | null; failed:
   )
 }
 
-const EVENT_ICON = { finished: CircleCheck, started: Plus, ended: Power } as const
+/** The status dot and words for a line: finished turns, a started session, or an ended one. */
+const KIND_STYLE = {
+  finished: { dot: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-300' },
+  started: { dot: 'bg-sky-500', text: 'text-sky-700 dark:text-sky-300' },
+  ended: { dot: 'bg-muted-foreground/60', text: 'text-muted-foreground' },
+} as const
+
+function statusWords(event: ActivityEvent): string {
+  if (event.kind === 'finished') {
+    return `Finished ${event.turns} ${event.turns === 1 ? 'turn' : 'turns'}`
+  }
+  return event.kind === 'started' ? 'Started' : 'Ended'
+}
 
 export function ActivityFeed({ view, now, onOpen }: { view: ActivityView; now: number; onOpen(chatId: string): void }) {
   return (
-    <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border/60">
-      {view.recent.map(event => {
-        const Icon = EVENT_ICON[event.kind]
-        return (
-          <li key={event.id} className="min-w-0 border-b border-border/50 last:border-b-0">
-            <button type="button" title={event.name} onClick={() => onOpen(event.chatId)} className="flex w-full min-w-0 items-center gap-2.5 px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50">
-              <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate"><span className="font-medium">{event.name}</span> {eventVerb(event.kind)}</span>
-              <span className="shrink-0 whitespace-nowrap text-muted-foreground">{formatDuration(now - event.at)} ago</span>
-            </button>
-          </li>
-        )
-      })}
-    </ul>
+    <div className="grid gap-3">
+      {activityBuckets(view.recent, now).map(bucket => (
+        <div key={bucket.label} className="grid gap-1.5">
+          <p className="px-1 text-[10px] font-medium uppercase tracking-[.12em] text-muted-foreground">{bucket.label}</p>
+          <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border/60">
+            {bucket.events.map(event => (
+              <li key={event.id} className="min-w-0 border-b border-border/50 last:border-b-0">
+                <button
+                  type="button"
+                  title={event.name}
+                  onClick={() => onOpen(event.chatId)}
+                  className="grid w-full min-w-0 gap-1 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50"
+                >
+                  <span className="flex min-w-0 items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-medium">{event.name}</span>
+                    <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">{activityTime(event.at, now)}</span>
+                  </span>
+                  <span className={`flex min-w-0 items-center gap-1.5 text-[11px] ${KIND_STYLE[event.kind].text}`}>
+                    <span className={`size-1.5 shrink-0 rounded-full ${KIND_STYLE[event.kind].dot}`} aria-hidden="true" />
+                    <span className="whitespace-nowrap">{statusWords(event)}</span>
+                  </span>
+                  {event.preview !== null && <span className="min-w-0 truncate text-xs text-muted-foreground">{event.preview}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   )
 }
 

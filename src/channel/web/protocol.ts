@@ -29,7 +29,20 @@ export type ChatActivity = {
 export type ActivityDay = { date: string; sessionsStarted: number; turnsCompleted: number; workedMs: number }
 
 /** A line of the dashboard's recent activity. */
-export type ActivityEvent = { id: number; at: number; chatId: string; kind: 'started' | 'finished' | 'ended'; name: string }
+/**
+ * A line of recent activity. A finished burst covers `turns` turns from `firstAt` to `at`; `preview` is the newest reply of that
+ * burst, cut to one line, or null when none was found. Started and ended lines have no turns and no preview.
+ */
+export type ActivityEvent = {
+  id: number
+  at: number
+  firstAt: number
+  chatId: string
+  kind: 'started' | 'finished' | 'ended'
+  name: string
+  turns: number
+  preview: string | null
+}
 
 export type ActivityView = {
   days: ActivityDay[]
