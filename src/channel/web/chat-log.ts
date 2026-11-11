@@ -438,6 +438,15 @@ export class ChatLog {
     })
   }
 
+  /** The time of the newest conversation message the chat recorded itself, not a typed client message. Null when it has none. */
+  lastRecordedAt(chatId: string): number | null {
+    return this.db
+      .query<{ at: number | null }, [string]>(
+        "SELECT MAX(created_at) AS at FROM messages WHERE chat_id = ? AND kind IN ('agent_text', 'tool_run', 'user_text') AND (source_id IS NULL OR source_id NOT LIKE 'client:%')",
+      )
+      .get(chatId)?.at ?? null
+  }
+
   isClaimed(chatId: string, key: string): boolean {
     return this.db.query<{ found: number }, [string, string]>('SELECT 1 AS found FROM source_claims WHERE chat_id = ? AND key = ?').get(chatId, key) !== null
   }

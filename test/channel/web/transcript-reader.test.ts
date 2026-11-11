@@ -118,6 +118,45 @@ test('a Session moved into a worktree is still read from the folder it was launc
   expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['user_text', 'agent_text'])
 })
 
+test('an attach skips old transcript entries the chat never recorded, and keeps the newer ones', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 1, 0) })
+  const chatId = startSession(h)
+  write(h, assistantText('a-2', 'recorded', 20))
+  await h.reader.ingestOnce(SID)
+  h.reader.detach(SID)
+
+  write(h, assistantText('a-1', 'gap', 5) + assistantText('a-2', 'recorded', 20) + assistantText('a-3', 'newer', 30))
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual(['recorded', 'newer'])
+})
+
+test('a live entry older than the newest recorded message is still kept, since the reader lagged behind the hook', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 0, 15) })
+  const chatId = startSession(h)
+  h.chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'from the hook' }, { at: Date.UTC(2026, 0, 1, 10, 0, 20) })
+  write(h, assistantText('a-1', 'written just before', 19))
+
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => (message.kind === 'agent_text' ? message.markdown : ''))).toEqual(['from the hook', 'written just before'])
+})
+
+test('a skipped old tool run leaves no unknown tool run when its result arrives', async () => {
+  const h = setup({ now: () => Date.UTC(2026, 0, 1, 10, 1, 0) })
+  const chatId = startSession(h)
+  write(h, assistantText('a-2', 'recorded', 20))
+  await h.reader.ingestOnce(SID)
+  h.reader.detach(SID)
+
+  write(h, toolUse('a-1', 'toolu_old', 5) + toolResult('u-1', 'toolu_old', 'out', 6) + assistantText('a-2', 'recorded', 20))
+  h.reader.attach(SID)
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId).map(message => message.kind)).toEqual(['agent_text'])
+})
+
 test('attach backfills the whole file once', async () => {
   const h = setup()
   const chatId = startSession(h)

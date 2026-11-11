@@ -61,6 +61,11 @@ type Tail = {
   toolStarts: Map<string, number>
   /** AskUserQuestion tool_use ids: their tool_result is dropped. Rebuilt from offset 0 after a restart. */
   ignored: Set<string>
+  /** Set on the first read after attach: history entries at or before this time are not stored. Null when the chat had no messages. */
+  cutoff: number | null
+  cutoffSet: boolean
+  /** tool_use ids whose entry was left out, so their tool_result is left out too. */
+  skipped: Set<string>
   stop: () => void
 }
 
@@ -150,6 +155,9 @@ export class TranscriptReader {
       busy: null,
       toolStarts: new Map(),
       ignored: new Set(),
+      cutoff: null,
+      cutoffSet: false,
+      skipped: new Set(),
       stop: () => {},
     }
     tail.stop = this.poll(() => {
@@ -316,6 +324,10 @@ export class TranscriptReader {
 
   /** Applies the lines in batches, yielding between them. False when the Session was detached meanwhile. */
   private async applyLines(tail: Tail, chatId: string, lines: string[]): Promise<boolean> {
+    if (!tail.cutoffSet) {
+      tail.cutoffSet = true
+      tail.cutoff = this.deps.chatLog.lastRecordedAt(chatId)
+    }
     for (let start = 0; start < lines.length; start += BATCH_LINES) {
       if (this.tails.get(tail.sessionId) !== tail) {
         return false
@@ -342,6 +354,13 @@ export class TranscriptReader {
       tail.open = false
       return
     }
+    if (tail.cutoff !== null && at > 0 && at < tail.attachedAt - BACKFILL_SLACK_MS && at <= tail.cutoff) {
+      // A history entry the chat never recorded would be stored at the end of the chat, out of order, so it is left out.
+      if (item.kind === 'tool_use' || item.kind === 'ignored_tool_use') {
+        tail.skipped.add(item.toolUseId)
+      }
+      return
+    }
     tail.open = true
     const { chatLog } = this.deps
     if (item.kind === 'agent_text') {
@@ -365,6 +384,9 @@ export class TranscriptReader {
         { kind: 'tool_run', tool: item.tool, input: item.input, result: null, resultTruncated: false, status: 'running', durationMs: null },
         this.stamp(tail, at, sourceId),
       )
+      return
+    }
+    if (tail.skipped.delete(item.toolUseId)) {
       return
     }
     if (tail.ignored.delete(item.toolUseId)) {
