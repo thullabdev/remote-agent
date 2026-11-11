@@ -14,10 +14,11 @@ type UploadPickerProps = {
   onPick(upload: UploadRecord): void
   onDelete(upload: UploadRecord): void
   onUploadFiles(files: File[]): void
+  onManage(): void
 }
 
 /** Lists library files above the composer. Images show their preview; PDFs show a PDF icon. */
-export function UploadPicker({ uploads, query, selected, note, onHover, onPick, onDelete, onUploadFiles }: UploadPickerProps) {
+export function UploadPicker({ uploads, query, selected, note, onHover, onPick, onDelete, onUploadFiles, onManage }: UploadPickerProps) {
   return (
     <div
       id="chat-upload-picker"
@@ -27,23 +28,28 @@ export function UploadPicker({ uploads, query, selected, note, onHover, onPick, 
     >
       <div className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-muted-foreground">
         <span className="font-mono uppercase tracking-[.12em]">Library</span>
-        <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-foreground">
-          <Upload className="size-3.5" aria-hidden="true" />
-          Upload new…
-          <input
-            type="file"
-            accept={UPLOAD_ACCEPT}
-            multiple
-            className="sr-only"
-            onChange={event => {
-              const files = Array.from(event.target.files ?? [])
-              event.target.value = ''
-              if (files.length > 0) {
-                onUploadFiles(files)
-              }
-            }}
-          />
-        </label>
+        <div className="flex items-center gap-3">
+          <button type="button" onMouseDown={event => event.preventDefault()} onClick={onManage} className="font-medium text-foreground hover:underline">
+            Manage
+          </button>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-foreground">
+            <Upload className="size-3.5" aria-hidden="true" />
+            Upload new…
+            <input
+              type="file"
+              accept={UPLOAD_ACCEPT}
+              multiple
+              className="sr-only"
+              onChange={event => {
+                const files = Array.from(event.target.files ?? [])
+                event.target.value = ''
+                if (files.length > 0) {
+                  onUploadFiles(files)
+                }
+              }}
+            />
+          </label>
+        </div>
       </div>
       {note !== null && <p className="px-3 pb-1 text-xs text-amber-800 dark:text-amber-300">{note}</p>}
       {uploads.length === 0 ? (

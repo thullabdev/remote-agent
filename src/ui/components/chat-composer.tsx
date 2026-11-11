@@ -3,8 +3,9 @@ import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent }
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
-import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
+import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
+import { LibraryDialog } from './library-dialog.tsx'
 import { UploadPicker } from './upload-picker.tsx'
 
 type ChatComposerProps = {
@@ -44,6 +45,14 @@ const KIND_LABEL = { command: 'Command', flag: 'Option', value: 'Model' } as con
 
 function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts, firstTask = false }: ChatComposerProps) {
   const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
+  // The text is the source of truth: a file whose reference was deleted by hand is detached, so it never goes unseen.
+  useEffect(() => {
+    setAttachments(current => {
+      const kept = referencedAttachments(text, current)
+      return kept.length === current.length ? current : kept
+    })
+  }, [text, setAttachments])
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -112,10 +121,10 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   }, [mention])
 
   useEffect(() => {
-    if (pickerOpen) {
+    if (pickerOpen || libraryOpen) {
       onRefreshLibrary()
     }
-  }, [pickerOpen, onRefreshLibrary])
+  }, [pickerOpen, libraryOpen, onRefreshLibrary])
 
   const addAttachment = (ref: UploadRef) => {
     setAttachments(current => {
@@ -194,6 +203,17 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
       setAttachOpen(false)
       return
     }
+    if (event.key === 'Backspace' && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+      // A reference is one unit: Backspace after it removes the whole `@name`, and so detaches the file.
+      const input = event.currentTarget
+      const range = referenceBeforeCaret(text, input.selectionStart, attachments)
+      if (range !== null) {
+        event.preventDefault()
+        setText(current => current.slice(0, range.start) + current.slice(range.end))
+        requestAnimationFrame(() => input.setSelectionRange(range.start, range.start))
+        return
+      }
+    }
     if (suggestionsOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -270,6 +290,20 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
           onPick={pick}
           onDelete={onDeleteUpload}
           onUploadFiles={files => void uploadFiles(files)}
+          onManage={() => {
+            setAttachOpen(false)
+            setPickerDismissed(true)
+            setLibraryOpen(true)
+          }}
+        />
+      )}
+      {attachable && (
+        <LibraryDialog
+          open={libraryOpen}
+          onOpenChange={setLibraryOpen}
+          library={library}
+          onUpload={onUpload}
+          onDelete={onDeleteUpload}
         />
       )}
       {(attachments.length > 0 || uploading) && (

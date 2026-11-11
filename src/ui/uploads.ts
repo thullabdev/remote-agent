@@ -30,6 +30,72 @@ export function insertReference(text: string, name: string): string {
   return text === '' || /\s$/.test(text) ? `${text}${token}` : `${text} ${token}`
 }
 
+/** Matches `@name` as a whole word, the way the Bridge does when it swaps references for paths. */
+function referencePattern(name: string): RegExp {
+  return new RegExp(`(?<=^|[\\s([{'"])@${escapeRegExp(name)}(?=$|[\\s.,;:!?)\\]])`, 'g')
+}
+
+/** Whether the text still refers to the file. An attachment whose reference was deleted by hand is no longer attached. */
+export function isReferenced(text: string, name: string): boolean {
+  return referencePattern(name).test(text)
+}
+
+/** The attachments the text still refers to; the others were removed from the text and so are detached. */
+export function referencedAttachments(text: string, attachments: UploadRef[]): UploadRef[] {
+  return attachments.filter(attachment => isReferenced(text, attachment.name))
+}
+
+export type TextSegment = { text: string } | { file: UploadRef }
+
+/** Splits a message into plain text and the files it refers to, so each file can show once, inline. */
+export function segmentReferences(text: string, files: UploadRef[]): TextSegment[] {
+  const matches: { start: number; end: number; file: UploadRef }[] = []
+  for (const file of files) {
+    for (const match of text.matchAll(referencePattern(file.name))) {
+      const start = match.index ?? 0
+      matches.push({ start, end: start + match[0].length, file })
+    }
+  }
+  matches.sort((a, b) => a.start - b.start)
+  const segments: TextSegment[] = []
+  let cursor = 0
+  for (const match of matches) {
+    if (match.start < cursor) {
+      continue
+    }
+    if (match.start > cursor) {
+      segments.push({ text: text.slice(cursor, match.start) })
+    }
+    segments.push({ file: match.file })
+    cursor = match.end
+  }
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor) })
+  }
+  return segments
+}
+
+/**
+ * The whole reference the caret is just after, with the space that follows it when there is one, so Backspace can
+ * take it out in one step. Null when the caret is not right after a reference.
+ */
+export function referenceBeforeCaret(text: string, caret: number, attachments: UploadRef[]): { start: number; end: number } | null {
+  const before = text.slice(0, caret)
+  for (const attachment of attachments) {
+    for (const suffix of [' ', '']) {
+      const token = `@${attachment.name}${suffix}`
+      if (!before.endsWith(token)) {
+        continue
+      }
+      const start = caret - token.length
+      if (start === 0 || /\s/.test(before.charAt(start - 1))) {
+        return { start, end: caret }
+      }
+    }
+  }
+  return null
+}
+
 /** Removes every reference to the file, for when it is detached from the message. */
 export function removeReferences(text: string, name: string): string {
   return text.replace(new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=\\s|$)\\s?`, 'g'), '$1')

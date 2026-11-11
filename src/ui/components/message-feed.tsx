@@ -1,11 +1,11 @@
-import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, LoaderCircle, Wrench, X } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, ImageIcon, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SessionStatusCard } from './session-status-card.tsx'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { NEEDS_YOU_BADGE_CLASS, commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
-import { isPdf, uploadUrl } from '../uploads.ts'
+import { isPdf, isReferenced, segmentReferences, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
@@ -294,20 +294,28 @@ function PressToPin({ onToggle, children, className }: { onToggle(): void; child
 
 function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
   if (message.kind === 'user_text') {
+    const attachments = message.attachments ?? []
+    // Files the text names show inline; a file the text does not name (older messages) keeps its own row.
+    const unreferenced = attachments.filter(attachment => !isReferenced(message.text, attachment.name))
     return (
       <div className="flex justify-end">
         <PressToPin
           className="max-w-[88%] rounded-2xl rounded-br-md bg-accent px-4 py-[var(--message-pad,_.7rem)] text-foreground shadow-sm sm:max-w-[76%]"
           onToggle={() => onTogglePin?.(message)}
         >
-          {message.text !== '' && <p className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">{message.text}</p>}
-          {message.attachments !== undefined && message.attachments.length > 0 && (
+          {message.text !== '' && (
+            <p className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">
+              <MessageText text={message.text} files={attachments} />
+            </p>
+          )}
+          {unreferenced.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {message.attachments.map(attachment => (
+              {unreferenced.map(attachment => (
                 <AttachmentView key={attachment.id} attachment={attachment} />
               ))}
             </div>
           )}
+          {attachments.some(attachment => attachment.path !== undefined) && <SentPaths files={attachments} />}
           <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
             {message.status === 'queued' && <span>Sending…</span>}
             <PinMark pinned={message.pinned === true} />
@@ -400,6 +408,47 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   }
 
   return null
+}
+
+/** The message text, with each file it names replaced by one inline chip for that file. */
+function MessageText({ text, files }: { text: string; files: UploadRef[] }) {
+  return (
+    <>
+      {segmentReferences(text, files).map((segment, index) =>
+        'file' in segment ? <FileChip key={index} file={segment.file} /> : <span key={index}>{segment.text}</span>,
+      )}
+    </>
+  )
+}
+
+function FileChip({ file }: { file: UploadRef }) {
+  const Icon = isPdf(file.mime) ? FileText : ImageIcon
+  return (
+    <a
+      href={uploadUrl(file.id)}
+      target="_blank"
+      rel="noreferrer"
+      title={file.name}
+      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md bg-black/10 px-1.5 py-px align-baseline text-[0.9em] font-medium"
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{file.name}</span>
+    </a>
+  )
+}
+
+/** What the Session received for this message: the path of each file, shown on demand. */
+function SentPaths({ files }: { files: UploadRef[] }) {
+  return (
+    <details className="mt-1.5 text-[11px] text-foreground/70">
+      <summary className="cursor-pointer select-none">Session received {files.length === 1 ? 'the file' : `${files.length} files`}</summary>
+      <ul className="mt-1 grid gap-0.5 break-all font-mono">
+        {files.map(file => (
+          <li key={file.id}>{file.path ?? file.name}</li>
+        ))}
+      </ul>
+    </details>
+  )
 }
 
 /** An attached library file: the image itself, or a PDF link. A file that was deleted from the library shows as removed. */
