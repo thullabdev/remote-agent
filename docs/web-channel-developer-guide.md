@@ -173,6 +173,14 @@ All paths are under `/api`. Request and response bodies are JSON. Errors are `{ 
 | `POST /chats/:id/end` | End a Session the Bridge started. |
 | `POST /chats/:id/clear` | Hide a chat's history on all devices. |
 | `POST /chats/:id/fork` | Resume a Session into a new one. |
+| `POST /chats/:id/resume` | Restart an ended Session. The body is optional: `{ model }`, where `null` keeps the model it last ran on and a name starts it on that model. |
+| `GET /chats/:id/resume-model` | `{ model }`: the model a resumed Session would use by default, or `null` when unknown. |
+| `POST /chats/:id/rename` `{ title }` | Give a Session your own name. An empty title resets it. General cannot be renamed. `{ toast }`. |
+| `POST /chats/:id/archive` | Archive an ended Session. Only ended Sessions can be archived. `{ toast }`. |
+| `POST /chats/:id/unarchive` | Restore an archived Session. `{ toast }`. |
+| `POST /chats/archive` `{ chatIds }` | Archive several ended Sessions at once. All must be ended Sessions, or nothing is archived. `{ toast }`. |
+| `GET /chats/:id/draft` | `{ draft }`: the unsent message kept for this chat, or `null`. |
+| `PUT /chats/:id/draft` `{ text, attachments }` | Save the unsent message so it follows you to your other devices. At most 20 000 characters and 5 attachments. An empty draft removes it. `{ ok: true }`. |
 | `POST /chats/:id/pin` `{ pinned }` | Pin a Session to the top of the list (below ones that need you), or unpin it. At most 5 can be pinned; General is always first and cannot be pinned or unpinned; an archived Session cannot be pinned, and archiving unpins. `{ toast }`. |
 | `GET /projects` | Folders a Session may start in. |
 | `GET /activity?days=7&tz=0` | Daily numbers and recent events for a dashboard. |

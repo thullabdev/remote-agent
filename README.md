@@ -38,20 +38,35 @@ Remote Agent makes those stops cheap to handle from anywhere, while keeping you 
 
 ## Features
 
-- **Answer Prompts remotely.** Questions (single choice, multi choice, or free text) and permission requests (allow or deny) reach your web chat or Telegram. The Session resumes when you answer.
-- **Get Reports.** Turn-finished and Session-started/ended notifications are pushed while Away mode is on. Web Push works on installed web apps, including iPhone and iPad.
-- **Send Instructions to idle Sessions.** Text you send is queued while a Session is busy and delivered when it is idle.
-- **Share files and images.** Attach PNG, JPEG, GIF, WebP or PDF files from the composer, or pick files from a shared library with `@`. The Session receives each file's path and can read it.
-- **Pin messages.** Pin important messages in a Chat and list them in the Chat details.
-- **Read edits as diffs.** Edit tool calls show as a diff, with the changed characters highlighted.
-- **Track usage.** Context usage per Session and account limits appear in the web UI.
-- **Follow the timeline.** Messages are grouped by day under sticky date labels.
-- **Start Sessions from chat.** `/new` starts Claude Code in a detached tmux session inside a trusted folder. You can attach to it from a terminal at any time.
-- **Resume past work.** `/new --resume` starts a new Session forked from an earlier transcript, leaving the original history unchanged.
-- **Choose a model.** `/new --model` starts a Session on `opus`, `sonnet`, `haiku`, `opusplan`, or a full model id.
-- **Installable web chat.** The web UI is a PWA that works offline for its shell. Chat history and live updates still need the Bridge.
+Remote Agent is built around one rule: a Session should never sit blocked because you stepped away from the keyboard.
+
+### Never leave a Session blocked
+
+- **Answer from anywhere.** Permission requests and questions reach your phone as buttons: allow or deny, pick an option, or type an answer. The first Answer wins, whether it comes from the terminal or your phone, and the Session carries on. Nothing is ever approved without you.
+- **Needs you comes first.** Sessions waiting on you rise to the top of your list, and tapping a push notification opens the Session at its Prompt.
+- **Notifications that respect your attention.** Prompts always push. Reports (turn finished, Session ended) push while Away mode is on, and nothing pushes while one of your clients is visible and focused. Web Push works on the installed app, including iPhone and iPad.
+
+### Drive your Sessions from the chat
+
+- **Start in one tap.** `/new`, or a project button on the dashboard, starts Claude Code in a detached tmux session inside a trusted folder. Attach to it from a terminal whenever you like.
+- **Choose the model.** Start a Session on `opus`, `sonnet`, `haiku`, `opusplan`, or a full model id.
+- **Pick up where you left off.** Resume an ended Session in place, in the same Chat and on the model it last used (or another one), or start a new Session forked from an earlier transcript.
+- **Queue instructions.** Text you send to a busy Session waits and is delivered when it is idle.
+- **Show, don't describe.** Attach screenshots and PDFs from a shared library (type `@`). The Session receives each file's path and reads it.
+
+### See what your agents are doing
+
+- **Mission control.** General opens as a dashboard: what needs you, with Allow and Deny right on the card; what is working now and the tool it is running; your remaining budget; your projects; and today's activity.
+- **Usage at a glance.** Context usage per Session and your account limits are one tap away in the chat header.
+- **Edits as diffs.** Edit tool calls show as a diff, with the changed characters highlighted.
+- **Find anything fast.** Search Sessions by title, project, folder, last message, and draft. Pin up to five Sessions, and rename any Session from its header.
+
+### Yours to run
+
 - **Private by design.** The Bridge listens on loopback only. You reach it through Tailscale, and it accepts only your Tailscale login.
-- **Telegram alternative.** Telegram is available as an optional Channel, switched on with one setting.
+- **Set up in one command.** `./install.sh` on Linux and macOS (or Windows through WSL2), and `./remote-agent.sh` to start, stop and check the Bridge without systemd.
+- **One chat on every device.** The web UI is an installable app with an offline shell, and unsent drafts follow you to your other devices.
+- **Telegram if you prefer it.** Telegram is available as an optional Channel, switched on with one setting.
 
 ## How it works
 
@@ -301,18 +316,21 @@ bun run bridge        # Ctrl+C stops it and removes the socket
 
 Each Session appears as its own Chat. You answer Prompts, send Instructions, and run commands from there.
 
-- **Each Session gets its own Chat** (web) or Thread (Telegram), titled with the project and the first eight characters of the Session id. It is created on the Session's first message and kept after the Session ends.
+- **Each Session gets its own Chat** (web) or Thread (Telegram), titled `<project> · <name>`. The name comes from Claude Code (for example `/rename`), from your own rename in the Chat header, or, for a Session started from chat, from its first task. Until then it reads "New session". The Chat is created on the Session's first message and kept after the Session ends.
+- **General is your dashboard.** It opens as "Mission control": Sessions that need you (with Allow and Deny on the card), what is working now, your budget, your projects, today's activity and recent events. Use the Dashboard and Chat switch in its header to reach the command chat, where `/new`, `/status`, `/away` and `/back` live.
+- **The Session list** opens on **All**: General, then every live Session. Sessions that need you (a permission or question is waiting) come first, then Sessions you pinned (up to five; press and hold a live Session, or use Pin to top in its details), then Sessions with an unsent draft (newest edit first), then working ones, then the rest by latest message. Tapping a Session that needs you opens it at the Prompt, and so does tapping its push notification. **Needs you** and **Working** appear as tabs only while they hold something. **Ended** and **Archived** are tabs of their own, and an ended Session leaves All. The sliders icon in the search box narrows the list to Sessions started on your **Computer** or **Spawned** from Remote Agent. Search matches a Session's title, project, folder, last message and draft, every word in any order. Press and hold an ended Session to select it and archive it.
+- **Drafts follow you.** The unsent message in a Chat is saved, so you can start it on one device and finish it on another.
 - **Questions** are answered with the option buttons, or with free text for "Other". Multi-select questions are answered with numbers, such as `1,3`.
 - **Permission requests** show Allow and Deny. Replying `allow` or `yes` allows, and `deny` or `no` denies. Any other reply denies, with that text sent as feedback to the agent.
 - **Any other text** in a Session's Chat is an Instruction. It is queued if the Session is busy and delivered when it is idle.
-- **Attach files.** Use the attach button, or type `@` in the composer to pick from the shared library. A message takes up to five files. The picker can upload new files and delete library files (after a confirmation). Attachments work in Session Chats only, not in General.
+- **Attach files.** Use the attach button, or type `@` in the composer, to open the library picker. Search it, and tap a file to attach it or tap again to detach it, so you can choose several without reopening it. A message takes up to five files. **Manage** in the picker opens the Library dialog, where you can see every file and how many messages use it, add files, and delete them (after a confirmation). Attachments work in Session Chats only, not in General.
 - **Pin messages.** Use the bookmark button on a message to pin it. Pinned messages are listed in the Chat details.
 - **Commands** (in the General Chat or any Chat):
 
   | Command | Effect |
   | :------ | :----- |
   | `/new [path]` | Start a Session in a trusted folder. With no path, shows a picker. |
-  | `/new --resume [path]` | Start a Session forked from a recent transcript. |
+  | `/new --resume [path]` | List recent histories in a trusted folder. Picking one of your ended Sessions resumes it in place, in the same Chat; picking an older history starts a new Session forked from it. |
   | `/new --model <model> [path]` (or `-m`) | Start with a specific model: `opus`, `sonnet`, `haiku`, `opusplan`, or a full id. |
   | `/end` | End a spawned Session (sends `/exit`, then kills it after 5 seconds if needed). |
   | `/away` / `/back` | Turn Away mode (pushed Reports) on or off. |
