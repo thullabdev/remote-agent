@@ -38,6 +38,10 @@ type Tail = {
   sessionId: string
   chatId: string | null
   path: string | null
+  /** The history a resumed Session copies from, until its own transcript exists. Null for any other Session. */
+  source: string | null
+  /** True while the lines come from the source history rather than the Session's own transcript. */
+  fromSource: boolean
   offset: number
   found: boolean
   inFlight: boolean
@@ -45,6 +49,8 @@ type Tail = {
   attachedAt: number
   /** True once the reason an id cannot be tailed has been logged, so each tick does not repeat it. */
   pathLogged: boolean
+  /** Set once the reader has logged that the transcript file is missing, so a session waiting for its first turn logs once. */
+  missingLogged: boolean
   /** True while skipping the rest of an oversized line, up to its newline. */
   skipping: boolean
   /** True while a turn is open: relevant entries came after the last turn_duration or interrupt marker. */
@@ -89,6 +95,8 @@ async function statFileSize(path: string): Promise<number | null> {
  */
 export class TranscriptReader {
   private readonly tails = new Map<string, Tail>()
+  /** Source histories named before their Session's reader attached. */
+  private readonly sources = new Map<string, string>()
   private readonly poll: (run: () => void, ms: number) => () => void
   private readonly readFrom: (path: string, offset: number, length: number) => Promise<Uint8Array | null>
   private readonly statSize: (path: string) => Promise<number | null>
@@ -106,19 +114,36 @@ export class TranscriptReader {
   }
 
   /** Starts tailing a Session from the top of its file. Idempotent. The tail waits for the chat and the file if they are not there yet. */
+  /**
+   * Tells the reader that a Session was started from an earlier history. Claude Code keeps that history in memory and writes the
+   * Session's own transcript only at its first turn, so until then the history is read from the source transcript. The copied
+   * lines keep their ids, so reading them again later adds nothing.
+   */
+  attachSource(sessionId: string, historyId: string): void {
+    this.sources.set(sessionId, historyId)
+    const tail = this.tails.get(sessionId)
+    if (tail !== undefined) {
+      tail.source = historyId
+    }
+  }
+
   attach(sessionId: string): void {
     if (this.tails.has(sessionId)) {
       return
     }
+    this.deps.log(`Transcript reader attached to session ${sessionId}`)
     const tail: Tail = {
       sessionId,
       chatId: null,
       path: null,
+      source: this.sources.get(sessionId) ?? null,
+      fromSource: false,
       offset: 0,
       found: false,
       inFlight: false,
       attachedAt: this.now(),
       pathLogged: false,
+      missingLogged: false,
       skipping: false,
       open: false,
       busy: null,
@@ -194,10 +219,34 @@ export class TranscriptReader {
         return
       }
     }
-    const path = tail.path
-    const size = await this.statSize(path)
-    if (size === null) {
+    const ownPath = tail.path
+    const ownSize = await this.statSize(ownPath)
+    // A resumed Session reads its history from the source until its own transcript exists; then it reads its own from the start,
+    // and the copied lines are skipped because they were stored already.
+    const historyId = tail.source
+    const fromSource = ownSize === null && historyId !== null
+    if (ownSize !== null) {
+      tail.source = null
+    }
+    const path = fromSource ? this.historyPath(session.cwd, historyId) : ownPath
+    if (path === null) {
       return
+    }
+    const size = fromSource ? await this.statSize(path) : ownSize
+    if (fromSource !== tail.fromSource) {
+      tail.fromSource = fromSource
+      tail.offset = 0
+      tail.skipping = false
+    }
+    if (size === null) {
+      if (!tail.missingLogged) {
+        tail.missingLogged = true
+        this.deps.log(`Transcript of session ${tail.sessionId} not found yet at ${path}; waiting for it`)
+      }
+      return
+    }
+    if (!tail.found) {
+      this.deps.log(`Transcript of session ${tail.sessionId} found at ${path} (${size} bytes); reading it`)
     }
     tail.found = true
     if (size < tail.offset) {
@@ -249,6 +298,18 @@ export class TranscriptReader {
     }
     if (read) {
       this.reportBusy(tail)
+    }
+  }
+
+  /** The source history's transcript for a Session in `cwd`, or null when the id cannot name a file. */
+  private historyPath(cwd: string, historyId: string | null): string | null {
+    if (historyId === null) {
+      return null
+    }
+    try {
+      return transcriptPath(this.deps.home, cwd, historyId)
+    } catch {
+      return null
     }
   }
 

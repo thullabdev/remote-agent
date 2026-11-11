@@ -3,6 +3,7 @@ import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
+import { newChatToOpen } from './new-chat.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
@@ -12,6 +13,7 @@ import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
+import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
@@ -25,6 +27,9 @@ type PendingMessage = {
   message: Message
   error: string | null
 }
+
+/** How long after a session is requested a new chat may appear and be opened for the user. */
+const NEW_CHAT_WATCH_MS = 30_000
 
 const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 
@@ -52,6 +57,10 @@ export function App() {
     return link.chatId !== null && link.promptId !== null ? { chatId: link.chatId, promptId: link.promptId } : null
   })
   const [infoOpen, setInfoOpen] = useState(false)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  // The chats listed when a session was requested, and until when a new one is opened for the user.
+  const newChatWatch = useRef<{ known: ReadonlyMap<string, Chat['status']>; until: number } | null>(null)
+  const chatsRef = useRef<Chat[]>([])
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
@@ -80,6 +89,7 @@ export function App() {
   }, [notify])
 
   const chats = realtime?.chats ?? []
+  chatsRef.current = chats
   const activeChat = chats.find(chat => chat.id === activeChatId) ?? null
   const messages = activeChatId === null ? [] : realtime?.messages[activeChatId] ?? []
   const pendingForChat = activeChatId === null ? [] : pendingMessages[activeChatId] ?? []
@@ -139,6 +149,8 @@ export function App() {
   }, [activeChatId, handleError, markRead, realtime?.messages[activeChatId ?? '']])
 
   const openChat = useCallback((chatId: string | null, focus?: { promptId: string }) => {
+    // Opening a chat by hand, or from the redirect itself, ends any wait for a new chat.
+    newChatWatch.current = null
     setActiveChatId(chatId)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
@@ -151,6 +163,24 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  // After a session is requested, the first chat that appears (not General, not one already listed) is opened for the user.
+  const armNewChatWatch = useCallback(() => {
+    newChatWatch.current = { known: new Map(chatsRef.current.map(chat => [chat.id, chat.status])), until: Date.now() + NEW_CHAT_WATCH_MS }
+  }, [])
+
+  useEffect(() => {
+    const watch = newChatWatch.current
+    if (watch === null) {
+      return
+    }
+    const created = newChatToOpen(chats, watch.known, watch.until, Date.now())
+    if (created !== undefined) {
+      openChat(created.id)
+    } else if (Date.now() > watch.until) {
+      newChatWatch.current = null
+    }
+  }, [chats, openChat])
 
   const submitMessage = useCallback(async (chat: Chat, clientId: string, text: string, attachmentIds: string[]) => {
     setBusyChatIds(current => new Set(current).add(chat.id))
@@ -273,8 +303,9 @@ export function App() {
   }, [api, sendAnswer])
 
   const handlePickerAction = useCallback(async (chatId: string, body: { pickerId: string; choice: number }) => {
+    armNewChatWatch()
     await runChatAction(() => api.performAction(chatId, body))
-  }, [api, runChatAction])
+  }, [api, armNewChatWatch, runChatAction])
 
   const runInfoAction = useCallback(async (action: () => Promise<{ toast: string }>) => {
     try {
@@ -360,11 +391,20 @@ export function App() {
     }
     if (activeChat.id === 'general') {
       setGeneralView('chat')
+      if (text.trim().startsWith('/new')) {
+        armNewChatWatch()
+      }
     }
     return sendMessage(activeChat, text, attachments)
-  }, [activeChat, sendMessage, setGeneralView])
+  }, [activeChat, armNewChatWatch, sendMessage, setGeneralView])
 
-  const resumeActive = useCallback(() => (activeChatId === null ? Promise.resolve() : runInfoAction(() => api.resumeChat(activeChatId))), [activeChatId, api, runInfoAction])
+  // Resuming asks for the model first; the dialog then calls the resume.
+  const resumeActive = useCallback(() => {
+    if (activeChatId !== null) {
+      setResumeOpen(true)
+    }
+    return Promise.resolve()
+  }, [activeChatId])
 
   // A launched session that reported ready and has not been given a task yet.
   const awaitingFirstTask = useMemo(
@@ -579,8 +619,14 @@ export function App() {
                     onPromptAction={handlePromptAction}
                     onToggleAway={toggleAway}
                     onNewSession={() => setNewSessionOpen(true)}
-                    onStartProject={cwd => runChatAction(() => api.startProject({ cwd }))}
-                    onResume={chatId => runChatAction(() => api.resumeChat(chatId))}
+                    onStartProject={cwd => {
+                      armNewChatWatch()
+                      return runChatAction(() => api.startProject({ cwd }))
+                    }}
+                    onResume={chatId => {
+                      armNewChatWatch()
+                      return runChatAction(() => api.resumeChat(chatId))
+                    }}
                   />
                 ) : (
                 <MessageFeed
@@ -625,7 +671,10 @@ export function App() {
                 onNotify={message => notify(message, 'error')}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
                 onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
-                onResume={() => runInfoAction(() => api.resumeChat(activeChat.id))}
+                onResume={() => {
+                  setResumeOpen(true)
+                  return Promise.resolve()
+                }}
                 pins={pinsByChat[activeChat.id] ?? []}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
                 onJump={pin => {
@@ -651,6 +700,15 @@ export function App() {
         )}
       </main>
 
+      {activeChat !== null && (
+        <ResumeDialog
+          open={resumeOpen}
+          api={api}
+          chatId={activeChat.id}
+          onOpenChange={setResumeOpen}
+          onResume={model => void runInfoAction(() => api.resumeChat(activeChat.id, model))}
+        />
+      )}
       {toast && <Toast key={toast.id} toast={toast} onDismiss={() => setToast(null)} />}
 
       <SettingsDialog
@@ -669,6 +727,7 @@ export function App() {
         api={api}
         onOpenChange={setNewSessionOpen}
         onStarted={notify}
+        onStarting={armNewChatWatch}
       />
     </div>
   )

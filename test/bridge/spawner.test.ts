@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { BAD_MODEL, CONFIG_UNREADABLE, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, NO_TRANSCRIPT, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { ChatLog } from '../../src/channel/web/chat-log.ts'
@@ -109,6 +109,17 @@ test('a failed Starting message still returns the toast for a running session', 
   expect(store.getSession(idFor(ids))?.endedAt).toBeNull()
 })
 
+test('parseNewArgs accepts the flags in any order: --model then --resume, and flags after the path', () => {
+  expect(parseNewArgs('--model haiku --resume')).toEqual({ path: '', model: 'haiku', resume: true })
+  expect(parseNewArgs('--model haiku --resume ~/Sites/api')).toEqual({ path: '~/Sites/api', model: 'haiku', resume: true })
+  expect(parseNewArgs('~/Sites/api --resume -m opus')).toEqual({ path: '~/Sites/api', model: 'opus', resume: true })
+  expect(parseNewArgs('--resume --model haiku')).toEqual({ path: '', model: 'haiku', resume: true })
+  expect(parseNewArgs('~/Sites/My Projects/app --resume')).toEqual({ path: '~/Sites/My Projects/app', model: null, resume: true })
+  expect(parseNewArgs('--model')).toBeNull()
+  expect(parseNewArgs('~/Sites/api --model')).toBeNull()
+  expect(parseNewArgs('--model haiku --model gpt-5')).toBeNull()
+})
+
 test('parseNewArgs takes --model or -m before or after the path', () => {
   expect(parseNewArgs('')).toEqual({ path: '', model: null, resume: false })
   expect(parseNewArgs('~/Sites/My Projects/app')).toEqual({ path: '~/Sites/My Projects/app', model: null, resume: false })
@@ -156,6 +167,76 @@ test('/new --resume lists histories for a trusted folder and forks the selected 
   expect(tmux.calls[0]?.slice(-6)).toEqual([
     'claude', '--resume', 'history-0001', '--fork-session', '--session-id', idFor(2),
   ])
+})
+
+test('/new --resume resumes an ended bridge Session in place, and leaves out one that is still active', async () => {
+  const projectDir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(`${projectDir}/history-0001.jsonl`, `${JSON.stringify({ type: 'user', message: { content: 'Fix the API tests' } })}\n`)
+  store.createSpawnedSession({ id: 'history-0001', cwd: `${home}/Sites/api`, tmuxName: 'ra-history-0001' })
+  expect(await spawner.newCommand(null, '--resume ~/Sites/api')).toBe(`No session histories found in ${home}/Sites/api.`)
+  expect(channel.buttons).toEqual([])
+
+  store.endSession('history-0001')
+  expect(await spawner.newCommand(null, '--resume ~/Sites/api')).toBeNull()
+  expect(channel.buttons.at(-1)?.buttons).toHaveLength(1)
+  tmux.calls = []
+  expect(await spawner.startFromPicker('00000001', 0)).toBe('Resuming api in this Session. Open its chat.')
+  const launch = tmux.calls.find(argv => argv.includes('claude'))
+  expect(launch).toBeDefined()
+  expect(launch?.slice(-2)).toEqual(['--resume', 'history-0001'])
+  expect(launch?.includes('--fork-session')).toBe(false)
+  expect(store.getSession('history-0001')?.tmuxName).toBe('ra-history-')
+})
+
+test('resume refuses a Session that never got a first turn, so it has no transcript, and leaves the Session ended', async () => {
+  store.createSpawnedSession({ id: idFor(9), cwd: `${home}/Sites/api`, tmuxName: 'ra-00000009' })
+  store.endSession(idFor(9))
+  tmux.calls = []
+
+  expect(await spawner.resume(idFor(9))).toBe(NO_TRANSCRIPT)
+  expect(tmux.calls).toEqual([])
+  expect(store.getSession(idFor(9))).toMatchObject({ endedAt: expect.any(Number) })
+})
+
+test('/new --resume with a model resumes the Session in place on that model', async () => {
+  const projectDir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(`${projectDir}/history-0002.jsonl`, `${JSON.stringify({ type: 'user', message: { content: 'Add the export' } })}\n`)
+  store.createSpawnedSession({ id: 'history-0002', cwd: `${home}/Sites/api`, tmuxName: 'ra-history-0002' })
+  store.endSession('history-0002')
+  expect(await spawner.newCommand(null, '--resume --model haiku ~/Sites/api')).toBeNull()
+  tmux.calls = []
+  await spawner.startFromPicker('00000001', 0)
+  const launch = tmux.calls.find(argv => argv.includes('claude'))
+  expect(launch?.slice(-4)).toEqual(['--resume', 'history-0002', '--model', 'haiku'])
+  expect(launch?.includes('--fork-session')).toBe(false)
+})
+
+test('lastModel reads the model a Session last ran on from its transcript, and is null when there is none', async () => {
+  store.createSpawnedSession({ id: 'history-0003', cwd: `${home}/Sites/api`, tmuxName: 'ra-history-0003' })
+  const path = transcriptPath(home, `${home}/Sites/api`, 'history-0003')
+  await mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+  await writeFile(path, [
+    JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-5-5' } }),
+    JSON.stringify({ type: 'assistant', message: { model: 'claude-haiku-5-5' } }),
+  ].join('\n') + '\n')
+  expect(await spawner.lastModel('history-0003')).toBe('claude-haiku-5-5')
+  expect(await spawner.lastModel('no-such-session')).toBeNull()
+  store.createSpawnedSession({ id: 'history-0004', cwd: `${home}/Sites/api`, tmuxName: 'ra-history-0004' })
+  expect(await spawner.lastModel('history-0004')).toBeNull()
+})
+
+test('the history list names a Session by its chat name when it has one, and by its first message otherwise', async () => {
+  const projectDir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(`${projectDir}/history-0005.jsonl`, `${JSON.stringify({ type: 'user', message: { content: 'Fix the API tests' } })}\n`)
+  spawner.setChatName(id => (id === 'history-0005' ? 'Billing export' : null))
+  expect(await spawner.newCommand(null, '--resume ~/Sites/api')).toBeNull()
+  expect(channel.buttons.at(-1)?.buttons[0]?.detail).toBe('Billing export')
+  spawner.setChatName(() => null)
+  expect(await spawner.newCommand(null, '--resume ~/Sites/api')).toBeNull()
+  expect(channel.buttons.at(-1)?.buttons[0]?.detail).toBe('Fix the API tests')
 })
 
 test('/new --resume without a folder asks for a project before listing its histories', async () => {

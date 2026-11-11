@@ -485,3 +485,21 @@ test('a throwing sink.promptCreated propagates and stores no refs, so redelivery
   await notifier.redeliverUndelivered()
   expect(store.listPromptMessageRefs('p:1')).toHaveLength(1)
 })
+
+test('a second start of a session that is still running is warned in its chat, once per start; an ended session starts clean', async () => {
+  const sink = new RecordingSink()
+  notifier = new Notifier(store, channel, new AwayMode(true), () => {}, sink)
+  store.setSessionChat(session.sessionId, 'c-app')
+  store.setSessionThread(session.sessionId, 'c-app')
+  const warnings = () => sink.calls.filter(call => call.startsWith('systemMessage')).length
+
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(0)
+
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(1)
+
+  await notifier.report({ session, report: { kind: 'session_ended', reason: 'exit' } })
+  await notifier.report({ session, report: { kind: 'session_started' } })
+  expect(warnings()).toBe(1)
+})

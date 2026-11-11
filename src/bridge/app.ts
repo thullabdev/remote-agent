@@ -112,6 +112,11 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         },
       })
       reader = transcripts
+      spawner.setHistorySource((sessionId, historyId) => transcripts.attachSource(sessionId, historyId))
+      spawner.setChatName(sessionId => {
+        const chatId = store.getSession(sessionId)?.chatId
+        return chatId === null || chatId === undefined ? null : (chatLog?.getChat(chatId)?.title ?? null)
+      })
       webChannel.setTranscriptProbe(sessionId => transcripts.isActive(sessionId))
       webChannel.setTranscriptAttacher(
         sessionId => transcripts.attach(sessionId),

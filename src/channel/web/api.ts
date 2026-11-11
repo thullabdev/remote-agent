@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AwayMode } from '../../bridge/notifier.ts'
 import { BadRequest } from '../../bridge/errors.ts'
 import type { Log } from '../../bridge/prompts.ts'
-import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, type Spawner } from '../../bridge/spawner.ts'
+import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, isModelName, type Spawner } from '../../bridge/spawner.ts'
 import type { SessionRow, Store } from '../../bridge/store.ts'
 import type { Project } from '../../bridge/trusted.ts'
 import type { ChatSink } from '../chat-sink.ts'
@@ -24,7 +24,7 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume' | 'lastModel'>
   sink: Pick<ChatSink, 'instructionQueued'>
   /** The current accounts and per-chat usage, read fresh for each state request. */
   usage: () => UsageView
@@ -100,7 +100,8 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['messages', ':id', 'pin'], run: ({ deps, request }, id) => pinMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
-  { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps }, id) => resumeChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps, request }, id) => resumeChat(deps, request, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'resume-model'], run: ({ deps }, id) => resumeModel(deps, id) },
   { method: 'GET', pattern: ['activity'], run: ({ deps, url }) => activity(deps, url) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
   { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
@@ -179,6 +180,21 @@ async function readBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
   } catch {
     throw new ApiError(400, 'The request body must be JSON.')
   }
+  return checkBody(raw, schema)
+}
+
+/** A JSON body already read as text, checked against the schema. */
+async function readJsonBody<T>(text: string, schema: z.ZodType<T>): Promise<T> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    throw new ApiError(400, 'The request body must be JSON.')
+  }
+  return checkBody(raw, schema)
+}
+
+function checkBody<T>(raw: unknown, schema: z.ZodType<T>): T {
   const parsed = schema.safeParse(raw)
   if (!parsed.success) {
     const problems = parsed.error.issues.map(issue => `${issue.path.join('.') || 'body'}: ${issue.message}`)
@@ -570,10 +586,28 @@ async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
   return { toast }
 }
 
-async function resumeChat(deps: ApiDeps, chatId: string): Promise<unknown> {
+/** The model a resumed Session would use by default: the one it last ran on, or null when unknown. */
+async function resumeModel(deps: ApiDeps, chatId: string): Promise<unknown> {
   requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
-  const toast = await deps.spawner.resume(session.id)
+  return { model: await deps.spawner.lastModel(session.id) }
+}
+
+const ResumeChatSchema = z.object({
+  /** Null resumes on the model the Session was last using; a name starts it on that model. */
+  model: z
+    .string()
+    .refine(isModelName, 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.')
+    .nullable(),
+})
+
+async function resumeChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  // No body means no model chosen, as before the model choice existed; a body is validated like any other.
+  const text = (await request.text()).trim()
+  const model = text === '' ? null : (await readJsonBody(text, ResumeChatSchema)).model
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const toast = await deps.spawner.resume(session.id, model)
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }

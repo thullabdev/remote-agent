@@ -3,6 +3,7 @@ import type { Channel, SessionStatus, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
+import { transcriptPath } from '../channel/web/transcript/path.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log } from './prompts.ts'
 import { listSessionHistories, type SessionHistory } from './session-history.ts'
@@ -16,6 +17,7 @@ export const USAGE = 'Usage: /new [--model <model>] <trusted folder> or /new --r
 export const BAD_MODEL = 'Unknown model. Use opus, sonnet, haiku, opusplan or a full model id like claude-sonnet-5-5.'
 export const READY = '✅ Ready. Send your task here.'
 export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended remotely.'
+export const NO_TRANSCRIPT = 'This Session never got a first message, so there is nothing to resume. Start a new one with /new <folder>.'
 export const UNKNOWN_SESSION = 'Unknown session.'
 export const SESSION_ALREADY_ACTIVE = 'This Session is already active.'
 
@@ -25,31 +27,73 @@ const REASON_MAX = 150
 const MAX_PICKERS = 20
 const MODEL_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'opusplan'])
 const MODEL_ID = /^claude-[a-z0-9][a-z0-9.-]*$/
-const MODEL_FIRST = /^(?:--model|-m)(?:\s+(\S+))?(?:\s+(.*))?$/s
-const MODEL_LAST = /^(.*?)\s+(?:--model|-m)\s+(\S+)$/s
 
 type Picker =
   | { kind: 'projects'; projects: Project[]; model: string | null }
   | { kind: 'resume-projects'; thread: ThreadRef | null; projects: Project[]; model: string | null }
   | { kind: 'histories'; cwd: string; histories: SessionHistory[]; model: string | null }
 
-/** Splits `/new` args into a path, optional model and resume mode. Null means a bad model. */
+function validModel(value: string): boolean {
+  return MODEL_ALIASES.has(value) || MODEL_ID.test(value)
+}
+
+/** Whether a model name is one `/new --model` accepts: an alias such as opus, or a full claude-… id. */
+export function isModelName(value: string): boolean {
+  return validModel(value)
+}
+
+/** How far from the end of a transcript to look for the model it last ran on. */
+const MODEL_TAIL_BYTES = 512 * 1024
+
+/**
+ * Splits `/new` args into a path, optional model and resume mode. Flags may come in any order before or after the path, and
+ * the path keeps its spaces. Null means a bad or missing model value.
+ */
 export function parseNewArgs(args: string): { path: string; model: string | null; resume: boolean } | null {
-  if (args === '--resume' || args.startsWith('--resume ')) {
-    const parsed = parseNewArgs(args.slice('--resume'.length).trim())
-    return parsed === null ? null : { ...parsed, resume: true }
+  let rest = args.trim()
+  let model: string | null = null
+  let resume = false
+  for (;;) {
+    const resumeFlag = /^--resume(?:\s+|$)/.exec(rest)
+    if (resumeFlag !== null) {
+      resume = true
+      rest = rest.slice(resumeFlag[0].length).trim()
+      continue
+    }
+    const modelFlag = /^(?:--model|-m)(?:\s+|$)/.exec(rest)
+    if (modelFlag !== null) {
+      const value = /^\S+/.exec(rest.slice(modelFlag[0].length))?.[0]
+      if (value === undefined || !validModel(value)) {
+        return null
+      }
+      model = value
+      rest = rest.slice(modelFlag[0].length + value.length).trim()
+      continue
+    }
+    break
   }
-  const first = MODEL_FIRST.exec(args)
-  const last = first === null ? MODEL_LAST.exec(args) : null
-  if (first === null && last === null) {
-    return { path: args, model: null, resume: false }
+  for (;;) {
+    if (/(^|\s)--resume$/.test(rest)) {
+      resume = true
+      rest = rest.replace(/(^|\s)--resume$/, '').trim()
+      continue
+    }
+    if (/(^|\s)(?:--model|-m)$/.test(rest)) {
+      return null
+    }
+    const modelFlag = /(^|\s)(?:--model|-m)\s+(\S+)$/.exec(rest)
+    if (modelFlag !== null) {
+      const value = modelFlag[2] ?? ''
+      if (!validModel(value)) {
+        return null
+      }
+      model = value
+      rest = rest.slice(0, modelFlag.index).trim()
+      continue
+    }
+    break
   }
-  const model = first !== null ? first[1] : last?.[2]
-  const path = (first !== null ? first[2] : last?.[1]) ?? ''
-  if (model === undefined || !(MODEL_ALIASES.has(model) || MODEL_ID.test(model))) {
-    return null
-  }
-  return { path: path.trim(), model, resume: false }
+  return { path: rest, model, resume }
 }
 
 /** Runs `run` after `ms`; the returned function cancels it. */
@@ -88,6 +132,8 @@ export class Spawner {
   }
 
   private readonly timers = new Map<string, () => void>()
+  private historySource: (sessionId: string, historyId: string) => void = () => {}
+  private chatName: (sessionId: string) => string | null = () => null
   private readonly ending = new Set<string>()
   private readonly resuming = new Set<string>()
   private readonly pickers = new Map<string, Picker>()
@@ -130,7 +176,15 @@ export class Spawner {
       }
       if (picker.kind === 'histories') {
         const history = picker.histories[choice]
-        return history === undefined ? STALE_PICKER : await this.startAt(picker.cwd, picker.model, history.id)
+        if (history === undefined) {
+          return STALE_PICKER
+        }
+        // A Session the bridge knows resumes in place: same id, tmux name and chat, and no copy of its history.
+        const known = this.deps.store.getSession(history.id)
+        if (known !== undefined) {
+          return known.endedAt === null ? SESSION_ALREADY_ACTIVE : await this.resume(history.id, picker.model)
+        }
+        return await this.startAt(picker.cwd, picker.model, history.id)
       }
       const project = picker.projects[choice]
       if (project === undefined) {
@@ -141,6 +195,16 @@ export class Spawner {
       }
       return await this.startAt(project.cwd, picker.model)
     })
+  }
+
+  /** The name the chat shows for a Session (the user's rename, else the automatic one), or null when the Session has no chat. */
+  setChatName(name: (sessionId: string) => string | null): void {
+    this.chatName = name
+  }
+
+  /** Tells the transcript reader which history a new Session was started from, so the history shows before its first turn. */
+  setHistorySource(tell: (sessionId: string, historyId: string) => void): void {
+    this.historySource = tell
   }
 
   /**
@@ -164,7 +228,32 @@ export class Spawner {
   }
 
   /** Restarts an ended Session with its existing Claude session id and transcript. */
-  async resume(sessionId: string): Promise<string> {
+  /**
+   * The full model id a Session last ran on, read from the end of its transcript. Null when the transcript or a model is not there,
+   * for example before the first turn.
+   */
+  async lastModel(sessionId: string): Promise<string | null> {
+    const session = this.deps.store.getSession(sessionId)
+    if (session === undefined) {
+      return null
+    }
+    let path: string
+    try {
+      path = transcriptPath(this.deps.home, session.cwd, session.id)
+    } catch {
+      return null
+    }
+    const file = Bun.file(path)
+    if (!(await file.exists())) {
+      return null
+    }
+    const tail = await file.slice(Math.max(0, file.size - MODEL_TAIL_BYTES), file.size).text()
+    const found = [...tail.matchAll(/"model":"(claude-[a-z0-9][a-z0-9.-]*)"/g)]
+    return found.at(-1)?.[1] ?? null
+  }
+
+  /** `model`, when given, starts the resumed Session on that model; the transcript and chat stay the same. */
+  async resume(sessionId: string, model: string | null = null): Promise<string> {
     const { store, launcher, notifier, channel, log } = this.deps
     const session = store.getSession(sessionId)
     if (session === undefined) {
@@ -192,6 +281,10 @@ export class Spawner {
       if (cwd === null) {
         return NOT_TRUSTED
       }
+      // Claude writes the transcript on the first turn; without it `claude --resume` exits at once and the Session cannot come back.
+      if (!(await Bun.file(transcriptPath(this.deps.home, session.cwd, session.id)).exists())) {
+        return NO_TRANSCRIPT
+      }
       const tmuxName = tmuxNameFor(sessionId)
       if (await launcher.exists(tmuxName)) {
         return `A tmux session already exists for this Session. Attach with: tmux attach -t ${tmuxName}`
@@ -212,7 +305,7 @@ export class Spawner {
       }
 
       try {
-        await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false, ...this.libraryDirs() })
+        await launcher.launch({ sessionId, cwd, resumeFrom: sessionId, fork: false, model, ...this.libraryDirs() })
       } catch (error) {
         const reason = reasonOf(error)
         await this.announce(thread, { state: 'failed', cwd, tmuxName, message: 'Could not resume the Session', detail: reason, fallback: `❌ Could not resume the Session:\n${reason}` }).catch(sendError => {
@@ -374,7 +467,11 @@ export class Spawner {
     if (cwd === null) {
       return NOT_TRUSTED
     }
-    const histories = await listSessionHistories(this.deps.home, cwd)
+    // A history whose Session is still active in the bridge is left out: resuming it would be a second process on one transcript.
+    const histories = (await listSessionHistories(this.deps.home, cwd)).filter(history => {
+      const known = this.deps.store.getSession(history.id)
+      return known === undefined || known.endedAt !== null
+    })
     if (histories.length === 0) {
       return `No session histories found in ${cwd}.`
     }
@@ -386,7 +483,7 @@ export class Spawner {
         this.pickers.delete(oldest)
       }
     }
-    const buttons = histories.map((history, choice) => ({ label: history.label, detail: history.preview, at: history.modifiedAt, data: { kind: 'launch' as const, pickerId, choice } }))
+    const buttons = histories.map((history, choice) => ({ label: history.label, detail: this.chatName(history.id) ?? history.preview, at: history.modifiedAt, data: { kind: 'launch' as const, pickerId, choice } }))
     await this.deps.channel.sendButtons(thread, `Resume a history from ${projectName(cwd)}:`, buttons)
     return null
   }
@@ -427,6 +524,9 @@ export class Spawner {
     }
     try {
       await launcher.launch({ sessionId, cwd, model, resumeFrom, ...this.libraryDirs() })
+      if (resumeFrom !== undefined) {
+        this.historySource(sessionId, resumeFrom)
+      }
     } catch (error) {
       const reason = reasonOf(error)
       await this.announce(thread, { state: 'failed', cwd, tmuxName, message: 'Could not start the session', detail: reason, fallback: `❌ Could not start the session:\n${reason}` }).catch(sendError => {

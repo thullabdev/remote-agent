@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActivityView, Chat, UsageView } from '../../src/channel/web/protocol.ts'
 import { ChatHeader } from '../../src/ui/components/chat-header.tsx'
+import { defaultResumeChoice, resumeChoices } from '../../src/ui/components/resume-dialog.tsx'
 import { ActivityFeed, Dashboard, TodayCard, type DashboardProps } from '../../src/ui/components/dashboard.tsx'
 
 function chat(id: string, patch: Partial<Chat> = {}): Chat {
@@ -193,4 +194,11 @@ test('General has no usage toggle and no details button; a session keeps both', 
   expect(general).not.toContain('Session information and actions')
   const session = header(chat('s1'))
   expect(session).toContain('Session information and actions')
+})
+
+test('the resume dialog offers the model the Session last used first and as the default', () => {
+  expect(resumeChoices('claude-haiku-5-5').map(choice => choice.label)).toEqual(['Same as before', 'Claude default', 'Opus', 'Sonnet', 'Haiku', 'Opus plan'])
+  expect(defaultResumeChoice('claude-haiku-5-5')).toBe('claude-haiku-5-5')
+  expect(resumeChoices(null).map(choice => choice.label)).toEqual(['Claude default', 'Opus', 'Sonnet', 'Haiku', 'Opus plan'])
+  expect(defaultResumeChoice(null)).toBeNull()
 })

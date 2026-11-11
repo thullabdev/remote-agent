@@ -35,6 +35,12 @@ let projectsDep: ApiDeps['projects']
 let uploadsLibrary: UploadLibrary | undefined
 let tmux: FakeTmux
 let home: string
+/** The transcript Claude writes on the first turn; a resume needs it. */
+async function writeTranscript(sessionId: string): Promise<void> {
+  const dir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(dir, { recursive: true })
+  await writeFile(`${dir}/${sessionId}.jsonl`, `${JSON.stringify({ type: 'user', message: { content: 'Hello' } })}\n`)
+}
 let configPath: string
 const pushCalls: { subscribed: PushSubscriptionRecord[]; unsubscribed: string[] } = { subscribed: [], unsubscribed: [] }
 const logged: string[] = []
@@ -69,6 +75,7 @@ function stubSpawner(): ApiDeps['spawner'] {
     newCommand: async () => null,
     fork: async () => 'Forking api. Open its topic.',
     resume: async () => 'Resuming the existing Session.',
+    lastModel: async () => null,
   }
 }
 
@@ -179,6 +186,17 @@ test('GET /api/state includes usage, empty when nothing was reported', async () 
   const { body } = await call('GET', '/api/state')
 
   expect(body.usage).toEqual({ accounts: [], chats: {} })
+})
+
+test('POST /api/chats/:id/resume takes an optional model, and GET resume-model reports the model it last ran on', async () => {
+  const chatId = seedSession()
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: 'gpt-5' })).status).toBe(400)
+  expect((await call('POST', `/api/chats/${chatId}/resume`)).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: null })).status).toBe(200)
+  expect((await call('POST', `/api/chats/${chatId}/resume`, { model: 'haiku' })).status).toBe(200)
+  const model = await call('GET', `/api/chats/${chatId}/resume-model`)
+  expect(model.status).toBe(200)
+  expect(model.body).toEqual({ model: null })
 })
 
 test('GET /api/activity returns days for the viewer\'s zone and recent events', async () => {
@@ -630,6 +648,7 @@ test('fork of a session whose cwd is no longer trusted is 409', async () => {
 test('resume reopens the same ended session and chat without forking the transcript', async () => {
   await useRealSpawner()
   store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  await writeTranscript('s1')
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
   chatLog.appendMessage(chatId, { kind: 'system', text: 'Original history' })
@@ -654,6 +673,7 @@ test('resume reopens the same ended session and chat without forking the transcr
 test('a failed resume leaves the original session and chat ended', async () => {
   await useRealSpawner()
   store.createSpawnedSession({ id: 's1', cwd: `${home}/Sites/api`, tmuxName: 'ra-s1' })
+  await writeTranscript('s1')
   channel.sessionSeen(store.getSession('s1')!)
   const chatId = store.getSession('s1')!.chatId!
   store.endSession('s1')

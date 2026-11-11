@@ -10,9 +10,11 @@ type NewSessionDialogProps = {
   api: ApiClient
   onOpenChange(open: boolean): void
   onStarted(message: string): void
+  /** Called as a session is requested, before the bridge answers, so the app can open the chat it creates. */
+  onStarting?(): void
 }
 
-export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSessionDialogProps) {
+export function NewSessionDialog({ open, api, onOpenChange, onStarted, onStarting }: NewSessionDialogProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [query, setQuery] = useState('')
   const [model, setModel] = useState('')
@@ -46,6 +48,7 @@ export function NewSessionDialog({ open, api, onOpenChange, onStarted }: NewSess
     setStarting(true)
     setError(null)
     try {
+      onStarting?.()
       const result = await api.startProject({ cwd: project.cwd, ...(model.trim() === '' ? {} : { model: model.trim() }) })
       onStarted(result.toast)
       onOpenChange(false)

@@ -731,3 +731,23 @@ test('a session id that cannot name a transcript file is not tailed, and the rea
   expect(logged.filter(message => message.includes('transcript file')).length).toBe(1)
 })
 
+
+test('a resumed Session shows its history from the source transcript before its own transcript exists, without doubling it later', async () => {
+  const h = setup()
+  h.files.set(transcriptPath(HOME, CWD, 'hist-src'), encoder.encode(prompt('h-1', 'old question') + assistantText('h-2', 'old answer')))
+  const chatId = startSession(h)
+  h.reader.attachSource(SID, 'hist-src')
+
+  await h.reader.ingestOnce(SID)
+  expect(textsOf(h, chatId)).toEqual(['old question', 'old answer'])
+
+  // The forked transcript appears at the first turn: it copies the history (same ids) and adds the new turn.
+  write(h, prompt('h-1', 'old question') + assistantText('h-2', 'old answer') + prompt('n-1', 'new question'))
+  await h.reader.ingestOnce(SID)
+  await h.reader.ingestOnce(SID)
+  expect(textsOf(h, chatId)).toEqual(['old question', 'old answer', 'new question'])
+})
+
+function textsOf(h: Harness, chatId: string): string[] {
+  return messagesOf(h, chatId).flatMap(message => (message.kind === 'user_text' ? [message.text] : message.kind === 'agent_text' ? [message.markdown] : []))
+}

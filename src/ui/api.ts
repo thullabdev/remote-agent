@@ -44,7 +44,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   saveDraft(chatId: string, draft: Draft): Promise<{ ok: true }>
   clearChat(chatId: string): Promise<{ ok: true }>
   forkChat(chatId: string): Promise<{ toast: string }>
-  resumeChat(chatId: string): Promise<{ toast: string }>
+  /** `model` null resumes on the model the Session last used; a name starts it on that model. */
+  resumeChat(chatId: string, model?: string | null): Promise<{ toast: string }>
+  /** The model the Session last ran on, or null when unknown. */
+  resumeModel(chatId: string): Promise<{ model: string | null }>
   getProjects(): Promise<{ projects: Project[] }>
   /** The dashboard's numbers for `days` days, in this device's time zone. */
   getActivity(days?: number): Promise<ActivityView>
@@ -135,7 +138,8 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     saveDraft: (chatId, draft) => put(`/api/chats/${encodeURIComponent(chatId)}/draft`, draft),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
-    resumeChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/resume`),
+    resumeChat: (chatId, model = null) => post(`/api/chats/${encodeURIComponent(chatId)}/resume`, { model }),
+    resumeModel: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/resume-model`),
     getProjects: () => get('/api/projects'),
     getActivity: (days = 7) => get(`/api/activity?days=${days}&tz=${-new Date().getTimezoneOffset()}`),
     startProject: body => post('/api/projects/start', body),
