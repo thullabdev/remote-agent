@@ -6,7 +6,8 @@ const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 const PREVIEW_BYTES = 64 * 1024
 const ENOENT = 'ENOENT'
 
-export type SessionHistory = { id: string; label: string }
+/** `label` is the one-line form for chat buttons; `preview` is the first message on its own, for a richer picker. */
+export type SessionHistory = { id: string; label: string; preview: string; modifiedAt: number }
 
 function firstPrompt(contents: string): string {
   for (const line of contents.split('\n')) {
@@ -76,6 +77,7 @@ export async function listSessionHistories(home: string, cwd: string, limit = 20
             return {
               id,
               label: `${new Date(details.mtimeMs).toISOString().slice(0, 10)} · ${preview}`,
+              preview,
               modifiedAt: details.mtimeMs,
             }
           } catch (error) {
@@ -93,5 +95,5 @@ export async function listSessionHistories(home: string, cwd: string, limit = 20
     .filter((history): history is SessionHistory & { modifiedAt: number } => history !== null)
     .sort((left, right) => right.modifiedAt - left.modifiedAt)
     .slice(0, limit)
-    .map(({ id, label }) => ({ id, label }))
+    .map(({ id, label, preview, modifiedAt }) => ({ id, label, preview, modifiedAt }))
 }

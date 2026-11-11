@@ -7,7 +7,8 @@ export type AnswerButton = { kind: 'answer'; promptId: string; questionIndex: nu
 /** A tap on a project in the /new picker. `choice` indexes the picker's project list. */
 export type LaunchButton = { kind: 'launch'; pickerId: string; choice: number }
 export type ButtonData = AnswerButton | LaunchButton
-export type Button = { label: string; data: ButtonData }
+/** `detail` (a second line) and `at` (when the item was made) are for surfaces that show more than a label; Telegram uses the label. */
+export type Button = { label: string; data: ButtonData; detail?: string; at?: number }
 export type PromptViewItem = { text: string; buttons: { label: string; data: AnswerButton }[] }
 export type PromptView = { promptId: string; title: string; items: PromptViewItem[] }
 

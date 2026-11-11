@@ -81,7 +81,7 @@ test('/new posts one button per existing listed project', async () => {
   expect(channel.buttons).toEqual([{
     thread: null,
     text: 'Start a session in:',
-    buttons: [{ label: 'api', data: { kind: 'launch', pickerId: '00000001', choice: 0 } }],
+    buttons: [{ label: 'api', detail: expect.stringContaining('/Sites/api'), data: { kind: 'launch', pickerId: '00000001', choice: 0 } }],
   }])
 })
 

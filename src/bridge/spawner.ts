@@ -346,7 +346,7 @@ export class Spawner {
         this.pickers.delete(oldest)
       }
     }
-    const buttons = projects.map((project, choice) => ({ label: project.label, data: { kind: 'launch' as const, pickerId, choice } }))
+    const buttons = projects.map((project, choice) => ({ label: project.label, detail: project.cwd, data: { kind: 'launch' as const, pickerId, choice } }))
     await this.deps.channel.sendButtons(thread, `Start a session${model === null ? '' : ` with ${model}`} in:`, buttons)
     return null
   }
@@ -364,7 +364,7 @@ export class Spawner {
         this.pickers.delete(oldest)
       }
     }
-    const buttons = projects.map((project, choice) => ({ label: project.label, data: { kind: 'launch' as const, pickerId, choice } }))
+    const buttons = projects.map((project, choice) => ({ label: project.label, detail: project.cwd, data: { kind: 'launch' as const, pickerId, choice } }))
     await this.deps.channel.sendButtons(thread, 'Choose a project to resume from:', buttons)
     return null
   }
@@ -386,7 +386,7 @@ export class Spawner {
         this.pickers.delete(oldest)
       }
     }
-    const buttons = histories.map((history, choice) => ({ label: history.label, data: { kind: 'launch' as const, pickerId, choice } }))
+    const buttons = histories.map((history, choice) => ({ label: history.label, detail: history.preview, at: history.modifiedAt, data: { kind: 'launch' as const, pickerId, choice } }))
     await this.deps.channel.sendButtons(thread, `Resume a history from ${projectName(cwd)}:`, buttons)
     return null
   }

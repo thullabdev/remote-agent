@@ -96,7 +96,8 @@ export type MessageBody =
   /** A Spawned Session's startup: one card that moves from starting to ready or failed. */
   | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }
-  | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number }[] }
+  /** `detail` is a second line under the label; `at` is when the item was made, shown as a relative time. */
+  | { kind: 'picker'; pickerId: string; text: string; buttons: { label: string; choice: number; detail?: string; at?: number }[] }
 
 export type MessageKind = MessageBody['kind']
 

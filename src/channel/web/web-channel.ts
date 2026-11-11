@@ -103,7 +103,7 @@ export class WebChannel implements Channel, ChatSink {
       if (button.data.kind !== 'launch') {
         throw new Error(`Web picker buttons must be launch buttons, got ${button.data.kind}`)
       }
-      return { label: button.label, choice: button.data.choice, pickerId: button.data.pickerId }
+      return { label: button.label, choice: button.data.choice, pickerId: button.data.pickerId, detail: button.detail, at: button.at }
     })
     const pickerId = picks[0]?.pickerId
     if (pickerId === undefined) {
@@ -116,7 +116,7 @@ export class WebChannel implements Channel, ChatSink {
       kind: 'picker',
       pickerId,
       text,
-      buttons: picks.map(({ label, choice }) => ({ label, choice })),
+      buttons: picks.map(({ label, choice, detail, at }) => ({ label, choice, ...(detail === undefined ? {} : { detail }), ...(at === undefined ? {} : { at }) })),
     })
     return message.id
   }

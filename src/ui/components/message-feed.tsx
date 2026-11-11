@@ -11,6 +11,7 @@ import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
+import { PickerRows } from './picker-rows.tsx'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -339,18 +340,10 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
     return (
       <article className="max-w-[88%] rounded-2xl rounded-bl-md bg-card p-4 shadow-sm sm:max-w-[76%]">
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.text}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {message.buttons.map(button => (
-            <Button
-              key={`${message.pickerId}-${button.choice}`}
-              variant="outline"
-              size="sm"
-              onClick={() => void onPickerAction?.(message.chatId, { pickerId: message.pickerId, choice: button.choice })}
-            >
-              {button.label}
-            </Button>
-          ))}
-        </div>
+        <PickerRows
+          buttons={message.buttons}
+          onPick={choice => onPickerAction?.(message.chatId, { pickerId: message.pickerId, choice }) ?? Promise.resolve()}
+        />
         <MessageTime at={message.at} />
       </article>
     )

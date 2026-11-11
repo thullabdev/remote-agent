@@ -1,7 +1,7 @@
 import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
-import { insertCommand, matchingCommands, moveCommandSelection, slashCommandQuery } from '../command-suggestions.ts'
+import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
 import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
@@ -40,6 +40,8 @@ export function shouldSendOnEnter(
   return event.ctrlKey || event.metaKey
 }
 
+const KIND_LABEL = { command: 'Command', flag: 'Option', value: 'Model' } as const
+
 function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts, firstTask = false }: ChatComposerProps) {
   const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
@@ -49,7 +51,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
   const query = slashCommandQuery(text)
-  const suggestions = matchingCommands(query, chat.id === 'general')
+  const suggestions: CommandSuggestion[] = argumentSuggestions(text, chat.id === 'general') ?? matchingCommands(query, chat.id === 'general')
   const suggestionsOpen = suggestions.length > 0 && !suggestionsDismissed
   const activeSuggestionIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1))
 
@@ -62,7 +64,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   useEffect(() => {
     setSelectedSuggestion(0)
     setSuggestionsDismissed(false)
-  }, [query])
+  }, [query, text])
 
   useEffect(() => {
     const input = inputRef.current
@@ -200,7 +202,8 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
       }
       if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing && suggestions[activeSuggestionIndex]) {
         event.preventDefault()
-        setText(current => insertCommand(current, suggestions[activeSuggestionIndex]!.name))
+        const chosen = suggestions[activeSuggestionIndex]!
+        setText(current => applySuggestion(current, chosen))
         inputRef.current?.focus()
         return
       }
@@ -243,14 +246,14 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
               onMouseDown={event => event.preventDefault()}
               onMouseEnter={() => setSelectedSuggestion(index)}
               onClick={() => {
-                setText(current => insertCommand(current, suggestion.name))
+                setText(current => applySuggestion(current, suggestion))
                 inputRef.current?.focus()
               }}
               className={`flex w-full items-center gap-3 px-3 py-2 text-left ${index === activeSuggestionIndex ? 'bg-muted' : 'hover:bg-muted/70'}`}
             >
-              <span className="font-mono text-sm">/{suggestion.name}</span>
+              <span className="font-mono text-sm">{suggestion.kind === undefined || suggestion.kind === 'command' ? `/${suggestion.name}` : suggestion.name}</span>
               <span className="flex-1 truncate text-xs text-muted-foreground">{suggestion.description}</span>
-              <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Command</span>
+              <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{KIND_LABEL[suggestion.kind ?? 'command']}</span>
             </button>
           ))}
         </div>

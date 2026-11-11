@@ -406,3 +406,18 @@ const CONNECTION_NOTICE: Partial<Record<ConnectionStatus, string>> = {
 export function connectionNoticeText(status: ConnectionStatus): string | undefined {
   return CONNECTION_NOTICE[status]
 }
+
+/** "Today 14:20", "Yesterday 09:05", or "10 Nov 14:20" for anything older. Local time, for a picker row's first line. */
+export function pickerWhen(at: number, now = Date.now()): string {
+  const date = new Date(at)
+  const clock = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (date.toDateString() === new Date(now).toDateString()) {
+    return `Today ${clock}`
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `Yesterday ${clock}`
+  }
+  return `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${clock}`
+}
