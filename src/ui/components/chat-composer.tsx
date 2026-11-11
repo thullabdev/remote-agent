@@ -98,9 +98,11 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   const [pickerDismissed, setPickerDismissed] = useState(false)
   const [pickerNote, setPickerNote] = useState<string | null>(null)
   // The picker opens from an open @ token or from the attach button; both use the same list.
-  const mention = mentionQuery(text)
+  // General takes no file attachments (the Bridge refuses them), so it has no attach button and no library picker.
+  const attachable = chat.id !== 'general'
+  const mention = attachable ? mentionQuery(text) : null
   const pickerQuery = mention ?? ''
-  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled
+  const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled && attachable
   const pickerUploads = pickerOpen ? filterUploads(library, pickerQuery) : []
   const limitReached = attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE
 
@@ -313,22 +315,24 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
             disabled={disabled}
             className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Attach file"
-            title="Attach an image or PDF"
-            aria-pressed={pickerOpen}
-            disabled={disabled || uploading || limitReached}
-            onClick={() => {
-              setPickerDismissed(false)
-              setAttachOpen(open => !open)
-            }}
-            className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
-          >
-            <Paperclip aria-hidden="true" />
-          </Button>
+          {attachable && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach file"
+              title="Attach an image or PDF"
+              aria-pressed={pickerOpen}
+              disabled={disabled || uploading || limitReached}
+              onClick={() => {
+                setPickerDismissed(false)
+                setAttachOpen(open => !open)
+              }}
+              className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"
+            >
+              <Paperclip aria-hidden="true" />
+            </Button>
+          )}
           <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>

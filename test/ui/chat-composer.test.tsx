@@ -85,6 +85,22 @@ test('the attach button is a toggle for the library picker', () => {
   expect(markup).toContain('aria-pressed="false"')
 })
 
+test('General has no attach button, since the Bridge refuses attachments there', () => {
+  const markup = renderToStaticMarkup(createElement(ChatComposer, {
+    chat: { ...chat, id: 'general', title: 'General' },
+    sending: false,
+    enterSends: true,
+    library: [],
+    onRefreshLibrary: () => {},
+    onUpload: async () => null,
+    onDeleteUpload: () => {},
+    onSend: async () => {},
+    onResume: async () => {}, drafts: noDrafts,
+  }))
+  expect(markup).not.toContain('aria-label="Attach file"')
+  expect(markup).not.toContain('id="chat-upload-picker"')
+})
+
 
 describe('first task', () => {
   const render = (firstTask: boolean): string => renderToStaticMarkup(createElement(ChatComposer, {
