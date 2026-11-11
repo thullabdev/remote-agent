@@ -16,18 +16,20 @@ function rows(count: number, detail = 'Fix the billing export so it stops double
   return Array.from({ length: count }, (_, choice) => ({ label: `2026-11-${10 - choice} · ${detail}`, choice, detail, at: now - choice * 3_600_000 }))
 }
 
-test('histories are rows with the time first and the first message under it, never pills', () => {
+test('a history is two lines: its first message as the title, and the date under it', () => {
   const html = renderToStaticMarkup(createElement(PickerRows, { buttons: rows(2), onPick: async () => {}, now }))
-  expect(html).toContain('Today 14:00')
-  expect(html).toContain('line-clamp-2')
-  expect(html).toContain('Fix the billing export')
+  const title = html.indexOf('Fix the billing export')
+  const date = html.indexOf('Today 14:00')
+  expect(title).toBeGreaterThan(-1)
+  expect(date).toBeGreaterThan(title)
   expect(html).not.toContain('2026-11-10 ·')
+  expect(html).not.toContain('line-clamp-2')
   expect(html).not.toContain('rounded-md')
 })
 
 test('only the first five show, with a control to show the rest', () => {
   const html = renderToStaticMarkup(createElement(PickerRows, { buttons: rows(8), onPick: async () => {}, now }))
-  expect(html.match(/<li>/g)?.length).toBe(PICKER_VISIBLE + 1)
+  expect(html.match(/<li[ >]/g)?.length).toBe(PICKER_VISIBLE + 1)
   expect(html).toContain('Show 3 more')
 })
 

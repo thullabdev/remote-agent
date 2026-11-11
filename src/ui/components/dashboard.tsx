@@ -248,15 +248,15 @@ const EVENT_ICON = { finished: CircleCheck, started: Plus, ended: Power } as con
 
 export function ActivityFeed({ view, now, onOpen }: { view: ActivityView; now: number; onOpen(chatId: string): void }) {
   return (
-    <ul className="grid overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border/60">
+    <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border/60">
       {view.recent.map(event => {
         const Icon = EVENT_ICON[event.kind]
         return (
-          <li key={event.id} className="border-b border-border/50 last:border-b-0">
-            <button type="button" onClick={() => onOpen(event.chatId)} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50">
+          <li key={event.id} className="min-w-0 border-b border-border/50 last:border-b-0">
+            <button type="button" title={event.name} onClick={() => onOpen(event.chatId)} className="flex w-full min-w-0 items-center gap-2.5 px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50">
               <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate"><span className="font-medium">{event.name}</span> {eventVerb(event.kind)}</span>
-              <span className="shrink-0 text-muted-foreground">{formatDuration(now - event.at)} ago</span>
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground">{formatDuration(now - event.at)} ago</span>
             </button>
           </li>
         )
@@ -267,9 +267,9 @@ export function ActivityFeed({ view, now, onOpen }: { view: ActivityView; now: n
 
 function ProjectsGrid({ tiles, now, online, onOpenChat, onStartProject }: { tiles: ProjectTile[]; now: number; online: boolean; onOpenChat(chatId: string): void; onStartProject(cwd: string): Promise<void> }) {
   return (
-    <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
+    <ul className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-2.5 md:grid-cols-[repeat(3,minmax(0,1fr))]">
       {tiles.map(tile => (
-        <li key={tile.cwd} data-project={tile.cwd} className="relative grid gap-1 rounded-2xl bg-card p-3 shadow-sm ring-1 ring-border/60">
+        <li key={tile.cwd} data-project={tile.cwd} className="relative grid min-w-0 gap-1 rounded-2xl bg-card p-3 shadow-sm ring-1 ring-border/60">
           <button
             type="button"
             onClick={() => onOpenChat(tile.latestChatId)}
@@ -305,6 +305,7 @@ function ResumeLast({ chat, onResume }: { chat: Chat; onResume(): Promise<void> 
     <Button
       variant={armed ? 'default' : 'outline'}
       size="sm"
+      className="min-w-0 max-w-full shrink"
       disabled={busy}
       onBlur={() => setArmed(false)}
       onClick={() => {
@@ -320,7 +321,7 @@ function ResumeLast({ chat, onResume }: { chat: Chat; onResume(): Promise<void> 
       }}
     >
       <RotateCcw aria-hidden="true" />
-      <span className="truncate">{armed ? `Tap again to resume ${sessionName(chat)}` : `Resume ${sessionName(chat)}`}</span>
+      <span className="min-w-0 truncate">{armed ? `Tap again to resume ${sessionName(chat)}` : `Resume ${sessionName(chat)}`}</span>
     </Button>
   )
 }
@@ -396,8 +397,8 @@ export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat
               <Plus aria-hidden="true" /> New session
             </Button>
             {projects.map(project => (
-              <Button key={project.cwd} variant="outline" size="sm" disabled={!online} title={project.cwd} onClick={() => void onStartProject(project.cwd)}>
-                <Plus aria-hidden="true" /> {project.label}
+              <Button key={project.cwd} variant="outline" size="sm" className="min-w-0 max-w-full shrink" disabled={!online} title={project.cwd} onClick={() => void onStartProject(project.cwd)}>
+                <Plus aria-hidden="true" /> <span className="min-w-0 truncate">{project.label}</span>
               </Button>
             ))}
             {ended !== null && <ResumeLast chat={ended} onResume={() => onResume(ended.id)} />}

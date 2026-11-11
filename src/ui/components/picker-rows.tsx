@@ -34,23 +34,26 @@ export function PickerRows({ buttons, onPick, now = Date.now() }: PickerRowsProp
   }
 
   return (
-    <ul className="mt-3 grid gap-1.5" aria-label="Choices">
+    <ul className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5" aria-label="Choices">
       {visible.map(button => {
         const chosen = picked?.choice === button.choice ? picked.phase : null
-        const title = button.at === undefined ? button.label : pickerWhen(button.at, now)
+        // A history: its first message is the title and the date sits under it. A project: its name, with the folder under it.
+        const isHistory = button.at !== undefined
+        const title = isHistory ? (button.detail ?? button.label) : button.label
+        const secondary = isHistory ? pickerWhen(button.at ?? 0, now) : button.detail
         return (
-          <li key={button.choice}>
+          <li key={button.choice} className="min-w-0">
             <button
               type="button"
-              title={button.detail ?? button.label}
+              title={isHistory ? `${title} · ${secondary}` : (button.detail ?? button.label)}
               disabled={picked !== null}
               onClick={() => pick(button.choice)}
               className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-border/60 bg-background/60 px-3 py-2.5 text-left transition-colors hover:bg-muted/70 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{title}</span>
-                {button.detail !== undefined && button.detail !== '' && (
-                  <span className="mt-0.5 line-clamp-2 break-words text-xs leading-snug text-muted-foreground">{button.detail}</span>
+                {secondary !== undefined && secondary !== '' && (
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{secondary}</span>
                 )}
               </span>
               {chosen === 'pending' && (
