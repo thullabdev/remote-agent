@@ -14,6 +14,8 @@ export type SessionRow = {
   tmuxName: string | null
   startedAt: number | null
   chatId: string | null
+  /** The folder the Session was started in. Claude keeps its transcript there, even after the Session moves to a worktree. */
+  launchCwd: string | null
 }
 
 export type PromptRow = {
@@ -41,6 +43,7 @@ type SessionRecord = {
   tmux_name: string | null
   started_at: number | null
   chat_id: string | null
+  launch_cwd: string | null
 }
 type PromptRecord = {
   id: string
@@ -74,7 +77,7 @@ CREATE TABLE IF NOT EXISTS instructions (
 );
 `
 
-const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at, spawned, tmux_name, started_at, chat_id'
+const SESSION_COLUMNS = 'id, cwd, project, thread_id, title, ended_at, spawned, tmux_name, started_at, chat_id, launch_cwd'
 const PROMPT_COLUMNS = 'id, session_id, body, status, answer, source, partial, created_at, reminded'
 
 function toSession(record: SessionRecord): SessionRow {
@@ -89,6 +92,7 @@ function toSession(record: SessionRecord): SessionRow {
     tmuxName: record.tmux_name,
     startedAt: record.started_at,
     chatId: record.chat_id,
+    launchCwd: record.launch_cwd,
   }
 }
 
@@ -130,6 +134,7 @@ export class Store {
       ['tmux_name', 'tmux_name TEXT'],
       ['started_at', 'started_at INTEGER'],
       ['chat_id', 'chat_id TEXT'],
+      ['launch_cwd', 'launch_cwd TEXT'],
     ]
     for (const [name, definition] of added) {
       if (!columns.has(name)) {
@@ -149,11 +154,12 @@ export class Store {
   upsertSession(info: SessionInfo): SessionRow {
     this.db
       .query(
-        `INSERT INTO sessions (id, cwd, project, created_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO sessions (id, cwd, project, created_at, launch_cwd) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET cwd = excluded.cwd, project = excluded.project,
+         launch_cwd = COALESCE(sessions.launch_cwd, excluded.launch_cwd),
          ended_at = CASE WHEN sessions.spawned = 1 THEN sessions.ended_at ELSE NULL END`,
       )
-      .run(info.sessionId, info.cwd, projectName(info.cwd), this.now())
+      .run(info.sessionId, info.cwd, projectName(info.cwd), this.now(), info.cwd)
     const session = this.getSession(info.sessionId)
     if (session === undefined) {
       throw new Error(`Session ${info.sessionId} vanished after upsert`)
@@ -163,8 +169,8 @@ export class Store {
 
   createSpawnedSession(spawn: { id: string; cwd: string; tmuxName: string }): SessionRow {
     this.db
-      .query('INSERT INTO sessions (id, cwd, project, created_at, spawned, tmux_name) VALUES (?, ?, ?, ?, 1, ?)')
-      .run(spawn.id, spawn.cwd, projectName(spawn.cwd), this.now(), spawn.tmuxName)
+      .query('INSERT INTO sessions (id, cwd, project, created_at, spawned, tmux_name, launch_cwd) VALUES (?, ?, ?, ?, 1, ?, ?)')
+      .run(spawn.id, spawn.cwd, projectName(spawn.cwd), this.now(), spawn.tmuxName, spawn.cwd)
     const session = this.getSession(spawn.id)
     if (session === undefined) {
       throw new Error(`Session ${spawn.id} vanished after insert`)

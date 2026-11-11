@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
@@ -549,4 +550,39 @@ test('the web channel reports a launched session starting only once, so the card
   webChannel.report(session, { kind: 'session_started' } as never)
   const messages = chatLog.listMessages(session.chatId!, { limit: 50 }).messages
   expect(messages.filter(message => message.kind === 'system')).toEqual([])
+})
+
+/** A transcript as Claude writes it: its first record names the folder the Session was launched from. */
+async function writeLaunchedTranscript(sessionId: string, launchDir: string): Promise<void> {
+  const path = transcriptPath(home, launchDir, sessionId)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, `${JSON.stringify({ type: 'user', cwd: launchDir, message: { content: 'Fix the API tests' } })}\n`)
+}
+
+test('resume starts in the folder the Session was launched from, even after a report moved it to a worktree', async () => {
+  const launchDir = `${home}/Sites/api`
+  const worktree = `${launchDir}/.claude/worktrees/feat`
+  store.createSpawnedSession({ id: idFor(9), cwd: launchDir, tmuxName: 'ra-00000009' })
+  await writeLaunchedTranscript(idFor(9), launchDir)
+  store.upsertSession({ sessionId: idFor(9), cwd: worktree })
+  store.endSession(idFor(9))
+  tmux.calls = []
+
+  expect(await spawner.resume(idFor(9))).toBe('Resuming api in this Session. Open its chat.')
+  const launch = tmux.calls.find(argv => argv.includes('claude'))
+  expect(launch).toEqual(expect.arrayContaining(['-c', launchDir]))
+  expect(launch?.slice(-2)).toEqual(['--resume', idFor(9)])
+})
+
+test('resume finds the launch folder of an older Session from its transcript when none was stored', async () => {
+  const launchDir = `${home}/Sites/api`
+  store.createSpawnedSession({ id: idFor(10), cwd: `${launchDir}/.claude/worktrees/feat`, tmuxName: 'ra-00000010' })
+  store.database.query('UPDATE sessions SET launch_cwd = NULL WHERE id = ?').run(idFor(10))
+  await writeLaunchedTranscript(idFor(10), launchDir)
+  store.endSession(idFor(10))
+  tmux.calls = []
+
+  expect(await spawner.resume(idFor(10))).toBe('Resuming api in this Session. Open its chat.')
+  const launch = tmux.calls.find(argv => argv.includes('claude'))
+  expect(launch).toEqual(expect.arrayContaining(['-c', launchDir]))
 })
