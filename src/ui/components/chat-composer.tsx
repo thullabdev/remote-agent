@@ -3,7 +3,7 @@ import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent }
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
-import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
+import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
 import { LibraryDialog } from './library-dialog.tsx'
 import { UploadPicker } from './upload-picker.tsx'
@@ -53,6 +53,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
     })
   }, [text, setAttachments])
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -110,15 +111,16 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   // General takes no file attachments (the Bridge refuses them), so it has no attach button and no library picker.
   const attachable = chat.id !== 'general'
   const mention = attachable ? mentionQuery(text) : null
-  const pickerQuery = mention ?? ''
+  // From the attach button the picker filters by its own search; from an open @ token, by the token.
+  const pickerQuery = mention ?? search
   const pickerOpen = (mention !== null || attachOpen) && !pickerDismissed && !disabled && attachable
-  const pickerUploads = pickerOpen ? filterUploads(library, pickerQuery) : []
+  const pickerUploads = pickerOpen ? pickerOrder(filterUploads(library, pickerQuery), attachments.map(item => item.id)) : []
   const limitReached = attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE
 
   useEffect(() => {
     setPickerIndex(0)
     setPickerNote(null)
-  }, [mention])
+  }, [mention, search])
 
   useEffect(() => {
     if (pickerOpen || libraryOpen) {
@@ -145,10 +147,27 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
     setText(current => insertReference(current, ref.name))
   }
 
+  /** Takes the file out of the message: its reference goes from the text and it is no longer attached. */
+  const detach = (ref: UploadRef) => {
+    setAttachments(current => current.filter(item => item.id !== ref.id))
+    setText(current => removeReferences(current, ref.name))
+  }
+
+  /**
+   * From an open @ token, a pick writes the reference and closes the list. From the attach button, a tap toggles the file,
+   * so several can be chosen and the list stays open until Done.
+   */
   const pick = (upload: UploadRecord) => {
-    setAttachOpen(false)
+    if (mention !== null) {
+      attachReference(toRef(upload))
+      inputRef.current?.focus()
+      return
+    }
+    if (attachments.some(item => item.id === upload.id)) {
+      detach(toRef(upload))
+      return
+    }
     attachReference(toRef(upload))
-    inputRef.current?.focus()
   }
 
   const uploadFiles = async (files: File[]) => {
@@ -192,7 +211,8 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
         setPickerIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + pickerUploads.length) % pickerUploads.length)
         return
       }
-      if (event.key === 'Enter' && !event.nativeEvent.isComposing && pickerUploads[pickerIndex] !== undefined) {
+      // Enter picks only from an open @ token; from the attach button it sends the message as usual.
+      if (mention !== null && event.key === 'Enter' && !event.nativeEvent.isComposing && pickerUploads[pickerIndex] !== undefined) {
         event.preventDefault()
         pick(pickerUploads[pickerIndex]!)
         return
@@ -284,16 +304,23 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
         <UploadPicker
           uploads={pickerUploads}
           query={pickerQuery}
+          search={mention === null ? { value: search, onChange: setSearch } : undefined}
           selected={pickerIndex}
           note={pickerNote ?? (limitReached ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.` : null)}
+          attachedIds={new Set(attachments.map(item => item.id))}
+          attachedCount={attachments.length}
+          limit={MAX_ATTACHMENTS_PER_MESSAGE}
           onHover={setPickerIndex}
           onPick={pick}
-          onDelete={onDeleteUpload}
           onUploadFiles={files => void uploadFiles(files)}
           onManage={() => {
             setAttachOpen(false)
             setPickerDismissed(true)
             setLibraryOpen(true)
+          }}
+          onDone={() => {
+            setAttachOpen(false)
+            setPickerDismissed(true)
           }}
         />
       )}
@@ -315,10 +342,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
               <button
                 type="button"
                 aria-label={`Remove ${attachment.name}`}
-                onClick={() => {
-                  setAttachments(current => current.filter(item => item.id !== attachment.id))
-                  setText(current => removeReferences(current, attachment.name))
-                }}
+                onClick={() => detach(attachment)}
                 className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="size-3" aria-hidden="true" />
@@ -360,6 +384,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
               disabled={disabled || uploading || limitReached}
               onClick={() => {
                 setPickerDismissed(false)
+                setSearch('')
                 setAttachOpen(open => !open)
               }}
               className="mb-0.5 size-9 rounded-full text-muted-foreground disabled:opacity-30"

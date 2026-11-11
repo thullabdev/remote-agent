@@ -107,6 +107,42 @@ export function filterUploads(uploads: UploadRecord[], query: string): UploadRec
   return uploads.filter(upload => upload.name.toLowerCase().includes(needle))
 }
 
+/** The picker's order: files already attached to the message first, in the order they were attached; the rest as the library lists them. */
+export function pickerOrder(uploads: UploadRecord[], attachedIds: string[]): UploadRecord[] {
+  const rank = new Map(attachedIds.map((id, index) => [id, index]))
+  return uploads
+    .map((upload, index) => ({ upload, index }))
+    .sort((a, b) => {
+      const left = rank.get(a.upload.id)
+      const right = rank.get(b.upload.id)
+      if (left !== undefined && right !== undefined) {
+        return left - right
+      }
+      if (left !== undefined) {
+        return -1
+      }
+      if (right !== undefined) {
+        return 1
+      }
+      return a.index - b.index
+    })
+    .map(entry => entry.upload)
+}
+
+/** A long name shortened in the middle, keeping its beginning, its end (where the numbers are) and its extension. */
+export function shortName(name: string, max = 30): string {
+  if (name.length <= max) {
+    return name
+  }
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : ''
+  const base = name.slice(0, name.length - ext.length)
+  const room = max - ext.length - 1
+  const head = Math.ceil(room * 0.6)
+  const tail = room - head
+  return `${base.slice(0, head)}…${tail > 0 ? base.slice(base.length - tail) : ''}${ext}`
+}
+
 export function isPdf(mime: string): boolean {
   return mime === 'application/pdf'
 }
