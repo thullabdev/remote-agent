@@ -613,7 +613,7 @@ export function App() {
                 />
               </div>
             </section>
-            {infoOpen && (
+            {infoOpen && activeChat.id !== 'general' && (
               <ChatInfo
                 chat={activeChat}
                 onClose={() => setInfoOpen(false)}

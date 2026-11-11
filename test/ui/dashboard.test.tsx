@@ -180,3 +180,14 @@ test('the layout keeps a fixed column so long text cannot widen the cards', () =
   expect(html).toContain('grid-cols-[minmax(0,1fr)]')
   expect(html).toContain('data-working="b"')
 })
+
+test('General has no usage toggle and no details button; a session keeps both', () => {
+  const header = (chatValue: Chat) => renderToStaticMarkup(
+    createElement(ChatHeader, { chat: chatValue, status: 'connected', onBack: () => {}, onInfo: () => {}, infoOpen: false, onRename: async () => {} }),
+  )
+  const general = header(chat('general', { title: 'General' }))
+  expect(general).not.toContain('chat-usage-panel')
+  expect(general).not.toContain('Session information and actions')
+  const session = header(chat('s1'))
+  expect(session).toContain('Session information and actions')
+})

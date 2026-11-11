@@ -49,6 +49,8 @@ function connectionLabel(status: ConnectionStatus): string {
 
 export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0 }: ChatHeaderProps) {
   const state = chatState(chat)
+  // General is the command chat and its dashboard already shows usage, so it has no usage toggle and no details panel.
+  const isGeneral = chat.id === 'general'
   const [usageOpen, setUsageOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const now = useNow()
@@ -133,18 +135,20 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
           ))}
         </div>
       )}
-      <UsageToggle view={usage} open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />
+      {!isGeneral && <UsageToggle view={usage} open={usageOpen} onToggle={() => setUsageOpen(open => !open)} />}
       {state === 'working' && (
         <Badge className="hidden border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 sm:inline-flex">
           <Radio className="size-3" aria-hidden="true" /> Active
         </Badge>
       )}
       {state === 'needs_you' && <Badge className={`hidden sm:inline-flex ${NEEDS_YOU_BADGE_CLASS}`}>Needs you</Badge>}
-      <Button variant={infoOpen ? 'secondary' : 'ghost'} size="icon-sm" aria-label="Session information and actions" onClick={onInfo}>
-        <Info aria-hidden="true" />
-      </Button>
+      {!isGeneral && (
+        <Button variant={infoOpen ? 'secondary' : 'ghost'} size="icon-sm" aria-label="Session information and actions" onClick={onInfo}>
+          <Info aria-hidden="true" />
+        </Button>
+      )}
     </header>
-    <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="absolute inset-x-2 top-full mt-1 shadow-lg ring-1 ring-border/60 md:inset-x-auto md:right-4 md:w-96" />
+    {!isGeneral && <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="absolute inset-x-2 top-full mt-1 shadow-lg ring-1 ring-border/60 md:inset-x-auto md:right-4 md:w-96" />}
     <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />
     </div>
   )
