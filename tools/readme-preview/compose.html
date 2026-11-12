@@ -31,9 +31,10 @@
   }
   .phone .screen { position: relative; width: 209px; height: 452px; border-radius: 29px; overflow: hidden; }
   .phone .screen img { display: block; width: 209px; height: 452px; }
+  /* A small camera dot, so the frame never covers the app's header. */
   .phone .notch {
-    position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
-    width: 67px; height: 18px; background: var(--bezel); border-radius: 10px; z-index: 2;
+    position: absolute; left: 50%; top: 4px; transform: translateX(-50%);
+    width: 6px; height: 6px; background: color-mix(in srgb, var(--bezel) 70%, white); border-radius: 50%; z-index: 2;
   }
 </style>
 </head>

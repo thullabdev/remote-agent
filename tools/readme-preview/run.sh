@@ -16,7 +16,8 @@ LOGIN="demo@example.com"
 # The browser talks to the proxy, which adds the identity header like tailscale serve does.
 BASE="http://127.0.0.1:$PROXY_PORT"
 SOCK="$WORK/bridge.sock"
-OUT="$ROOT/docs/assets/ui-preview.png"
+ASSETS="$ROOT/docs/assets"
+OUT="$ASSETS/ui-preview.png"
 
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -102,18 +103,28 @@ done
 curl -s -o /dev/null "$BASE/" || die "The proxy did not start. See $WORK/proxy.log"
 
 log "Seeding demo data"
-SOCK="$SOCK" "$HERE/seed.sh"
+SOCK="$SOCK" HOME_DIR="$WORK/home" "$HERE/seed.sh"
 
 # The Bridge starts in Away mode; the dashboard reads better with it off.
 curl -s -X PUT "http://127.0.0.1:$PORT/api/away" -H "Origin: $BASE" -H "Tailscale-User-Login: $LOGIN" \
   -H 'Content-Type: application/json' -d '{"away":false}' >/dev/null
 
+# For debugging: keep the throwaway Bridge and proxy up for this many seconds, so the UI can be inspected.
+if [ -n "${PREVIEW_HOLD:-}" ]; then
+  log "Holding for ${PREVIEW_HOLD}s at $BASE (Ctrl+C to stop)"
+  sleep "$PREVIEW_HOLD"
+fi
+
 log "Taking screenshots"
 (cd "$HERE" && BASE_URL="$BASE" WORK="$WORK" CHROME="$CHROME" bun capture.mjs)
 
-log "Composing the hero image"
+log "Composing the framed images"
 (cd "$HERE" && WORK="$WORK" CHROME="$CHROME" bun compose.mjs)
 
 log "Optimizing"
-python3 "$HERE/optimize.py" "$WORK/hero-raw.png" "$OUT"
-ls -l "$OUT"
+python3 "$HERE/optimize.py" "$WORK/hero-raw.png" "$OUT" 1600
+python3 "$HERE/optimize.py" "$WORK/gallery-chat-raw.png" "$ASSETS/ui-gallery-chat.png" 1400
+for name in activity question dashboard; do
+  python3 "$HERE/optimize.py" "$WORK/gallery-$name-raw.png" "$ASSETS/ui-gallery-$name.png" 640
+done
+ls -l "$OUT" "$ASSETS"/ui-gallery-*.png

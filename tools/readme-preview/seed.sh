@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Seeds a throwaway Bridge with generic demo data only: made-up projects, no real names.
-# Usage: SOCK=/path/to/bridge.sock ./seed.sh
+# Usage: SOCK=/path/to/bridge.sock HOME_DIR=/path/to/bridge/home ./seed.sh
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOCK="${SOCK:?Set SOCK to the socket path of the throwaway Bridge}"
+HOME_DIR="${HOME_DIR:?Set HOME_DIR to the HOME of the throwaway Bridge}"
+
+# Demo transcripts first, so the Bridge finds agent activity when it first hears of each Session.
+bun "$HERE/transcripts.mjs" "$HOME_DIR"
 
 post() {
   local code
@@ -47,13 +52,15 @@ for entry in "demo-web|/home/demo/web-app|38|1.42" "demo-api|/home/demo/api-serv
   post /usage "{\"session\":$(session "$id" "$cwd"),\"source\":\"claude-code\",\"usage\":{\"context\":{\"tokens\":$((percent * 2000)),\"window\":200000,\"percent\":$percent},\"rateLimits\":[{\"kind\":\"five_hour\",\"percentUsed\":54,\"resetsAt\":\"$FIVE_HOUR_RESET\"},{\"kind\":\"seven_day\",\"percentUsed\":31,\"resetsAt\":\"$SEVEN_DAY_RESET\"}],\"cost\":{\"usd\":$usd}}}"
 done
 
+# Give the Bridge a moment to read the transcripts, so the prompt cards land after the agent activity.
+sleep 4
+
 # A permission request and a question, so two Sessions need the user.
 post /prompts "{\"promptId\":\"p:demo-web-1\",\"session\":$(session demo-web /home/demo/web-app),\"body\":{\"kind\":\"permission\",\"tool\":\"Bash\",\"input\":{\"command\":\"bun test\"},\"reason\":\"Run the test suite\"}}"
 post /prompts "{\"promptId\":\"p:demo-api-1\",\"session\":$(session demo-api /home/demo/api-service),\"body\":{\"kind\":\"question\",\"questions\":[{\"question\":\"Which cache should the reads use?\",\"header\":\"Cache\",\"multiSelect\":false,\"options\":[{\"label\":\"In-memory LRU\",\"description\":\"Fast and simple, lost on restart\"},{\"label\":\"Redis\",\"description\":\"Shared across instances\"},{\"label\":\"No cache\",\"description\":\"Keep reads direct until load requires it\"}]}]}}"
 
 # Finished turns and ended Sessions.
 post /reports "{\"session\":$(session demo-docs /home/demo/docs-site),\"report\":{\"kind\":\"turn_complete\",\"text\":\"Updated the install guide and fixed two broken links.\",\"durationMs\":94000,\"isAborted\":false}}"
-post /reports "{\"session\":$(session demo-mobile /home/demo/mobile-app),\"report\":{\"kind\":\"turn_complete\",\"text\":\"Added the three onboarding screens and wired up the skip action.\",\"durationMs\":128000,\"isAborted\":false}}"
 post /reports "{\"session\":$(session demo-old-1 /home/demo/web-app),\"report\":{\"kind\":\"session_ended\",\"reason\":\"other\"}}"
 post /reports "{\"session\":$(session demo-old-2 /home/demo/docs-site),\"report\":{\"kind\":\"session_ended\",\"reason\":\"other\"}}"
 

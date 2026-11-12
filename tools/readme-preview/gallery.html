@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bezel: #1d2021; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  .stage { position: relative; overflow: hidden; background: transparent; }
+
+  /* One laptop, 16:10 screen. */
+  .stage.laptop-stage { width: 1160px; height: 740px; }
+  .laptop { position: absolute; left: 80px; top: 40px; width: 1000px; }
+  .laptop .lid {
+    background: var(--bezel); border-radius: 22px; padding: 14px; box-sizing: border-box; width: 1000px;
+    filter: drop-shadow(0 22px 34px rgba(0, 0, 0, 0.30));
+  }
+  .laptop .lid img { display: block; width: 972px; height: 607.5px; border-radius: 6px; }
+  .laptop .base {
+    position: relative; width: 1080px; height: 14px; margin: 0 0 0 -40px;
+    background: var(--bezel); border-radius: 0 0 16px 16px;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  }
+  .laptop .base::before {
+    content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    width: 150px; height: 6px; background: color-mix(in srgb, var(--bezel) 85%, white); border-radius: 0 0 8px 8px;
+  }
+
+  /* One phone, 390x844 screen. */
+  .stage.phone-stage { width: 340px; height: 640px; }
+  .phone {
+    position: absolute; left: 30px; top: 30px; width: 280px; height: 580px;
+    background: var(--bezel); border-radius: 44px; padding: 11px; box-sizing: border-box;
+    filter: drop-shadow(0 22px 34px rgba(0, 0, 0, 0.40));
+  }
+  .phone .screen { position: relative; width: 258px; height: 558px; border-radius: 34px; overflow: hidden; }
+  .phone .screen img { display: block; width: 258px; height: 558px; }
+  /* A small camera dot, so the frame never covers the app's header. */
+  .phone .notch {
+    position: absolute; left: 50%; top: 5px; transform: translateX(-50%);
+    width: 7px; height: 7px; background: color-mix(in srgb, var(--bezel) 70%, white); border-radius: 50%; z-index: 2;
+  }
+</style>
+</head>
+<body>
+{{BODY}}
+</body>
+</html>
