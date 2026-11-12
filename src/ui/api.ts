@@ -52,8 +52,6 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   resumeChat(chatId: string, model?: string | null): Promise<{ toast: string }>
   /** The model the Session last ran on, or null when unknown. */
   resumeModel(chatId: string): Promise<{ model: string | null }>
-  /** A background sub-agent's final report, or null when it has none yet. Fetched when someone opens it. */
-  subagentReport(chatId: string, agentId: string): Promise<{ report: string | null }>
   /** One page of a sub-agent's activity from `cursor`. */
   subagentActivity(chatId: string, agentId: string, cursor: number): Promise<SubagentActivityPage>
   getProjects(): Promise<{ projects: Project[] }>
@@ -148,7 +146,6 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: (chatId, model = null) => post(`/api/chats/${encodeURIComponent(chatId)}/resume`, { model }),
     resumeModel: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/resume-model`),
-    subagentReport: (chatId, agentId) => get(`/api/chats/${encodeURIComponent(chatId)}/subagents/${encodeURIComponent(agentId)}/report`),
     subagentActivity: (chatId, agentId, cursor) =>
       get(`/api/chats/${encodeURIComponent(chatId)}/subagents/${encodeURIComponent(agentId)}/activity?cursor=${cursor}`),
     getProjects: () => get('/api/projects'),

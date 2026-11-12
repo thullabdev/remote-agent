@@ -1,9 +1,11 @@
-import { AlertTriangle, Archive, ArchiveRestore, ArrowLeft, Check, Copy, EyeOff, GitFork, Monitor, Pencil, Pin, PinOff, RotateCcw, Terminal, X } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { AlertTriangle, Archive, ArchiveRestore, ArrowLeft, Check, Copy, EyeOff, GitFork, Monitor, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Terminal, X } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, PinView } from '../../channel/web/protocol.ts'
 import type { TranscriptItem } from '../../channel/web/transcript/parse.ts'
 import type { ApiClient } from '../api.ts'
+import { subagentMessages } from '../subagent-messages.ts'
+import { MessageRows } from './message-feed.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { copyToClipboard } from './code-block.tsx'
@@ -14,11 +16,13 @@ import { formatTime, relativeTimeWords, NEEDS_YOU_BADGE_CLASS } from '../present
 type ChatInfoProps = {
   chat: Chat
   onClose(): void
-  /** Reads a background sub-agent's activity, one page at a time. */
-  api: Pick<ApiClient, 'subagentActivity'>
+  /** Reads a background sub-agent's activity. */
+  api: SubagentApi
   /** The sub-agent whose activity replaces the session details, or null for the details. */
   subagent: { chatId: string; agentId: string; title: string } | null
   onCloseSubagent(): void
+  /** Switches the panel to another sub-agent, from a sub-agent step inside this one. */
+  onOpenSubagent?(agentId: string, title: string): void
   /** Shows a short message, for results that have no request behind them (a copy). */
   onNotify(message: string): void
   onEnd(): Promise<void>
@@ -65,7 +69,8 @@ function useCopy(onNotify: (message: string) => void): { copied: string | null; 
   return { copied, copy }
 }
 
-const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
+/** What the details panel reads from the API for a sub-agent: its activity, one page at a time. */
+type SubagentApi = Pick<ApiClient, 'subagentActivity'>
 
 const CHAT_INFO_WIDTH_KEY = 'remote-agent.chat-details-width.v1'
 const CHAT_INFO_DEFAULT_WIDTH = 320 // 20rem, the previous fixed width
@@ -94,51 +99,40 @@ function saveChatInfoWidth(width: number): void {
   }
 }
 
-const ACTIVITY_PAGE_LIMIT = 50
-const CLIP_RESULT = 2_000
-const CLIP_INPUT = 160
-
-function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text
-}
-
-/** A sub-agent's activity, one page at a time. Loaded when the panel opens on it, and again only for a page the reader asks for. */
-function SubagentActivity({ api, chatId, agentId }: { api: Pick<ApiClient, 'subagentActivity'>; chatId: string; agentId: string }) {
+/**
+ * A sub-agent's activity, one page at a time, drawn with the chat's own rows and all open. Pages load when the panel opens on it,
+ * on "Load more", and on "Refresh" at the bottom, which reads the activity again from the first line.
+ */
+function SubagentActivity({
+  api,
+  chatId,
+  agentId,
+  onOpenSubagent,
+}: {
+  api: SubagentApi
+  chatId: string
+  agentId: string
+  onOpenSubagent?(agentId: string, title: string): void
+}) {
   const [view, setView] = useState<{ items: TranscriptItem[]; next: number | null; phase: 'loading' | 'ready' | 'failed' }>({ items: [], next: 0, phase: 'loading' })
-  const [loadingMore, setLoadingMore] = useState(false)
+  const [busy, setBusy] = useState<'more' | 'refresh' | null>(null)
   const generation = useRef(0)
 
-  useEffect(() => {
+  // Reads from `cursor`. A page from the first line replaces what is shown; a later page is added to it.
+  const read = (cursor: number, kind: 'more' | 'refresh' | 'first') => {
     const token = generation.current + 1
     generation.current = token
-    setView({ items: [], next: 0, phase: 'loading' })
-    api
-      .subagentActivity(chatId, agentId, 0)
-      .then(page => {
-        if (token === generation.current) {
-          setView({ items: page.items, next: page.nextCursor, phase: 'ready' })
-        }
-      })
-      .catch(() => {
-        if (token === generation.current) {
-          setView(current => ({ ...current, phase: 'failed' }))
-        }
-      })
-  }, [api, chatId, agentId])
-
-  const loadMore = () => {
-    if (view.next === null || loadingMore) {
-      return
+    if (kind !== 'more') {
+      setView(current => (kind === 'first' ? { items: [], next: 0, phase: 'loading' } : current))
     }
-    const token = generation.current
-    const from = view.next
-    setLoadingMore(true)
+    setBusy(kind === 'first' ? null : kind)
     api
-      .subagentActivity(chatId, agentId, from)
+      .subagentActivity(chatId, agentId, cursor)
       .then(page => {
-        if (token === generation.current) {
-          setView(current => ({ items: [...current.items, ...page.items], next: page.nextCursor, phase: 'ready' }))
+        if (token !== generation.current) {
+          return
         }
+        setView(current => ({ items: cursor === 0 ? page.items : [...current.items, ...page.items], next: page.nextCursor, phase: 'ready' }))
       })
       .catch(() => {
         if (token === generation.current) {
@@ -147,66 +141,35 @@ function SubagentActivity({ api, chatId, agentId }: { api: Pick<ApiClient, 'suba
       })
       .finally(() => {
         if (token === generation.current) {
-          setLoadingMore(false)
+          setBusy(null)
         }
       })
   }
 
+  useEffect(() => {
+    // The panel reads again only when the sub-agent or the session changes; Refresh reads it on demand.
+    read(0, 'first')
+  }, [api, chatId, agentId])
+
   if (view.phase === 'loading') {
     return <p className="p-4 text-sm text-muted-foreground">Loading the activity…</p>
   }
-  if (view.phase === 'failed' && view.items.length === 0) {
-    return <p className="p-4 text-sm text-red-700 dark:text-red-300">The activity could not be loaded.</p>
-  }
   return (
     <div className="space-y-3">
-      {view.items.map((item, index) => (
-        <ActivityItem key={index} item={item} />
-      ))}
-      {view.items.length === 0 && <p className="text-sm text-muted-foreground">No activity recorded yet.</p>}
+      {view.phase === 'failed' && <p className="text-sm text-red-700 dark:text-red-300">The activity could not be loaded. Try Refresh.</p>}
+      {view.items.length === 0 && view.phase === 'ready' && <p className="text-sm text-muted-foreground">No activity recorded yet.</p>}
+      <MessageRows chatId={chatId} messages={subagentMessages(chatId, view.items)} expandAll onOpenSubagent={onOpenSubagent} />
       {view.next !== null && (
-        <Button variant="outline" className="w-full" disabled={loadingMore} onClick={loadMore}>
-          {loadingMore ? 'Loading…' : 'Load more'}
+        <Button variant="outline" className="w-full" disabled={busy !== null} onClick={() => read(view.next ?? 0, 'more')}>
+          {busy === 'more' ? 'Loading…' : 'Load more'}
         </Button>
       )}
-      {view.phase === 'failed' && <p className="text-xs text-red-700 dark:text-red-300">The next part could not be loaded.</p>}
+      <Button variant="ghost" className="w-full" disabled={busy !== null} onClick={() => read(0, 'refresh')}>
+        <RefreshCw aria-hidden="true" className={busy === 'refresh' ? 'animate-spin' : undefined} />
+        {busy === 'refresh' ? 'Refreshing…' : 'Refresh activity'}
+      </Button>
     </div>
   )
-}
-
-function ActivityItem({ item }: { item: TranscriptItem }) {
-  if (item.kind === 'user_text') {
-    return (
-      <div className="rounded-xl bg-muted/60 p-3">
-        <SectionLabel>Prompt</SectionLabel>
-        <p className="mt-1 whitespace-pre-wrap break-words text-sm">{item.text}</p>
-      </div>
-    )
-  }
-  if (item.kind === 'agent_text') {
-    return (
-      <div className="min-w-0 text-sm">
-        <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering…</div>}>
-          <MarkdownBody markdown={item.markdown} />
-        </Suspense>
-      </div>
-    )
-  }
-  if (item.kind === 'tool_use') {
-    return (
-      <div className="font-mono text-xs">
-        <span className="font-medium">{item.tool}</span> <span className="break-all text-muted-foreground">{clip(JSON.stringify(item.input) ?? '', CLIP_INPUT)}</span>
-      </div>
-    )
-  }
-  if (item.kind === 'tool_result') {
-    return (
-      <pre className={`max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-xl p-2 font-mono text-[11px] ${item.isError ? 'bg-red-500/10 text-red-700 dark:text-red-300' : 'bg-muted'}`}>
-        {clip(item.text, CLIP_RESULT)}
-      </pre>
-    )
-  }
-  return null
 }
 
 /** True on the narrow layout, where the panel is a sheet over the chat rather than a column beside it. */
@@ -222,7 +185,7 @@ function useSheetLayout(): boolean {
   return sheet
 }
 
-export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, model = null }: ChatInfoProps) {
+export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpenSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, model = null }: ChatInfoProps) {
   const state = chatState(chat)
   const isGeneral = chat.id === 'general'
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -337,7 +300,13 @@ export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onNoti
           </header>
           {subagent !== null ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <SubagentActivity key={`${subagent.chatId}:${subagent.agentId}`} api={api} chatId={subagent.chatId} agentId={subagent.agentId} />
+              <SubagentActivity
+                key={`${subagent.chatId}:${subagent.agentId}`}
+                api={api}
+                chatId={subagent.chatId}
+                agentId={subagent.agentId}
+                onOpenSubagent={onOpenSubagent}
+              />
             </div>
           ) : (
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">

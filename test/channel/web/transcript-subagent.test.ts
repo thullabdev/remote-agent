@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readSubagentActivity, readSubagentReport, subagentFile } from '../../../src/channel/web/transcript/subagent.ts'
+import { readSubagentActivity, subagentFile } from '../../../src/channel/web/transcript/subagent.ts'
 
 const SESSION = { id: 'sess1', cwd: '/work/app', launchCwd: '/work/app' }
 const AGENT = 'aa10f50e669740014'
@@ -45,17 +45,6 @@ test('the subagent file sits next to the Session transcript, by launch folder an
 
 test('an agent id that is not a plain id is refused before it is joined into a path', async () => {
   await expect(subagentFile('/home/x', SESSION, '../etc')).rejects.toThrow()
-})
-
-test('the report is the message of the last handback', async () => {
-  const { file } = await fixture([prompt, thought, result, handback('## Done\n\nAll good.')])
-  expect(await readSubagentReport(file)).toBe('## Done\n\nAll good.')
-})
-
-test('no report while the sub-agent has not handed back, and none for a missing file', async () => {
-  const { file } = await fixture([prompt, thought])
-  expect(await readSubagentReport(file)).toBeNull()
-  expect(await readSubagentReport(join(file, '..', 'missing.jsonl'))).toBeNull()
 })
 
 test('activity keeps the sub-agent lines the chat leaves out, in order', async () => {

@@ -113,7 +113,6 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps, request }, id) => resumeChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'resume-model'], run: ({ deps }, id) => resumeModel(deps, id) },
-  { method: 'GET', pattern: ['chats', ':id', 'subagents', '*', 'report'], run: ({ deps, url }, id) => subagentReport(deps, id, url) },
   { method: 'GET', pattern: ['chats', ':id', 'subagents', '*', 'activity'], run: ({ deps, url }, id) => subagentActivity(deps, id, url) },
   { method: 'GET', pattern: ['activity'], run: ({ deps, url }) => activity(deps, url) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
@@ -671,13 +670,6 @@ function requireSubagents(deps: ApiDeps): SubagentSource {
     throw new ApiError(404, 'Sub-agents are not available.')
   }
   return deps.subagents
-}
-
-async function subagentReport(deps: ApiDeps, chatId: string, url: URL): Promise<unknown> {
-  requireChat(deps, chatId)
-  const session = requireSession(deps, chatId)
-  const agentId = subagentAgentId(url)
-  return { report: await requireSubagents(deps).report(session, agentId) }
 }
 
 async function subagentActivity(deps: ApiDeps, chatId: string, url: URL): Promise<unknown> {

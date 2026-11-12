@@ -652,7 +652,6 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
-                  api={api}
                   onOpenSubagent={(agentId, title) => {
                     setSubagentView({ chatId: activeChat.id, agentId, title })
                     setInfoOpen(true)
@@ -682,6 +681,7 @@ export function App() {
                 api={api}
                 subagent={subagentView?.chatId === activeChat.id ? subagentView : null}
                 onCloseSubagent={() => setSubagentView(null)}
+                onOpenSubagent={(agentId, title) => setSubagentView({ chatId: activeChat.id, agentId, title })}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}

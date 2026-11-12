@@ -1,4 +1,4 @@
-import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, ImageIcon, LoaderCircle, Wrench, X } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, ImageIcon, ListTree, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SessionStatusCard } from './session-status-card.tsx'
 import { chatState } from '../../channel/web/chat-state.ts'
@@ -12,7 +12,6 @@ import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
 import { PickerRows } from './picker-rows.tsx'
-import type { ApiClient } from '../api.ts'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -29,8 +28,6 @@ type MessageFeedProps = {
   onTogglePin?(message: Message): void
   /** Opens a background sub-agent's full activity in the details panel. */
   onOpenSubagent?(agentId: string, title: string): void
-  /** Reads a sub-agent's report when its step is opened. */
-  api: Pick<ApiClient, 'subagentReport'>
 }
 
 /**
@@ -66,7 +63,6 @@ function MessageFeedView({
   onPickerAction,
   onTogglePin,
   onOpenSubagent,
-  api,
 }: MessageFeedProps) {
   const grouped = useMemo(() => groupMessages(messages), [messages])
 
@@ -115,10 +111,10 @@ function MessageFeedView({
         `tools-${entry.messages[0]?.id ?? index}`,
         entry.messages[0]?.at,
         <ToolRunGroup
-          api={api}
           chatId={chat.id}
           messages={entry.messages}
           interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
+          expandAll={false}
           onOpenSubagent={onOpenSubagent}
         />,
       )
@@ -498,19 +494,20 @@ function MessageTime({ at }: { at: number }) {
 }
 
 function ToolRunGroup({
-  api,
   chatId,
   messages,
   interrupted,
+  expandAll,
   onOpenSubagent,
 }: {
-  api: Pick<ApiClient, 'subagentReport'>
   chatId: string
   messages: Extract<Message, { kind: 'tool_run' }>[]
   interrupted: boolean
+  /** Starts the group and each step open. */
+  expandAll: boolean
   onOpenSubagent?(agentId: string, title: string): void
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(expandAll)
   const running = messages.some(message => message.status === 'running') && !interrupted
   const failed = messages.some(message => message.status === 'error')
   return (
@@ -538,10 +535,10 @@ function ToolRunGroup({
           {messages.map(message => (
             <ToolStep
               key={message.id}
-              api={api}
               chatId={chatId}
               message={message}
               interrupted={interrupted}
+              expandAll={expandAll}
               onOpenSubagent={onOpenSubagent}
             />
           ))}
@@ -553,37 +550,34 @@ function ToolRunGroup({
 
 /** One tool call in an expanded group. A background sub-agent's report loads only when its step is opened. */
 function ToolStep({
-  api,
   chatId,
   message,
   interrupted,
+  expandAll,
   onOpenSubagent,
 }: {
-  api: Pick<ApiClient, 'subagentReport'>
   chatId: string
   message: Extract<Message, { kind: 'tool_run' }>
   interrupted: boolean
+  expandAll: boolean
   onOpenSubagent?(agentId: string, title: string): void
 }) {
-  const [opened, setOpened] = useState(false)
   const agentId = message.tool === 'Agent' ? (message.agentId ?? null) : null
   return (
-    <details className="group px-4 py-3" onToggle={event => setOpened(event.currentTarget.open)}>
+    <details className="group px-4 py-3" open={expandAll}>
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
         <span className={`size-1.5 rounded-full ${message.status === 'error' ? 'bg-red-500' : message.status === 'running' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
         <span className="font-mono font-medium">{message.tool}</span>
         <span className="ml-auto text-muted-foreground">{message.status === 'running' && interrupted ? 'interrupted' : message.durationMs === null ? message.status : `${(message.durationMs / 1000).toFixed(1)}s`}</span>
       </summary>
       <div className="mt-3 grid min-w-0 gap-3 pl-4">
-        {agentId !== null && (
-          <SubagentBody
-            api={api}
-            chatId={chatId}
-            agentId={agentId}
-            description={subagentDescription(message.input)}
-            loadReport={opened}
-            onOpen={onOpenSubagent}
-          />
+        {agentId !== null && onOpenSubagent !== undefined && (
+          <div>
+            <Button variant="outline" size="sm" onClick={() => onOpenSubagent(agentId, subagentDescription(message.input))}>
+              <ListTree aria-hidden="true" className="size-4" />
+              View sub-agent activity
+            </Button>
+          </div>
         )}
         <div className="min-w-0">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Input</div>
@@ -606,76 +600,6 @@ function subagentDescription(input: unknown): string {
   return input !== null && typeof input === 'object' && typeof (input as { description?: unknown }).description === 'string'
     ? (input as { description: string }).description
     : 'Sub-agent'
-}
-
-/**
- * A background sub-agent's report, fetched once its step is opened. The full activity opens in the details panel, not here.
- * Mounted only when the step is open, so nothing is fetched for steps nobody looks at.
- */
-function SubagentBody({
-  api,
-  chatId,
-  agentId,
-  description,
-  loadReport,
-  onOpen,
-}: {
-  api: Pick<ApiClient, 'subagentReport'>
-  chatId: string
-  agentId: string
-  description: string
-  loadReport: boolean
-  onOpen?(agentId: string, title: string): void
-}) {
-  const [state, setState] = useState<{ phase: 'idle' | 'loading' | 'done' | 'failed'; report: string | null }>({ phase: 'idle', report: null })
-  useEffect(() => {
-    if (!loadReport || state.phase !== 'idle') {
-      return
-    }
-    let active = true
-    setState({ phase: 'loading', report: null })
-    api
-      .subagentReport(chatId, agentId)
-      .then(result => {
-        if (active) {
-          setState({ phase: 'done', report: result.report })
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setState({ phase: 'failed', report: null })
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [agentId, chatId, loadReport, state.phase])
-
-  return (
-    <div className="min-w-0">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Report</div>
-        {onOpen !== undefined && (
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onOpen(agentId, description)}>
-            Open activity
-          </Button>
-        )}
-      </div>
-      {state.phase === 'loading' || state.phase === 'idle' ? (
-        <div className="text-xs text-muted-foreground">Loading the report…</div>
-      ) : state.phase === 'failed' ? (
-        <div className="text-xs text-red-700 dark:text-red-300">The report could not be loaded.</div>
-      ) : state.report === null ? (
-        <div className="text-xs text-muted-foreground">No report yet. The sub-agent is still working, or it ended without one.</div>
-      ) : (
-        <div className="rounded-xl bg-muted/60 p-3 text-sm">
-          <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering…</div>}>
-            <MarkdownBody markdown={state.report} />
-          </Suspense>
-        </div>
-      )}
-    </div>
-  )
 }
 
 function ToolInput({ input }: { input: unknown }) {
@@ -1075,4 +999,43 @@ function MessageCircleIcon() {
 }
 
 /** Memoized so opening the chat details does not re-render the message list or the composer. */
+/**
+ * The chat's own rows for a list that is not the live chat, such as a sub-agent's activity in the details panel. Messages,
+ * tool groups and steps are the same components the feed draws, so the two look and act alike.
+ */
+export function MessageRows({
+  chatId,
+  messages,
+  expandAll = false,
+  onOpenSubagent,
+}: {
+  chatId: string
+  messages: Message[]
+  /** Opens every tool group and step, for a list the reader is meant to read through (a sub-agent's activity). */
+  expandAll?: boolean
+  onOpenSubagent?(agentId: string, title: string): void
+}) {
+  const grouped = useMemo(() => groupMessages(messages), [messages])
+  return (
+    <div className="flex flex-col gap-[var(--message-gap,_.75rem)]">
+      {grouped.map((entry, index) =>
+        entry.kind === 'tool-group' ? (
+          <ToolRunGroup
+            key={`tools-${entry.messages[0]?.id ?? index}`}
+            chatId={chatId}
+            messages={entry.messages}
+            interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
+            expandAll={expandAll}
+            onOpenSubagent={onOpenSubagent}
+          />
+        ) : (
+          <div key={entry.message.id}>
+            <MessageCard message={entry.message} messages={messages} />
+          </div>
+        ),
+      )}
+    </div>
+  )
+}
+
 export const MessageFeed = memo(MessageFeedView)

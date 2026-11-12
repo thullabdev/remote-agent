@@ -50,7 +50,6 @@ function feed(chat: Chat): string {
     createElement(MessageFeed, {
       chat, messages: [], hasMore: false, loadingEarlier: false, onLoadEarlier: () => {},
       onPromptAction: async () => {}, onPromptReply: async () => {}, onPickerAction: async () => {},
-      api: { subagentReport: async () => ({ report: null }) },
     }),
   )
 }

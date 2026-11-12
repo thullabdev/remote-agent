@@ -112,13 +112,9 @@ function build(): void {
   })
 }
 
-/** A sub-agent source that knows one agent: its report is known, its activity has two items and one more page. */
+/** A sub-agent source that knows one agent: its activity has one item and one more page. */
 function stubSubagents(): ApiDeps['subagents'] {
   return {
-    report: async (session, agentId) => {
-      subagentCalls.push(`report ${session.id} ${agentId}`)
-      return agentId === 'a1' ? '## Report' : null
-    },
     activity: async (session, agentId, cursor, limit) => {
       subagentCalls.push(`activity ${session.id} ${agentId} ${cursor} ${limit}`)
       if (agentId !== 'a1') {
@@ -971,22 +967,9 @@ test('text that only starts with a path is still an instruction for the session'
   expect(store.listPendingInstructions('s1')).toHaveLength(1)
 })
 
-test('GET /api/chats/:id/subagents/:agent/report returns the report, fetched only when asked', async () => {
-  const chatId = seedSession()
-  const { status, body } = await call('GET', `/api/chats/${chatId}/subagents/a1/report`)
-  expect(status).toBe(200)
-  expect(body).toEqual({ report: '## Report' })
-  expect(subagentCalls).toEqual(['report s1 a1'])
-})
-
-test('a sub-agent without a report answers null, not an error', async () => {
-  const chatId = seedSession()
-  expect(await call('GET', `/api/chats/${chatId}/subagents/zz9/report`)).toEqual({ status: 200, body: { report: null } })
-})
-
 test('a sub-agent id that is not a plain id is refused before any file is read', async () => {
   const chatId = seedSession()
-  expect((await call('GET', `/api/chats/${chatId}/subagents/..%2Fsecret/report`)).status).toBe(400)
+  expect((await call('GET', `/api/chats/${chatId}/subagents/..%2Fsecret/activity`)).status).toBe(400)
   expect(subagentCalls).toEqual([])
 })
 
@@ -1010,5 +993,5 @@ test('sub-agent routes answer 404 when no sub-agent source is configured', async
   subagentsDep = undefined
   build()
   const chatId = seedSession()
-  expect((await call('GET', `/api/chats/${chatId}/subagents/a1/report`)).status).toBe(404)
+  expect((await call('GET', `/api/chats/${chatId}/subagents/a1/activity`)).status).toBe(404)
 })
