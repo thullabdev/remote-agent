@@ -4,6 +4,12 @@ import { App } from './app.tsx'
 import { applyAppearance } from './appearance.ts'
 import { readPreferences } from './preferences.ts'
 import { installScrollbarVisibility } from './scrollbars.ts'
+// The fonts ship with the app, so the UI looks the same on every device instead of falling back to whatever the system has.
+import '@fontsource-variable/inter'
+import '@fontsource-variable/space-grotesk'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/ibm-plex-mono/600.css'
 import './styles.css'
 
 // Applied before the first render so the saved theme does not flash the default colors.
