@@ -28,13 +28,24 @@ type MessageFeedProps = {
   onTogglePin?(message: Message): void
 }
 
-/** Scrolls a loaded message into view. False when it is not in the feed (for example an older page not loaded yet). */
+/**
+ * Scrolls a loaded message to the middle of the feed. False when it is not in the feed (for example an older page not loaded yet).
+ * Only the feed scrolls: `scrollIntoView` would also scroll the overflow-hidden chat wrapper around it, which shifts the
+ * composer up and leaves an empty strip at the bottom of the screen.
+ */
 export function scrollToMessage(messageId: string): boolean {
   const element = document.getElementById(`message-${messageId}`)
   if (element === null) {
     return false
   }
-  element.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const feed = element.closest<HTMLElement>('.chat-message-feed')
+  if (feed === null) {
+    element.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return true
+  }
+  const top = element.getBoundingClientRect().top - feed.getBoundingClientRect().top
+  const middle = (feed.clientHeight - element.getBoundingClientRect().height) / 2
+  feed.scrollTo({ top: Math.max(0, feed.scrollTop + top - middle), behavior: 'smooth' })
   return true
 }
 

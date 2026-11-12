@@ -45,6 +45,7 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 - The installer reports a clear error when it cannot install tmux without `sudo`.
 - The installer refuses an env file that still has placeholder values, and reports the Bridge's own configuration error.
 - The web channel guide links to the README's Configuration section.
+- Opening a blocked Session at its pending prompt no longer shifts the chat up. Scrolling the prompt into view also scrolled the chat's overflow-hidden wrapper, which moved the composer up and left an empty strip at the bottom of the screen. Only the message feed scrolls now.
 - A Session's transcript and its resume use the folder the Session was launched in.
 - Old transcript entries that the Chat never recorded are no longer backfilled.
 - Text copies even where the async clipboard is unavailable, such as over plain http.
