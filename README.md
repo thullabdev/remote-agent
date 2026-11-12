@@ -11,6 +11,10 @@ Watch and steer your active [Claude Code](https://claude.com/claude-code) Sessio
 
 Remote Agent is for a single developer who runs Claude Code on their own machine and wants to stay in the loop away from the keyboard, without giving up control.
 
+<p align="center">
+  <img src="docs/assets/ui-preview.png" alt="The Remote Agent web UI on a laptop, showing the Mission control dashboard with a permission request waiting, and on a phone, showing the Session list with the Session that needs you at the top." width="900">
+</p>
+
 ## Contents
 
 - [Mission](#mission)
