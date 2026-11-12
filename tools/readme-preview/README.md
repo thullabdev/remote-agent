@@ -22,15 +22,15 @@ It builds the web UI, starts a throwaway Bridge with demo data, takes the screen
 
 ## Choose the theme
 
-The images use the **Gruvbox** theme in **dark** mode. To use another theme, set these before running:
+The images use the **Remote Agent** theme in **dark** mode. To use another theme, set these before running:
 
 | Variable | Default | Meaning |
 | :------- | :------ | :------ |
-| `PREVIEW_PALETTE` | `gruvbox` | A palette id from `src/ui/themes.ts`. |
+| `PREVIEW_PALETTE` | `default` | A palette id from `src/ui/themes.ts`. |
 | `PREVIEW_MODE` | `dark` | `light` or `dark`. |
-| `PREVIEW_BEZEL` | `#1d2021` | The color of the laptop and phone frames. |
+| `PREVIEW_BEZEL` | `#050b22` | The color of the laptop and phone frames. |
 
-For example, a light version: `PREVIEW_PALETTE=default PREVIEW_MODE=light PREVIEW_BEZEL='#050b22' tools/readme-preview/run.sh`.
+For example, a Gruvbox version: `PREVIEW_PALETTE=gruvbox PREVIEW_MODE=dark PREVIEW_BEZEL='#1d2021' tools/readme-preview/run.sh`.
 
 The fonts come from the app, which bundles Inter, Space Grotesk and IBM Plex Mono, so the shots look the same on any machine.
 

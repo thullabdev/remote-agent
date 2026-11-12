@@ -46,7 +46,7 @@ try {
     const page = await browser.newPage()
     await page.setViewport({ width: scene.width, height: scene.height, deviceScaleFactor: 2 })
     await page.goto(`file://${join(work, scene.page)}`, { waitUntil: 'load' })
-    // The frames default to a near-black warm gray that suits Gruvbox. Use PREVIEW_BEZEL for another theme.
+    // The frames default to the logo's navy. Use PREVIEW_BEZEL for another theme.
     if (process.env.PREVIEW_BEZEL) {
       await page.addStyleTag({ content: `:root { --bezel: ${process.env.PREVIEW_BEZEL}; }` })
     }

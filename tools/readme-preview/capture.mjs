@@ -11,11 +11,11 @@ if (!baseUrl || !work || !chrome) {
   throw new Error('Set BASE_URL, WORK and CHROME')
 }
 
-// Gruvbox in dark mode by default. Set PREVIEW_PALETTE and PREVIEW_MODE (light or dark) to use another theme; the palette
+// The Remote Agent theme in dark mode by default. Set PREVIEW_PALETTE and PREVIEW_MODE (light or dark) to use another theme; the palette
 // ids are in src/ui/themes.ts, and the key and shape of the preferences come from src/ui/preferences.ts.
 const PREFERENCES = {
   theme: process.env.PREVIEW_MODE ?? 'dark',
-  palette: process.env.PREVIEW_PALETTE ?? 'gruvbox',
+  palette: process.env.PREVIEW_PALETTE ?? 'default',
   accent: 'ink',
   glow: 'soft',
   density: 'comfortable',
