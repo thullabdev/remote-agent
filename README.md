@@ -19,7 +19,6 @@ Remote Agent is for a single developer who runs Claude Code on their own machine
 
 - [Mission](#mission)
 - [Features](#features)
-- [Screenshots](#screenshots)
 - [How it works](#how-it-works)
 - [Platform support](#platform-support)
 - [Prerequisites](#prerequisites)
@@ -72,10 +71,6 @@ Remote Agent is built around one rule: a Session should never sit blocked becaus
 - **Set up in one command.** `./install.sh` on Linux and macOS (or Windows through WSL2), and `./remote-agent.sh` to start, stop and check the Bridge without systemd.
 - **One chat on every device.** The web UI is an installable app with an offline shell, and unsent drafts follow you to your other devices.
 - **Telegram if you prefer it.** Telegram is available as an optional Channel, switched on with one setting.
-
-## Screenshots
-
-Everything below is the real web UI in the Gruvbox dark theme, with made-up demo data.
 
 <p align="center">
   <img src="docs/assets/ui-gallery-chat.png" alt="A Session's chat on a laptop. The agent's Edit step is open as a diff with the changed lines highlighted, followed by the agent's message and a permission request with Deny and Allow buttons." width="900">
