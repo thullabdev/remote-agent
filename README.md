@@ -78,7 +78,8 @@ Remote Agent is built around one rule: a Session should never sit blocked becaus
   <sub><b>Agent activity.</b> Tool runs sit in a collapsible step, an Edit shows as a diff, and a permission request waits for your Allow or Deny.</sub>
 </p>
 
-<table>
+<div align="center">
+<table align="center">
   <tr>
     <td align="center" valign="top" width="33%">
       <img src="docs/assets/ui-gallery-dashboard.png" alt="The Mission control dashboard on a phone, with two Sessions that need you, one working Session, and the remaining usage budget." width="260">
@@ -97,6 +98,7 @@ Remote Agent is built around one rule: a Session should never sit blocked becaus
     </td>
   </tr>
 </table>
+</div>
 
 ## How it works
 
