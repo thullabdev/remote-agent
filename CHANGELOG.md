@@ -24,7 +24,8 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 - **Usage details on demand.** Open the usage overlay from the context percent in the chat header.
 - **Code block setting.** Choose whether long lines in code blocks wrap or scroll.
 - **Logo.** Light and dark SVG versions of the Remote Agent logo, used in the README.
-- **README preview.** A laptop and phone picture of the web UI at the top of the README, and `tools/readme-preview/run.sh` to regenerate it from a throwaway Bridge with demo data. The tool has its own dependencies and is not part of the app.
+- **README preview and screenshots.** A laptop and phone picture of the web UI at the top of the README, and a gallery of the chat with agent activity, an Edit diff, a permission request and a question. `tools/readme-preview/run.sh` regenerates them from a throwaway Bridge with demo data. The tool has its own dependencies and is not part of the app.
+- **Bundled fonts.** The UI now ships Inter, Space Grotesk and IBM Plex Mono with the app (through Fontsource), so it looks the same on every device. Before, the CSS named these fonts but never loaded them, and each device fell back to its own system font.
 - **License.** Released under the MIT License.
 
 ### Changed

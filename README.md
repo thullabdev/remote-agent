@@ -19,6 +19,7 @@ Remote Agent is for a single developer who runs Claude Code on their own machine
 
 - [Mission](#mission)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [How it works](#how-it-works)
 - [Platform support](#platform-support)
 - [Prerequisites](#prerequisites)
@@ -71,6 +72,36 @@ Remote Agent is built around one rule: a Session should never sit blocked becaus
 - **Set up in one command.** `./install.sh` on Linux and macOS (or Windows through WSL2), and `./remote-agent.sh` to start, stop and check the Bridge without systemd.
 - **One chat on every device.** The web UI is an installable app with an offline shell, and unsent drafts follow you to your other devices.
 - **Telegram if you prefer it.** Telegram is available as an optional Channel, switched on with one setting.
+
+## Screenshots
+
+Everything below is the real web UI in the Gruvbox dark theme, with made-up demo data.
+
+<p align="center">
+  <img src="docs/assets/ui-gallery-chat.png" alt="A Session's chat on a laptop. The agent's Edit step is open as a diff with the changed lines highlighted, followed by the agent's message and a permission request with Deny and Allow buttons." width="900">
+  <br>
+  <sub><b>Agent activity.</b> Tool runs sit in a collapsible step, an Edit shows as a diff, and a permission request waits for your Allow or Deny.</sub>
+</p>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/assets/ui-gallery-dashboard.png" alt="The Mission control dashboard on a phone, with two Sessions that need you, one working Session, and the remaining usage budget." width="260">
+      <br>
+      <sub><b>Mission control.</b> What needs you, what is working, and your budget.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/assets/ui-gallery-activity.png" alt="A Session's chat on a phone, showing an Edit diff, the agent's message, and a permission request." width="260">
+      <br>
+      <sub><b>On the go.</b> Read what the agent changed before you allow the next step.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="docs/assets/ui-gallery-question.png" alt="A question from the agent on a phone, with three options and a field to write your own answer." width="260">
+      <br>
+      <sub><b>Questions.</b> Pick an option, or write your own answer.</sub>
+    </td>
+  </tr>
+</table>
 
 ## How it works
 
