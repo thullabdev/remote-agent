@@ -24,6 +24,10 @@ try {
   const page = await browser.newPage()
   await page.setViewport({ width: 1300, height: 1040, deviceScaleFactor: 2 })
   await page.goto(`file://${join(work, 'compose.html')}`, { waitUntil: 'load' })
+  // The frames default to a near-black warm gray that suits Gruvbox. Use PREVIEW_BEZEL for another theme.
+  if (process.env.PREVIEW_BEZEL) {
+    await page.addStyleTag({ content: `:root { --bezel: ${process.env.PREVIEW_BEZEL}; }` })
+  }
   await page.evaluate(() => Promise.all([...document.images].map(image => image.decode())))
   await page.screenshot({
     path: join(work, 'hero-raw.png'),

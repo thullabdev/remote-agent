@@ -12,6 +12,18 @@ tools/readme-preview/run.sh
 
 It builds the web UI, starts a throwaway Bridge with demo data, takes the screenshots in headless Chrome, frames them as a laptop and a phone, and writes the final PNG.
 
+## Choose the theme
+
+The image uses the **Gruvbox** theme in **dark** mode. To use another theme, set these before running:
+
+| Variable | Default | Meaning |
+| :------- | :------ | :------ |
+| `PREVIEW_PALETTE` | `gruvbox` | A palette id from `src/ui/themes.ts`. |
+| `PREVIEW_MODE` | `dark` | `light` or `dark`. |
+| `PREVIEW_BEZEL` | `#1d2021` | The color of the laptop and phone frames. |
+
+For example, the original light picture: `PREVIEW_PALETTE=default PREVIEW_MODE=light PREVIEW_BEZEL='#050b22' tools/readme-preview/run.sh`.
+
 ## What it needs
 
 - [Bun](https://bun.sh)
@@ -30,6 +42,6 @@ The demo data is made up: the projects `web-app`, `api-service`, `docs-site` and
 | :--- | :------ |
 | `run.sh` | Runs every step and cleans up the throwaway Bridge. |
 | `seed.sh` | Posts the demo Sessions, Prompts, usage and Reports to the Bridge's socket. |
-| `capture.mjs` | Takes the laptop (1440×900) and phone (390×844) screenshots with the light theme. |
+| `capture.mjs` | Takes the laptop (1440×900) and phone (390×844) screenshots in the chosen theme. |
 | `compose.html`, `compose.mjs` | Place the screenshots in simple device frames on a transparent background. |
 | `optimize.py` | Trims the margins, scales to 1600px wide, and shrinks the PNG. |

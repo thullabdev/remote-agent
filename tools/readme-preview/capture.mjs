@@ -9,10 +9,11 @@ if (!baseUrl || !work || !chrome) {
   throw new Error('Set BASE_URL, WORK and CHROME')
 }
 
-// A light theme reads well on a white README. The key and shape come from src/ui/preferences.ts.
+// Gruvbox in dark mode by default. Set PREVIEW_PALETTE and PREVIEW_MODE (light or dark) to use another theme; the palette
+// ids are in src/ui/themes.ts, and the key and shape of the preferences come from src/ui/preferences.ts.
 const PREFERENCES = {
-  theme: 'light',
-  palette: 'default',
+  theme: process.env.PREVIEW_MODE ?? 'dark',
+  palette: process.env.PREVIEW_PALETTE ?? 'gruvbox',
   accent: 'ink',
   glow: 'soft',
   density: 'comfortable',

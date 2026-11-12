@@ -4,7 +4,7 @@
 # It never touches your real Bridge: it uses its own port, database, socket and HOME, all under a work folder.
 # Usage: ./run.sh
 # Env:   PREVIEW_PORT (default 8799; the next port is used by the proxy), WORK_DIR (default /tmp/ra-preview),
-#        CHROME (browser path)
+#        CHROME (browser path), PREVIEW_PALETTE (default gruvbox), PREVIEW_MODE (default dark), PREVIEW_BEZEL (default #1d2021)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
