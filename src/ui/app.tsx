@@ -20,6 +20,7 @@ import { applyAppearance } from './appearance.ts'
 import { connectionNoticeText, deepLink, pendingPromptMessage } from './presentation.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
+import { useSessionModel } from './use-session-model.ts'
 import { useWebChannel } from './use-web-channel.ts'
 
 type PendingMessage = {
@@ -57,6 +58,8 @@ export function App() {
     return link.chatId !== null && link.promptId !== null ? { chatId: link.chatId, promptId: link.promptId } : null
   })
   const [infoOpen, setInfoOpen] = useState(false)
+  /** The background sub-agent whose activity the details panel shows, if any. Cleared when the panel opens for the session itself. */
+  const [subagentView, setSubagentView] = useState<{ chatId: string; agentId: string; title: string } | null>(null)
   const [resumeOpen, setResumeOpen] = useState(false)
   // The chats listed when a session was requested, and until when a new one is opened for the user.
   const newChatWatch = useRef<{ known: ReadonlyMap<string, Chat['status']>; until: number } | null>(null)
@@ -93,6 +96,10 @@ export function App() {
   const activeChat = chats.find(chat => chat.id === activeChatId) ?? null
   const messages = activeChatId === null ? [] : realtime?.messages[activeChatId] ?? []
   const pendingForChat = activeChatId === null ? [] : pendingMessages[activeChatId] ?? []
+  // The model the Session reported on its last switch wins. The transcript is asked only for sessions that have not reported one yet.
+  // General is the command chat and has no Session, so it never asks which model it runs on.
+  const modelChatId = activeChat !== null && activeChat.id !== 'general' ? activeChat.id : null
+  const sessionModel = useSessionModel(api, modelChatId, `${activeChat?.busy ?? ''}|${activeChat?.lastMessage?.seq ?? ''}`)
 
   useEffect(() => {
     if (error instanceof RequestError && error.accessDenied) {
@@ -586,7 +593,10 @@ export function App() {
                 chat={activeChat}
                 status={status}
                 onBack={() => openChat(null)}
-                onInfo={() => setInfoOpen(value => !value)}
+                onInfo={() => {
+                  setSubagentView(null)
+                  setInfoOpen(value => !value)
+                }}
                 infoOpen={infoOpen}
                 usage={realtime.usage.chats[activeChat.id]}
                 accounts={realtime.usage.accounts}
@@ -595,6 +605,7 @@ export function App() {
                 onView={setGeneralView}
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
+                model={activeChat?.model ?? sessionModel}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -641,6 +652,11 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
+                  api={api}
+                  onOpenSubagent={(agentId, title) => {
+                    setSubagentView({ chatId: activeChat.id, agentId, title })
+                    setInfoOpen(true)
+                  }}
                 />
                 )}
                 <ChatComposer
@@ -662,6 +678,10 @@ export function App() {
             {infoOpen && activeChat.id !== 'general' && (
               <ChatInfo
                 chat={activeChat}
+                model={activeChat?.model ?? sessionModel}
+                api={api}
+                subagent={subagentView?.chatId === activeChat.id ? subagentView : null}
+                onCloseSubagent={() => setSubagentView(null)}
                 onClose={() => setInfoOpen(false)}
                 onEnd={() => runInfoAction(() => api.endChat(activeChat.id))}
                 onArchive={() => runInfoAction(() => api.archiveChat(activeChat.id))}

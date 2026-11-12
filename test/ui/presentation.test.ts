@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Chat, Message } from '../../src/channel/web/protocol.ts'
-import { connectionNoticeText, highlightSegments, avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
+import { connectionNoticeText, highlightSegments, avatarHue, chatRowLabel, deepLink, pendingPromptMessage, relativeTimeWords, rowOpenTarget, commandToolInput, dayKey, diffLines, editToolInput, markChangedRanges, modelLabel, formatDayLabel, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, writeToolInput } from '../../src/ui/presentation.ts'
 
 const tool = (id: string, seq: number): Extract<Message, { kind: 'tool_run' }> => ({
   id,

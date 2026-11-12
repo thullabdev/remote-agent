@@ -16,6 +16,16 @@ const NEWLINE = 0x0a
 /** An entry this much older than the attach is backfilled history: stored as read. Live entries are newer than that. */
 const BACKFILL_SLACK_MS = 2_000
 const ENOENT = 'ENOENT'
+/** The tools that launch a sub-agent. Their launch result names the agent, whose report and activity the web chat fetches. */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+const LAUNCHED_AGENT = /^Async agent launched[\s\S]*?agentId: ([A-Za-z0-9]+)/
+const BACKGROUND_LAUNCH_RESULT = 'Started in the background. Its report is opened from this step when it finishes.'
+
+/** The agent id of a background sub-agent's launch result, or null when the result is anything else (a foreground run's report). */
+export function launchedAgentId(text: string): string | null {
+  const match = LAUNCHED_AGENT.exec(text)
+  return match === null ? null : (match[1] ?? null)
+}
 
 export type TranscriptReaderDeps = {
   chatLog: ChatLog
@@ -439,14 +449,18 @@ export class TranscriptReader {
     if (existing.kind !== 'tool_run' || existing.status !== 'running') {
       return
     }
+    // A background launch's result is Claude's note to itself (it names the agent). The chat shows a plain line instead, and the
+    // report is fetched on demand from the agent's own file.
+    const agentId = SUBAGENT_TOOLS.has(existing.tool) ? launchedAgentId(item.text) : null
     chatLog.updateMessage(existing.id, {
       kind: 'tool_run',
       tool: existing.tool,
       input: existing.input,
-      result: item.text,
+      result: agentId === null ? item.text : BACKGROUND_LAUNCH_RESULT,
       resultTruncated: false,
       status,
       durationMs,
+      ...(agentId === null ? {} : { agentId }),
     })
   }
 

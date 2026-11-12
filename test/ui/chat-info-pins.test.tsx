@@ -13,6 +13,9 @@ function render(pins: PinView[] = [], shown: Chat = chat): string {
   return renderToStaticMarkup(createElement(ChatInfo, {
     chat: shown,
     onClose: () => {},
+    api: { subagentActivity: async () => ({ items: [], nextCursor: null }) },
+    subagent: null,
+    onCloseSubagent: () => {},
     onNotify: () => {},
     onEnd: async () => {},
     onArchive: async () => {},

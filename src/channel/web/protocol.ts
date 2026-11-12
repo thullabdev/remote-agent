@@ -66,6 +66,8 @@ export type Chat = {
   draft: { preview: string; at: number } | null
   pinned: boolean
   tmuxName: string | null
+  /** The full model id the Session runs on, from Claude Code's model switch. Null until it is known; absent in tests that build a bare chat. */
+  model?: string | null
   /** Set while the Session waits for a human Answer. Wins over `busy`, which stays true because the turn is still open. */
   pendingPrompt: PendingPrompt | null
   /** The running tool call while the Session works. Null when idle, ended, waiting on a Prompt, or between tool calls. */
@@ -96,6 +98,8 @@ export type MessageBody =
       resultTruncated: boolean
       status: 'running' | 'done' | 'error'
       durationMs: number | null
+      /** A sub-agent launched in the background: its id, which fetches its report and activity. Absent for other tools. */
+      agentId?: string
     }
   | {
       kind: 'prompt'

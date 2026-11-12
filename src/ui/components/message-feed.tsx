@@ -12,6 +12,7 @@ import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
 import { PickerRows } from './picker-rows.tsx'
+import type { ApiClient } from '../api.ts'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -26,6 +27,10 @@ type MessageFeedProps = {
   onPromptReply(promptId: string, body: { questionIndex: number; text: string }): Promise<void>
   onPickerAction(chatId: string, body: { pickerId: string; choice: number }): Promise<void>
   onTogglePin?(message: Message): void
+  /** Opens a background sub-agent's full activity in the details panel. */
+  onOpenSubagent?(agentId: string, title: string): void
+  /** Reads a sub-agent's report when its step is opened. */
+  api: Pick<ApiClient, 'subagentReport'>
 }
 
 /**
@@ -60,6 +65,8 @@ function MessageFeedView({
   onPromptReply,
   onPickerAction,
   onTogglePin,
+  onOpenSubagent,
+  api,
 }: MessageFeedProps) {
   const grouped = useMemo(() => groupMessages(messages), [messages])
 
@@ -108,8 +115,11 @@ function MessageFeedView({
         `tools-${entry.messages[0]?.id ?? index}`,
         entry.messages[0]?.at,
         <ToolRunGroup
+          api={api}
+          chatId={chat.id}
           messages={entry.messages}
           interrupted={isInterruptedToolGroup(entry.messages, grouped.slice(index + 1).some(later => later.kind === 'message'))}
+          onOpenSubagent={onOpenSubagent}
         />,
       )
       return
@@ -487,7 +497,19 @@ function MessageTime({ at }: { at: number }) {
   return <div className="mt-2 text-right font-mono text-[10px] text-muted-foreground">{formatTime(at)}</div>
 }
 
-function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { kind: 'tool_run' }>[]; interrupted: boolean }) {
+function ToolRunGroup({
+  api,
+  chatId,
+  messages,
+  interrupted,
+  onOpenSubagent,
+}: {
+  api: Pick<ApiClient, 'subagentReport'>
+  chatId: string
+  messages: Extract<Message, { kind: 'tool_run' }>[]
+  interrupted: boolean
+  onOpenSubagent?(agentId: string, title: string): void
+}) {
   const [expanded, setExpanded] = useState(false)
   const running = messages.some(message => message.status === 'running') && !interrupted
   const failed = messages.some(message => message.status === 'error')
@@ -514,31 +536,145 @@ function ToolRunGroup({ messages, interrupted }: { messages: Extract<Message, { 
       {expanded && (
         <div className="divide-y divide-border border-t border-border">
           {messages.map(message => (
-            <details key={message.id} className="group px-4 py-3">
-              <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
-                <span className={`size-1.5 rounded-full ${message.status === 'error' ? 'bg-red-500' : message.status === 'running' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                <span className="font-mono font-medium">{message.tool}</span>
-                <span className="ml-auto text-muted-foreground">{message.status === 'running' && interrupted ? 'interrupted' : message.durationMs === null ? message.status : `${(message.durationMs / 1000).toFixed(1)}s`}</span>
-              </summary>
-              <div className="mt-3 grid min-w-0 gap-3 pl-4">
-                <div className="min-w-0">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Input</div>
-                  <ToolInput input={message.input} />
-                </div>
-                {message.result !== null && (
-                  <div className="min-w-0">
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Result {message.resultTruncated && <span className="normal-case">(shortened)</span>}
-                    </div>
-                    <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">{message.result}</CodeBlock>
-                  </div>
-                )}
-              </div>
-            </details>
+            <ToolStep
+              key={message.id}
+              api={api}
+              chatId={chatId}
+              message={message}
+              interrupted={interrupted}
+              onOpenSubagent={onOpenSubagent}
+            />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+/** One tool call in an expanded group. A background sub-agent's report loads only when its step is opened. */
+function ToolStep({
+  api,
+  chatId,
+  message,
+  interrupted,
+  onOpenSubagent,
+}: {
+  api: Pick<ApiClient, 'subagentReport'>
+  chatId: string
+  message: Extract<Message, { kind: 'tool_run' }>
+  interrupted: boolean
+  onOpenSubagent?(agentId: string, title: string): void
+}) {
+  const [opened, setOpened] = useState(false)
+  const agentId = message.tool === 'Agent' ? (message.agentId ?? null) : null
+  return (
+    <details className="group px-4 py-3" onToggle={event => setOpened(event.currentTarget.open)}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs">
+        <span className={`size-1.5 rounded-full ${message.status === 'error' ? 'bg-red-500' : message.status === 'running' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+        <span className="font-mono font-medium">{message.tool}</span>
+        <span className="ml-auto text-muted-foreground">{message.status === 'running' && interrupted ? 'interrupted' : message.durationMs === null ? message.status : `${(message.durationMs / 1000).toFixed(1)}s`}</span>
+      </summary>
+      <div className="mt-3 grid min-w-0 gap-3 pl-4">
+        {agentId !== null && (
+          <SubagentBody
+            api={api}
+            chatId={chatId}
+            agentId={agentId}
+            description={subagentDescription(message.input)}
+            loadReport={opened}
+            onOpen={onOpenSubagent}
+          />
+        )}
+        <div className="min-w-0">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Input</div>
+          <ToolInput input={message.input} />
+        </div>
+        {message.result !== null && (
+          <div className="min-w-0">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Result {message.resultTruncated && <span className="normal-case">(shortened)</span>}
+            </div>
+            <CodeBlock preClassName="max-h-96 max-w-full overflow-auto overscroll-x-contain whitespace-pre rounded-xl bg-muted p-3 pr-11 font-mono text-[11px] leading-relaxed">{message.result}</CodeBlock>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
+function subagentDescription(input: unknown): string {
+  return input !== null && typeof input === 'object' && typeof (input as { description?: unknown }).description === 'string'
+    ? (input as { description: string }).description
+    : 'Sub-agent'
+}
+
+/**
+ * A background sub-agent's report, fetched once its step is opened. The full activity opens in the details panel, not here.
+ * Mounted only when the step is open, so nothing is fetched for steps nobody looks at.
+ */
+function SubagentBody({
+  api,
+  chatId,
+  agentId,
+  description,
+  loadReport,
+  onOpen,
+}: {
+  api: Pick<ApiClient, 'subagentReport'>
+  chatId: string
+  agentId: string
+  description: string
+  loadReport: boolean
+  onOpen?(agentId: string, title: string): void
+}) {
+  const [state, setState] = useState<{ phase: 'idle' | 'loading' | 'done' | 'failed'; report: string | null }>({ phase: 'idle', report: null })
+  useEffect(() => {
+    if (!loadReport || state.phase !== 'idle') {
+      return
+    }
+    let active = true
+    setState({ phase: 'loading', report: null })
+    api
+      .subagentReport(chatId, agentId)
+      .then(result => {
+        if (active) {
+          setState({ phase: 'done', report: result.report })
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setState({ phase: 'failed', report: null })
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [agentId, chatId, loadReport, state.phase])
+
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Report</div>
+        {onOpen !== undefined && (
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onOpen(agentId, description)}>
+            Open activity
+          </Button>
+        )}
+      </div>
+      {state.phase === 'loading' || state.phase === 'idle' ? (
+        <div className="text-xs text-muted-foreground">Loading the report…</div>
+      ) : state.phase === 'failed' ? (
+        <div className="text-xs text-red-700 dark:text-red-300">The report could not be loaded.</div>
+      ) : state.report === null ? (
+        <div className="text-xs text-muted-foreground">No report yet. The sub-agent is still working, or it ended without one.</div>
+      ) : (
+        <div className="rounded-xl bg-muted/60 p-3 text-sm">
+          <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering…</div>}>
+            <MarkdownBody markdown={state.report} />
+          </Suspense>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AwayMode } from '../../bridge/notifier.ts'
 import { BadRequest } from '../../bridge/errors.ts'
 import type { Log } from '../../bridge/prompts.ts'
+import type { Launcher } from '../../bridge/launcher.ts'
 import { BAD_MODEL, NOT_SPAWNED, NOT_TRUSTED, isModelName, type Spawner } from '../../bridge/spawner.ts'
 import type { SessionRow, Store } from '../../bridge/store.ts'
 import type { Project } from '../../bridge/trusted.ts'
@@ -12,6 +13,7 @@ import { orderChats } from './order.ts'
 import type { PushService } from './push.ts'
 import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
 import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
+import type { SubagentSource } from './transcript/subagent.ts'
 
 const GENERAL_ID = 'general'
 const DEFAULT_LIMIT = 50
@@ -34,7 +36,16 @@ export type ApiDeps = {
   push?: Pick<PushService, 'publicKey' | 'subscribe' | 'unsubscribe'>
   /** Absent when uploads are not configured; the upload routes then answer 404. */
   uploads?: UploadLibrary
+  /** Types commands such as /model into a Session's terminal. Absent when terminals are not reachable; those commands then answer 409. */
+  terminal?: Pick<Launcher, 'type' | 'exists'>
+  /** Absent when sub-agent reading is not configured; the sub-agent routes then answer 404. */
+  subagents?: SubagentSource
   log: Log
+}
+
+/** A line that is a slash command: a slash, a command name, then either the end or a space. A path such as /home/u is not one. */
+export function isTerminalCommand(text: string): boolean {
+  return /^\/[a-z][a-z0-9-]*(\s|$)/i.test(text.trim())
 }
 
 const StartProjectSchema = z.object({
@@ -102,6 +113,8 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps, request }, id) => resumeChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'resume-model'], run: ({ deps }, id) => resumeModel(deps, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'subagents', '*', 'report'], run: ({ deps, url }, id) => subagentReport(deps, id, url) },
+  { method: 'GET', pattern: ['chats', ':id', 'subagents', '*', 'activity'], run: ({ deps, url }, id) => subagentActivity(deps, id, url) },
   { method: 'GET', pattern: ['activity'], run: ({ deps, url }) => activity(deps, url) },
   { method: 'GET', pattern: ['projects'], run: ({ deps }) => listProjects(deps) },
   { method: 'POST', pattern: ['projects', 'start'], run: ({ deps, request }) => startProject(deps, request) },
@@ -158,7 +171,8 @@ function match(segments: string[], pattern: string[]): string | null {
     const value = segments[index] ?? ''
     if (part === ':id') {
       id = safeDecode(value)
-    } else if (part !== value) {
+    } else if (part !== '*' && part !== value) {
+      // '*' stands for a path part the handler reads itself from the URL (see subagentAgentId).
       return null
     }
   }
@@ -266,9 +280,55 @@ async function sendMessage(deps: ApiDeps, request: Request, chatId: string): Pro
   if (session.endedAt !== null) {
     throw new ApiError(409, 'This session has ended.')
   }
+  if (isTerminalCommand(body.text)) {
+    return sendTerminalCommand(deps, chatId, session, body.clientId, body.text.trim(), attachmentIds.length)
+  }
   const attachments = resolveAttachments(deps, attachmentIds)
   const instruction = deps.store.enqueueInstruction(session.id, withAttachmentPaths(body.text, attachments.files))
   return { message: deps.sink.instructionQueued(instruction, session, body.clientId, { text: body.text.trim(), attachments: attachments.refs }) }
+}
+
+/**
+ * A slash command goes into the Session's terminal, not the instruction queue: the mod submits queued text as a message to the
+ * model, and a command is not one. Only a Session Remote Agent started has a terminal to type into.
+ */
+function sendTerminalCommand(deps: ApiDeps, chatId: string, session: SessionRow, clientId: string, line: string, attachmentCount: number): unknown {
+  if (attachmentCount > 0) {
+    throw new ApiError(409, 'Commands take no attachments.')
+  }
+  const tmuxName = session.tmuxName
+  if (deps.terminal === undefined || tmuxName === null) {
+    throw new ApiError(409, "This command only reaches sessions that Remote Agent started. Type it in the session's terminal.")
+  }
+  if (deps.chatLog.getChat(chatId)?.pendingPrompt != null) {
+    throw new ApiError(409, 'Answer the waiting prompt first, so the command is not typed into it.')
+  }
+  return typeCommand(deps, chatId, session, tmuxName, clientId, line)
+}
+
+async function typeCommand(deps: ApiDeps, chatId: string, session: SessionRow, tmuxName: string, clientId: string, line: string): Promise<unknown> {
+  const terminal = deps.terminal
+  if (terminal === undefined) {
+    throw new ApiError(409, 'Terminals are not reachable.')
+  }
+  if (!(await terminal.exists(tmuxName))) {
+    throw new ApiError(409, "This session's terminal is no longer running.")
+  }
+  try {
+    await terminal.type(tmuxName, line)
+  } catch (error) {
+    deps.log(`typing into ${tmuxName} failed`, error)
+    throw new ApiError(503, 'Could not type the command into the session. Try again.')
+  }
+  // Recorded as delivered at once, so the mod never also submits it. The chat shows it as the instruction it was.
+  const instruction = deps.store.enqueueInstruction(session.id, line)
+  deps.store.markInstructionDelivered(instruction.id)
+  const message = deps.chatLog.appendMessage(
+    chatId,
+    { kind: 'user_text', text: line, status: 'delivered', instructionId: instruction.id },
+    { sourceId: clientSourceId(clientId) },
+  )
+  return { message }
 }
 
 /** Library entries for the ids, each once. The Session gets their paths; the message shows their names. */
@@ -593,6 +653,49 @@ async function resumeModel(deps: ApiDeps, chatId: string): Promise<unknown> {
   requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
   return { model: await deps.spawner.lastModel(session.id) }
+}
+
+const SAFE_AGENT_ID = /^[A-Za-z0-9]+$/
+
+/** The agent id in /api/chats/:id/subagents/<agentId>/..., refused unless it is a plain id. */
+function subagentAgentId(url: URL): string {
+  const agentId = safeDecode(url.pathname.split('/')[5] ?? '')
+  if (!SAFE_AGENT_ID.test(agentId)) {
+    throw new ApiError(400, 'The sub-agent id is not valid.')
+  }
+  return agentId
+}
+
+function requireSubagents(deps: ApiDeps): SubagentSource {
+  if (deps.subagents === undefined) {
+    throw new ApiError(404, 'Sub-agents are not available.')
+  }
+  return deps.subagents
+}
+
+async function subagentReport(deps: ApiDeps, chatId: string, url: URL): Promise<unknown> {
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const agentId = subagentAgentId(url)
+  return { report: await requireSubagents(deps).report(session, agentId) }
+}
+
+async function subagentActivity(deps: ApiDeps, chatId: string, url: URL): Promise<unknown> {
+  requireChat(deps, chatId)
+  const session = requireSession(deps, chatId)
+  const agentId = subagentAgentId(url)
+  const cursorParam = url.searchParams.get('cursor')
+  const cursor = cursorParam === null ? 0 : Number(cursorParam)
+  if (!Number.isInteger(cursor) || cursor < 0) {
+    throw new ApiError(400, 'cursor must be a line number.')
+  }
+  const limitParam = url.searchParams.get('limit')
+  const limit = limitParam === null || !Number.isFinite(Number(limitParam)) ? DEFAULT_LIMIT : Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(limitParam))))
+  const page = await requireSubagents(deps).activity(session, agentId, cursor, limit)
+  if (page === null) {
+    throw new ApiError(404, 'Sub-agent activity is not available.')
+  }
+  return page
 }
 
 const ResumeChatSchema = z.object({

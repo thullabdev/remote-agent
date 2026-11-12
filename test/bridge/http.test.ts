@@ -146,6 +146,25 @@ test('a title update is stored for the session', async () => {
   expect((await call('POST', '/titles', { session })).status).toBe(400)
 })
 
+test('a model switch is stored for the session and reported to the web once', async () => {
+  const seen: string[] = []
+  const notifier3 = new Notifier(store, new FakeChannel(), new AwayMode(false))
+  const handler = createHandler({
+    prompts: new PromptService(store, notifier3, { reminderAfterMs: 60_000 }),
+    notifier: notifier3,
+    store,
+    log: () => {},
+    onModel: sessionId => seen.push(sessionId),
+  })
+  const send = (body: unknown) => handler(new Request('http://bridge/models', { method: 'POST', body: JSON.stringify(body) }))
+
+  expect((await send({ session, model: 'claude-opus-5-5' })).status).toBe(204)
+  expect(store.database.query<{ model: string }, [string]>('SELECT model FROM sessions WHERE id = ?').get('s1')?.model).toBe('claude-opus-5-5')
+  expect(seen).toEqual(['s1'])
+  expect((await send({ session, model: 'not a model' })).status).toBe(400)
+  expect((await send({ session })).status).toBe(400)
+})
+
 test('every mod request reports session activity', async () => {
   const seen: string[] = []
   const store2 = new Store(':memory:')

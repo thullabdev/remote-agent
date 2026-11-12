@@ -32,6 +32,9 @@ export type ReportRequest = { session: SessionInfo; report: Report }
 /** The session's own name, as set with /rename or at start. */
 export type TitleRequest = { session: SessionInfo; title: string }
 
+/** A PostModelSwitch hook: the session now runs on `model`, a full id such as claude-opus-5-5. */
+export type ModelRequest = { session: SessionInfo; model: string }
+
 /** One `session.measure` reading: the context window, the account's rate-limit windows and the session cost. */
 export type UsageReport = {
   context: { tokens?: number; window: number; percent?: number }

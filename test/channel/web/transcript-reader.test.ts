@@ -804,3 +804,32 @@ test('a resumed Session shows its history from the source transcript before its 
 function textsOf(h: Harness, chatId: string): string[] {
   return messagesOf(h, chatId).flatMap(message => (message.kind === 'user_text' ? [message.text] : message.kind === 'agent_text' ? [message.markdown] : []))
 }
+
+test('a background sub-agent launch records its agent id on the tool run', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  const agentUse = line({
+    type: 'assistant',
+    uuid: 'a-agent',
+    timestamp: iso(1),
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_agent', name: 'Agent', input: { description: 'Review' } }] },
+  })
+  const launched = 'Async agent launched successfully.\nagentId: aa10f50e669740014 (internal ID - do not mention to user.)'
+  write(h, agentUse + toolResult('u-agent', 'toolu_agent', launched, 2))
+  await h.reader.ingestOnce(SID)
+
+  expect(messagesOf(h, chatId)).toMatchObject([{ kind: 'tool_run', tool: 'Agent', status: 'done', agentId: 'aa10f50e669740014' }])
+  // The launch note to Claude is not shown in the chat.
+  expect(messagesOf(h, chatId)[0]).toMatchObject({ result: expect.not.stringContaining('internal') })
+})
+
+test('a Bash result that mentions an agent id is not taken for a sub-agent', async () => {
+  const h = setup()
+  const chatId = startSession(h)
+  write(h, toolUse('a-b', 'toolu_b', 1) + toolResult('u-b', 'toolu_b', 'agentId: abc123', 2))
+  await h.reader.ingestOnce(SID)
+
+  const [run] = messagesOf(h, chatId)
+  expect(run).toMatchObject({ kind: 'tool_run', tool: 'Bash', status: 'done' })
+  expect(run && 'agentId' in run).toBe(false)
+})

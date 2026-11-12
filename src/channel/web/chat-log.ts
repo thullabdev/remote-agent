@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS drafts (
 `
 
 const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.pinned, c.hidden_before_seq,
-  c.archived, s.project, s.cwd, s.spawned, s.tmux_name,
+  c.archived, s.project, s.cwd, s.spawned, s.tmux_name, s.model,
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
   (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
   (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments,
@@ -87,6 +87,7 @@ type ChatRecord = {
   cwd: string | null
   spawned: number | null
   tmux_name: string | null
+  model: string | null
   cursor: number
   draft_text: string | null
   draft_attachments: string | null
@@ -280,6 +281,11 @@ export class ChatLog {
       this.db.query('UPDATE chats SET session_id = ? WHERE id = ?').run(sessionId, chatId)
       return { value: this.chatOrThrow(chatId), events: [this.emitChat(chatId)] }
     })
+  }
+
+  /** Sends a chat to the web clients again, for a change made outside the ChatLog (such as the session's model). */
+  refreshChat(id: string): void {
+    this.write(() => ({ value: undefined, events: [this.emitChat(id)] }))
   }
 
   updateChat(id: string, patch: Partial<Pick<Chat, 'title' | 'status' | 'busy'>>): Chat {
@@ -849,6 +855,7 @@ export class ChatLog {
       draft: draftPreview(record.draft_text, record.draft_attachments, record.draft_at),
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
+      model: record.model,
       pendingPrompt,
       activity: record.status === 'active' && record.busy === 1 && pendingPrompt === null ? this.runningTool(record.id, record.hidden_before_seq) : null,
     }

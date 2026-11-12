@@ -694,3 +694,16 @@ test('a finished burst shows the newest reply made before its last turn ended', 
   const { recent } = log.getActivity({ days: 1, offsetMinutes: 0 })
   expect(recent[0]).toMatchObject({ kind: 'finished', turns: 2, preview: 'Second answer, the one that matters' })
 })
+
+test('a chat carries its session model, and refreshChat sends the chat to clients again', () => {
+  const events: ServerEvent[] = []
+  log.subscribe(event => events.push(event))
+  expect(log.getChat('c1')?.model).toBeNull()
+
+  store.setSessionModel('s1', 'claude-opus-5-5')
+  expect(log.getChat('c1')?.model).toBe('claude-opus-5-5')
+
+  events.length = 0
+  log.refreshChat('c1')
+  expect(events).toEqual([expect.objectContaining({ type: 'chat.updated', chat: expect.objectContaining({ id: 'c1', model: 'claude-opus-5-5' }) })])
+})

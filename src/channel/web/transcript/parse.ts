@@ -124,14 +124,20 @@ function parseAssistant(uuid: string | null, at: number, message: Json): Transcr
   return entries
 }
 
-function parseEntry(value: unknown): TranscriptEntry[] {
+export type ParseOptions = {
+  /** Keeps a sub-agent's own lines. The chat leaves them out; a sub-agent's activity view reads them. */
+  includeSidechain?: boolean
+}
+
+function parseEntry(value: unknown, options: ParseOptions): TranscriptEntry[] {
   if (!isObject(value)) {
     return []
   }
   // Sidechain and meta lines are internal (a sub-agent's work, or injected context), not the chat's conversation.
   // A compaction summary is written as a user line, but Claude Code made it, not the user, and nothing follows it until the user
   // writes again: shown as a message it would be a wall of text, and counted as a turn it would leave the chat busy.
-  if (value.isSidechain === true || value.isMeta === true || value.isCompactSummary === true) {
+  const sidechain = value.isSidechain === true && options.includeSidechain !== true
+  if (sidechain || value.isMeta === true || value.isCompactSummary === true) {
     return []
   }
   const uuid = typeof value.uuid === 'string' ? value.uuid : null
@@ -154,9 +160,9 @@ function parseEntry(value: unknown): TranscriptEntry[] {
   return []
 }
 
-export function parseTranscriptLine(line: string): TranscriptEntry[] {
+export function parseTranscriptLine(line: string, options: ParseOptions = {}): TranscriptEntry[] {
   try {
-    return parseEntry(JSON.parse(line))
+    return parseEntry(JSON.parse(line), options)
   } catch {
     return []
   }

@@ -421,3 +421,17 @@ export function pickerWhen(at: number, now = Date.now()): string {
   }
   return `${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${clock}`
 }
+
+/**
+ * A short name for a full model id as the transcript records it: "claude-opus-5-5" reads "Opus 5.5", a dated id such as
+ * "claude-sonnet-4-5-20250929" reads "Sonnet 4.5". Anything else is shown as it is, so an unknown model is never hidden.
+ */
+export function modelLabel(model: string): string {
+  const match = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(model)
+  if (match === null) {
+    return model
+  }
+  const [, family = '', major = '', minor] = match
+  const name = family.charAt(0).toUpperCase() + family.slice(1)
+  return minor === undefined ? `${name} ${major}` : `${name} ${major}.${minor}`
+}

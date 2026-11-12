@@ -135,6 +135,7 @@ export class Store {
       ['started_at', 'started_at INTEGER'],
       ['chat_id', 'chat_id TEXT'],
       ['launch_cwd', 'launch_cwd TEXT'],
+      ['model', 'model TEXT'],
     ]
     for (const [name, definition] of added) {
       if (!columns.has(name)) {
@@ -247,6 +248,11 @@ export class Store {
 
   setSessionChat(id: string, chatId: string): void {
     this.db.query('UPDATE sessions SET chat_id = ? WHERE id = ?').run(chatId, id)
+  }
+
+  /** The full model id the session runs on now, as Claude Code reported it on its last switch. */
+  setSessionModel(id: string, model: string): void {
+    this.db.query('UPDATE sessions SET model = ? WHERE id = ?').run(model, id)
   }
 
   setSessionTitle(id: string, title: string): void {

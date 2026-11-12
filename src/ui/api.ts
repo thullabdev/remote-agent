@@ -1,4 +1,8 @@
 import type { ActivityView, Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { TranscriptItem } from '../channel/web/transcript/parse.ts'
+
+/** One page of a sub-agent's activity: its items in order, and the cursor for the next page, or null at the end. */
+export type SubagentActivityPage = { items: TranscriptItem[]; nextCursor: number | null }
 
 export type WebState = { seq: number; away: boolean; chats: Chat[]; usage: UsageView }
 export type MessagePage = { messages: Message[]; hasMore: boolean }
@@ -48,6 +52,10 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   resumeChat(chatId: string, model?: string | null): Promise<{ toast: string }>
   /** The model the Session last ran on, or null when unknown. */
   resumeModel(chatId: string): Promise<{ model: string | null }>
+  /** A background sub-agent's final report, or null when it has none yet. Fetched when someone opens it. */
+  subagentReport(chatId: string, agentId: string): Promise<{ report: string | null }>
+  /** One page of a sub-agent's activity from `cursor`. */
+  subagentActivity(chatId: string, agentId: string, cursor: number): Promise<SubagentActivityPage>
   getProjects(): Promise<{ projects: Project[] }>
   /** The dashboard's numbers for `days` days, in this device's time zone. */
   getActivity(days?: number): Promise<ActivityView>
@@ -140,6 +148,9 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
     resumeChat: (chatId, model = null) => post(`/api/chats/${encodeURIComponent(chatId)}/resume`, { model }),
     resumeModel: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/resume-model`),
+    subagentReport: (chatId, agentId) => get(`/api/chats/${encodeURIComponent(chatId)}/subagents/${encodeURIComponent(agentId)}/report`),
+    subagentActivity: (chatId, agentId, cursor) =>
+      get(`/api/chats/${encodeURIComponent(chatId)}/subagents/${encodeURIComponent(agentId)}/activity?cursor=${cursor}`),
     getProjects: () => get('/api/projects'),
     getActivity: (days = 7) => get(`/api/activity?days=${days}&tz=${-new Date().getTimezoneOffset()}`),
     startProject: body => post('/api/projects/start', body),

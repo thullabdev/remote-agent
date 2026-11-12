@@ -10,6 +10,7 @@ import { Hub } from '../channel/web/hub.ts'
 import { loadOrCreateVapid, PushService } from '../channel/web/push.ts'
 import { startWebServer, type WebServer } from '../channel/web/server.ts'
 import { TranscriptReader } from '../channel/web/transcript/reader.ts'
+import { createSubagentSource } from '../channel/web/transcript/subagent.ts'
 import { UploadLibrary } from '../channel/web/uploads.ts'
 import { WebChannel } from '../channel/web/web-channel.ts'
 import { DEFAULT_VAPID_SUBJECT, type Config } from './config.ts'
@@ -91,7 +92,8 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
     const trusted = new TrustedFolders({ home: config.home, configPath: config.claudeConfigPath, projects: config.projects })
     // Absolute, so a Session in any folder can open the file the path names.
     const uploadsDir = resolve(dirname(config.dbPath), 'uploads')
-    const spawner = new Spawner({ store, channel, notifier, launcher: options.tmux ?? new Launcher(), trusted, home: config.home, log, uploadsDir })
+    const launcher = options.tmux ?? new Launcher()
+    const spawner = new Spawner({ store, channel, notifier, launcher, trusted, home: config.home, log, uploadsDir })
     const inbound = new Inbound(store, prompts, notifier, spawner)
 
     if (config.web !== null && chatLog !== null && webChannel !== null) {
@@ -135,7 +137,9 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         uploads: chatLog === null ? undefined : new UploadLibrary(store.database, uploadsDir),
         sink: webChannel,
         usage: () => store.usageForChats(Date.now()),
+        terminal: launcher,
         push,
+        subagents: createSubagentSource(config.home),
         log,
       })
       webServer = startWebServer({ config: web, chatLog, api, hub, usage: () => store.usageForChats(Date.now()), log })
@@ -154,6 +158,9 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         activity: spawner,
         onUsage: view => {
           webChannel?.usageChanged(view)
+        },
+        onModel: sessionId => {
+          webChannel?.modelChanged(sessionId)
         },
       }),
     } as unknown as Bun.Serve.Options<undefined>)
