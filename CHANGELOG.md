@@ -30,6 +30,7 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 
 ### Changed
 
+- The default Remote Agent theme uses the logo's blue for its primary color in both modes (`#2f5bea` light, `#5b8cff` dark, both WCAG AA), instead of plain black or white. Primary buttons, focus rings, selection and unread dots now carry the brand color, and the background glow uses the same blue, drifting into violet like the logo.
 - The README is rewritten as a full project guide: features, platform support, prerequisites, installation, configuration, running, troubleshooting, development, limitations and contributing.
 - The web channel developer guide documents the attachment, pin and library endpoints, and the `usage` field in `GET /api/state`.
 - The README's "How it works" diagram is now an SVG in the logo's colors, with light and dark versions.
