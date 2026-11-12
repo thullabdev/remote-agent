@@ -385,6 +385,7 @@ bun install --frozen-lockfile
 | Run the tests | `bun test` |
 | Type-check | `bun run typecheck` |
 | Find a Telegram chat or user id | `bun run telegram:ids` |
+| Regenerate the preview image at the top of this README | `tools/readme-preview/run.sh` (see its [README](tools/readme-preview/README.md)) |
 
 Bun loads `.env` from the working directory automatically. Copy `.env.example` to `.env` for development and keep it out of version control (it is git-ignored).
 
@@ -432,6 +433,7 @@ claude --plugin-dir /absolute/path/to/remote-agent/mod/remote-agent
 | `test/` | Tests, mirroring `src/` and `mod/`. Fakes for tmux and Channels live in `test/support/`. |
 | `deploy/` | The systemd user unit. |
 | `public/` | PWA manifest, service worker and icons. |
+| `tools/` | Maintainer tools that are not part of the app. `readme-preview/` regenerates the README image and has its own dependencies. |
 | `docs/` | Design specs, ADRs, the web Channel developer guide and agent instructions. |
 | `references/` | Research notes on Claude Code hooks, channels and Telegram. |
 

@@ -24,6 +24,7 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 - **Usage details on demand.** Open the usage overlay from the context percent in the chat header.
 - **Code block setting.** Choose whether long lines in code blocks wrap or scroll.
 - **Logo.** Light and dark SVG versions of the Remote Agent logo, used in the README.
+- **README preview.** A laptop and phone picture of the web UI at the top of the README, and `tools/readme-preview/run.sh` to regenerate it from a throwaway Bridge with demo data. The tool has its own dependencies and is not part of the app.
 - **License.** Released under the MIT License.
 
 ### Changed

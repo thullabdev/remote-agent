@@ -1,0 +1,9 @@
+{
+  "name": "readme-preview",
+  "private": true,
+  "type": "module",
+  "description": "Regenerates docs/assets/ui-preview.png. Not part of the app; its dependencies stay out of the root package.json.",
+  "dependencies": {
+    "puppeteer-core": "^25.17.0"
+  }
+}

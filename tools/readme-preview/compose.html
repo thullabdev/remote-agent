@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  .stage { position: relative; width: 1300px; height: 1040px; overflow: hidden; background: transparent; }
+
+  .laptop { position: absolute; left: 60px; top: 50px; width: 1000px; }
+  .laptop .lid {
+    background: #050b22; border-radius: 22px; padding: 14px;
+    box-sizing: border-box; width: 1000px;
+    filter: drop-shadow(0 22px 34px rgba(5, 11, 34, 0.28));
+  }
+  .laptop .lid img { display: block; width: 972px; height: 607.5px; border-radius: 6px; }
+  .laptop .base {
+    position: relative; width: 1080px; height: 14px; margin: 0 0 0 -40px;
+    background: #050b22; border-radius: 0 0 16px 16px;
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.06);
+  }
+  .laptop .base::before {
+    content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    width: 150px; height: 6px; background: #0b1538; border-radius: 0 0 8px 8px;
+  }
+
+  .phone {
+    position: absolute; left: 960px; top: 288px; width: 229px; height: 472px;
+    background: #050b22; border-radius: 37px; padding: 10px; box-sizing: border-box;
+    filter: drop-shadow(0 22px 34px rgba(5, 11, 34, 0.38));
+  }
+  .phone .screen { position: relative; width: 209px; height: 452px; border-radius: 29px; overflow: hidden; }
+  .phone .screen img { display: block; width: 209px; height: 452px; }
+  .phone .notch {
+    position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
+    width: 67px; height: 18px; background: #050b22; border-radius: 10px; z-index: 2;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="laptop">
+    <div class="lid"><img src="laptop.png" alt=""></div>
+    <div class="base"></div>
+  </div>
+  <div class="phone">
+    <div class="screen"><img src="phone.png" alt=""></div>
+    <div class="notch"></div>
+  </div>
+</div>
+</body>
+</html>
