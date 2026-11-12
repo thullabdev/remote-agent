@@ -30,6 +30,7 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 
 - The README is rewritten as a full project guide: features, platform support, prerequisites, installation, configuration, running, troubleshooting, development, limitations and contributing.
 - The web channel developer guide documents the attachment, pin and library endpoints, and the `usage` field in `GET /api/state`.
+- The README's "How it works" diagram is now an SVG in the logo's colors, with light and dark versions.
 - The account usage strip is removed from the chat list, and the composer's usage pill is gone. Usage opens from the chat header.
 - Chat titles read `<project> · <name>` without the Session id hash. A Session started from chat is named from its first task, and until named it reads "New session".
 - General takes no attachments, and its composer hides the attach button.

@@ -70,16 +70,12 @@ Remote Agent is built around one rule: a Session should never sit blocked becaus
 
 ## How it works
 
-```text
- Claude Code session                Bridge (Bun, one local process)         You
- ───────────────────                ───────────────────────────────         ───
- mod hooks ── Unix socket ───────▶  prompts, reports, instructions  ◀──┐
- (PermissionRequest, AskUserQuestion, SQLite database                 │
-  SessionStart, UserPromptSubmit)   ▲                                   │
-                                    │ 127.0.0.1:8787                    │
-                                    └── tailscale serve (HTTPS) ── browser
-                                    or Telegram Bot API (optional)
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.svg">
+    <img src="docs/assets/how-it-works.svg" alt="Claude Code Sessions talk to the Bridge over a Unix socket through the Remote Agent mod. The Bridge serves the web chat on 127.0.0.1:8787, published over HTTPS with tailscale serve, and can talk to Telegram instead. The Bridge also starts Spawned Sessions in tmux and keeps history in SQLite." width="900">
+  </picture>
+</p>
 
 - The **mod** is a Claude Code plugin. Its hooks send Prompts and Reports to the Bridge and wait for Answers.
 - The **Bridge** holds pending Prompts, serves the web chat, and records history in SQLite.
