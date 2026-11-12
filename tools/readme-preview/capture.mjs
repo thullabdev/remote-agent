@@ -68,18 +68,6 @@ async function waitForText(page, text) {
   await page.waitForFunction(needle => document.body.innerText.includes(needle), { timeout: 20000 }, text)
 }
 
-/**
- * Opening a chat at its pending prompt scrolls the prompt into view, which also scrolls the chat's overflow-hidden wrapper
- * (.chat-glow) and shifts the composer up. Put the wrapper back before taking a shot.
- */
-async function resetWrapperScroll(page) {
-  await page.evaluate(() => {
-    for (const element of document.querySelectorAll('.chat-glow')) {
-      element.scrollTop = 0
-    }
-  })
-}
-
 /** Scrolls the message feed: to the end, or so the smallest element matching the pattern sits near the top. */
 async function scrollFeed(page, pattern) {
   await page.evaluate(source => {
@@ -99,7 +87,6 @@ async function scrollFeed(page, pattern) {
       feed.scrollTop += target.getBoundingClientRect().top - feed.getBoundingClientRect().top - 64
     }
   }, pattern)
-  await resetWrapperScroll(page)
   await sleep(500)
 }
 
@@ -141,7 +128,6 @@ try {
     const page = await openPage(browser, LAPTOP)
     await tap(page, 'Fix login redirect')
     await waitForText(page, 'Allow')
-    await resetWrapperScroll(page)
     await expandEdit(page)
     await scrollFeed(page, 'Agent activityEdit')
     await shoot(page, 'laptop-chat')
@@ -150,7 +136,6 @@ try {
     const page = await openPage(browser, PHONE, PHONE_AGENT)
     await tap(page, 'Fix login redirect')
     await waitForText(page, 'Allow')
-    await resetWrapperScroll(page)
     await expandEdit(page)
     await scrollFeed(page, 'Agent activityEdit')
     await shoot(page, 'phone-activity')
@@ -160,7 +145,6 @@ try {
     const page = await openPage(browser, PHONE, PHONE_AGENT)
     await tap(page, 'Choose a cache strategy')
     await waitForText(page, 'In-memory LRU')
-    await resetWrapperScroll(page)
     await sleep(1000)
     await scrollFeed(page)
     await sleep(500)

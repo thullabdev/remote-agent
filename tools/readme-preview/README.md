@@ -50,8 +50,6 @@ The demo data is made up: the projects `web-app`, `api-service`, `docs-site` and
 
 Set `PREVIEW_HOLD=<seconds>` to keep the throwaway Bridge and proxy running after the data is seeded, so you can open the UI or point your own script at it. The URL is printed.
 
-`capture.mjs` resets the scroll of the chat's `.chat-glow` wrapper before each chat shot. Opening a chat at its pending prompt scrolls that `overflow: hidden` wrapper too, which shifts the composer up and leaves an empty strip at the bottom of the screen.
-
 ## Files
 
 | File | Purpose |
