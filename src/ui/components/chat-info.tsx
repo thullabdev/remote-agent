@@ -100,7 +100,7 @@ function saveChatInfoWidth(width: number): void {
 }
 
 /**
- * A sub-agent's activity, one page at a time, drawn with the chat's own rows and all open. Pages load when the panel opens on it,
+ * A sub-agent's activity, one page at a time, drawn with the chat's own rows, collapsed like the chat. Pages load when the panel opens on it,
  * on "Load more", and on "Refresh" at the bottom, which reads the activity again from the first line.
  */
 function SubagentActivity({
@@ -158,7 +158,7 @@ function SubagentActivity({
     <div className="space-y-3">
       {view.phase === 'failed' && <p className="text-sm text-red-700 dark:text-red-300">The activity could not be loaded. Try Refresh.</p>}
       {view.items.length === 0 && view.phase === 'ready' && <p className="text-sm text-muted-foreground">No activity recorded yet.</p>}
-      <MessageRows chatId={chatId} messages={subagentMessages(chatId, view.items)} expandAll onOpenSubagent={onOpenSubagent} />
+      <MessageRows chatId={chatId} messages={subagentMessages(chatId, view.items)} onOpenSubagent={onOpenSubagent} />
       {view.next !== null && (
         <Button variant="outline" className="w-full" disabled={busy !== null} onClick={() => read(view.next ?? 0, 'more')}>
           {busy === 'more' ? 'Loading…' : 'Load more'}
