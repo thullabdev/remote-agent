@@ -1,4 +1,4 @@
-import type { ActivityView, Chat, Draft, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { ActivityView, Chat, Draft, ForkView, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
 import type { TranscriptItem } from '../channel/web/transcript/parse.ts'
 
 /** One page of a sub-agent's activity: its items in order, and the cursor for the next page, or null at the end. */
@@ -44,10 +44,12 @@ export function createApiClient(fetcher: Fetcher = fetch): {
   pinChat(chatId: string, pinned: boolean): Promise<{ toast: string }>
   pinMessage(messageId: string, pinned: boolean): Promise<{ toast: string }>
   listPins(chatId: string): Promise<{ pins: PinView[] }>
+  listForks(chatId: string): Promise<{ forks: ForkView[] }>
   getDraft(chatId: string): Promise<{ draft: Draft | null }>
   saveDraft(chatId: string, draft: Draft): Promise<{ ok: true }>
   clearChat(chatId: string): Promise<{ ok: true }>
-  forkChat(chatId: string): Promise<{ toast: string }>
+  /** Without a messageId, forks the whole chat. With one, forks at that reply. `chatId` is the new chat, when it exists yet. */
+  forkChat(chatId: string, messageId?: string): Promise<{ toast: string; chatId: string | null }>
   /** `model` null resumes on the model the Session last used; a name starts it on that model. */
   resumeChat(chatId: string, model?: string | null): Promise<{ toast: string }>
   /** The model the Session last ran on, or null when unknown. */
@@ -140,10 +142,11 @@ export function createApiClient(fetcher: Fetcher = fetch): {
     pinChat: (chatId, pinned) => post(`/api/chats/${encodeURIComponent(chatId)}/pin`, { pinned }),
     pinMessage: (messageId, pinned) => post(`/api/messages/${encodeURIComponent(messageId)}/pin`, { pinned }),
     listPins: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/pins`),
+    listForks: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/forks`),
     getDraft: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/draft`),
     saveDraft: (chatId, draft) => put(`/api/chats/${encodeURIComponent(chatId)}/draft`, draft),
     clearChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/clear`),
-    forkChat: chatId => post(`/api/chats/${encodeURIComponent(chatId)}/fork`),
+    forkChat: (chatId, messageId) => post(`/api/chats/${encodeURIComponent(chatId)}/fork`, messageId === undefined ? undefined : { messageId }),
     resumeChat: (chatId, model = null) => post(`/api/chats/${encodeURIComponent(chatId)}/resume`, { model }),
     resumeModel: chatId => get(`/api/chats/${encodeURIComponent(chatId)}/resume-model`),
     subagentActivity: (chatId, agentId, cursor) =>

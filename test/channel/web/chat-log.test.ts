@@ -707,3 +707,45 @@ test('a chat carries its session model, and refreshChat sends the chat to client
   log.refreshChat('c1')
   expect(events).toEqual([expect.objectContaining({ type: 'chat.updated', chat: expect.objectContaining({ id: 'c1', model: 'claude-opus-5-5' }) })])
 })
+
+test('a fork records its origin and the origin lists it', () => {
+  const message = log.appendMessage('c1', agent('hi'), { sourceId: 'u1:0' })
+  log.createChat({ id: 'f1', sessionId: null, title: 'Fork' })
+  log.setForkOrigin('f1', { chatId: 'c1', messageId: message.id })
+
+  expect(log.getChat('f1')?.forkedFrom).toEqual({ chatId: 'c1', title: 'app session', fromMessageId: message.id, anchorMessageId: null, anchorSeq: null })
+  expect(log.getChat('c1')?.forkedFrom).toBeNull()
+  expect(log.listForks('c1')).toEqual([{ chatId: 'f1', title: 'Fork' }])
+})
+
+test('a fork_link row previews as the other chat it names', () => {
+  const link = log.appendMessage('c1', { kind: 'fork_link', direction: 'forked_to', otherChatId: 'f1', title: 'Fork', pointMessageId: 'm0' })
+  expect(log.getChat('c1')?.lastMessage?.preview).toBe('Forked to Fork')
+  expect(link).toMatchObject({ kind: 'fork_link', chatId: 'c1', otherChatId: 'f1' })
+})
+
+test('a fork of a fork points at its immediate parent, and each chat lists only its own forks', () => {
+  const message = log.appendMessage('c1', agent('hi'), { sourceId: 'u1:0' })
+  log.createChat({ id: 'f1', sessionId: null, title: 'First fork' })
+  log.setForkOrigin('f1', { chatId: 'c1', messageId: message.id })
+  const reply = log.appendMessage('f1', agent('again'), { sourceId: 'u2:0' })
+  log.createChat({ id: 'f2', sessionId: null, title: 'Second fork' })
+  log.setForkOrigin('f2', { chatId: 'f1', messageId: reply.id })
+
+  expect(log.getChat('f2')?.forkedFrom).toEqual({ chatId: 'f1', title: 'First fork', fromMessageId: reply.id, anchorMessageId: null, anchorSeq: null })
+  expect(log.listForks('f1')).toEqual([{ chatId: 'f2', title: 'Second fork' }])
+  expect(log.listForks('c1')).toEqual([{ chatId: 'f1', title: 'First fork' }])
+})
+
+test('a fork is anchored to its own copy of the reply it was made from, and stays unanchored until that copy is loaded', () => {
+  const origin = log.appendMessage('c1', agent('hi'), { sourceId: 'u1:0' })
+  log.createChat({ id: 'f1', sessionId: null, title: 'Fork' })
+  log.setForkOrigin('f1', { chatId: 'c1', messageId: origin.id })
+  expect(log.getChat('f1')?.forkedFrom?.anchorMessageId).toBeNull()
+  expect(log.getChat('f1')?.forkedFrom?.anchorSeq).toBeNull()
+
+  const copy = log.appendMessage('f1', agent('hi'), { sourceId: 'u1:0' })
+  log.appendMessage('f1', agent('later'), { sourceId: 'u9:0' })
+  expect(log.getChat('f1')?.forkedFrom?.anchorMessageId).toBe(copy.id)
+  expect(log.getChat('f1')?.forkedFrom?.anchorSeq).toBe(copy.seq)
+})

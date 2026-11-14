@@ -64,6 +64,13 @@ export type Chat = {
   lastMessage: { seq: number; at: number; preview: string } | null
   /** The unsent draft for this chat. `at` is when it was last edited: chats with a draft are listed first, newest edit on top. */
   draft: { preview: string; at: number } | null
+  /** Set on a chat made by forking another: the origin's title and the message it was forked from. Null for other chats; absent in tests that build a bare chat. */
+  /**
+   * `fromMessageId` is the message in the origin the fork was made from. `anchorMessageId` and `anchorSeq` are this chat's own copy of
+   * that reply, where the fork's banner sits; the banner goes right after it, or above the oldest loaded message when the copy is in an
+   * older page. Both are null until the copied history has been recorded.
+   */
+  forkedFrom?: { chatId: string; title: string; fromMessageId: string; anchorMessageId?: string | null; anchorSeq?: number | null } | null
   pinned: boolean
   tmuxName: string | null
   /** The full model id the Session runs on, from Claude Code's model switch. Null until it is known; absent in tests that build a bare chat. */
@@ -110,6 +117,12 @@ export type MessageBody =
       resolution: { note: string; source: 'local' | 'remote' } | null
     }
   | { kind: 'system'; text: string }
+  /**
+   * A row linking a fork and its origin. `forked_to` sits at the end of the origin's feed. `otherChatId` is the other chat: not `chatId`,
+   * which a Message already uses for the chat it is in, and which would overwrite this value when the body is spread into a Message.
+   * `pointMessageId` is the message in this chat the fork was made from.
+   */
+  | { kind: 'fork_link'; direction: 'forked_to' | 'forked_from'; otherChatId: string; title: string; pointMessageId: string }
   /** A Spawned Session's startup: one card that moves from starting to ready or failed. */
   | { kind: 'session_status'; state: 'starting' | 'resuming' | 'ready' | 'failed'; cwd: string; message: string | null; detail: string | null }
   | { kind: 'command_reply'; text: string }
@@ -127,10 +140,34 @@ export type UploadRef = { id: string; name: string; mime: string; size: number; 
 /** A library entry as the library lists it. `uses` counts the messages that attached it. */
 export type UploadRecord = { id: string; name: string; mime: string; size: number; createdAt: number; hasThumbnail: boolean; uses?: number }
 
+/**
+ * A fork of a chat as the chat's details list shows it. `pointMessageId` is the reply in the chat the fork was made from; `pointVisible`
+ * is false once that reply has been cleared from the chat, when there is nothing left to jump to.
+ */
+export type ForkView = {
+  chatId: string
+  title: string
+  status: 'active' | 'ended'
+  createdAt: number
+  pointMessageId: string
+  pointSeq: number
+  pointPreview: string
+  pointVisible: boolean
+}
+
 /** A pinned message as the chat details list shows it. */
 export type PinView = { id: string; seq: number; at: number; kind: MessageKind; preview: string }
 
-export type Message = { id: string; chatId: string; seq: number; at: number; /** Absent means not pinned; the server always sends it. */ pinned?: boolean } & MessageBody
+export type Message = {
+  id: string
+  chatId: string
+  seq: number
+  at: number
+  /** Absent means not pinned; the server always sends it. */
+  pinned?: boolean
+  /** Set on an agent reply that came from a transcript, so a fork can cut the transcript at it. Absent on replies the bridge wrote itself. */
+  forkable?: true
+} & MessageBody
 
 export type PushSubscriptionRecord = { endpoint: string; keys: { p256dh: string; auth: string } }
 

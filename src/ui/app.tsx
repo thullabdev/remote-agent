@@ -1,7 +1,7 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
 import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
+import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
 import { newChatToOpen } from './new-chat.ts'
 import { Button } from './components/ui/button.tsx'
@@ -66,6 +66,8 @@ export function App() {
   const chatsRef = useRef<Chat[]>([])
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
+  const [forksByChat, setForksByChat] = useState<Record<string, ForkView[]>>({})
+  const [forksVersion, setForksVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
@@ -170,6 +172,45 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  // Forks the chat at one reply and opens the fork, when the server has already made its chat.
+  // A fork starts a Session, so a second tap while one is in flight is ignored rather than starting another.
+  const forkInFlight = useRef(false)
+  const forkFromMessage = useCallback(async (message: Message) => {
+    if (forkInFlight.current) {
+      return
+    }
+    forkInFlight.current = true
+    try {
+      const result = await api.forkChat(message.chatId, message.id)
+      notify(result.toast)
+      setForksVersion(version => version + 1)
+      if (result.chatId !== null) {
+        openChat(result.chatId)
+      }
+    } catch (reason) {
+      handleError(reason)
+    } finally {
+      forkInFlight.current = false
+    }
+  }, [api, handleError, notify, openChat])
+
+  // Opens a chat and, when given a message, scrolls its feed to that message once the feed has mounted.
+  const openChatAt = useCallback((chatId: string, messageId?: string) => {
+    openChat(chatId)
+    if (messageId === undefined) {
+      return
+    }
+    let attempts = 0
+    const attempt = () => {
+      attempts += 1
+      if (scrollToMessage(messageId) || attempts >= 40) {
+        return
+      }
+      window.setTimeout(attempt, 100)
+    }
+    window.setTimeout(attempt, 100)
+  }, [openChat])
 
   // After a session is requested, the first chat that appears (not General, not one already listed) is opened for the user.
   const armNewChatWatch = useCallback(() => {
@@ -440,18 +481,18 @@ export function App() {
 
   useEffect(openLinkedChat, [chats])
 
-  /** Shows a pinned message: loads older pages until its seq is covered, then scrolls to it. */
-  const jumpToPin = async (pin: PinView) => {
+  /** Shows a message of this chat: loads older pages until its seq is covered, then scrolls to it. Used for bookmarks and fork points. */
+  const jumpToMessage = async (target: { id: string; seq: number }) => {
     const chatId = activeChatId
     if (chatId === null) {
       return
     }
     let before = messages[0]?.seq
     let hasMore = realtime?.hasMore[chatId] ?? false
-    if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
+    if (!scrollToMessage(target.id) && before !== undefined && target.seq < before && hasMore) {
       setBusyChatIds(current => new Set(current).add(`history:${chatId}`))
       try {
-        while (before !== undefined && pin.seq < before && hasMore) {
+        while (before !== undefined && target.seq < before && hasMore) {
           const page = await loadMessages(chatId, before)
           hasMore = page.hasMore
           before = page.messages[0]?.seq ?? before
@@ -464,7 +505,7 @@ export function App() {
         })
       }
     }
-    if (await scrollWhenRendered(pin.id)) {
+    if (await scrollWhenRendered(target.id)) {
       return
     }
     notify('That message could not be found in this chat.', 'error')
@@ -513,6 +554,16 @@ export function App() {
       setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
   }, [activeChatId, pinsVersion, infoOpen, api, handleError])
+
+  // The chat's forks load when the chat is opened, after a fork is made, and whenever the details open or Refresh is pressed.
+  useEffect(() => {
+    if (activeChatId === null) {
+      return
+    }
+    api.listForks(activeChatId).then(result => {
+      setForksByChat(current => ({ ...current, [activeChatId]: result.forks }))
+    }).catch(handleError)
+  }, [activeChatId, forksVersion, infoOpen, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -652,6 +703,8 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
+                  onFork={message => void forkFromMessage(message)}
+                  onOpenChat={openChatAt}
                   onOpenSubagent={(agentId, title) => {
                     setSubagentView({ chatId: activeChat.id, agentId, title })
                     setInfoOpen(true)
@@ -690,16 +743,23 @@ export function App() {
                 onPin={pinned => runInfoAction(() => api.pinChat(activeChat.id, pinned))}
                 onNotify={message => notify(message, 'error')}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
-                onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
+                onFork={() => runInfoAction(() => api.forkChat(activeChat.id)).then(() => setForksVersion(version => version + 1))}
                 onResume={() => {
                   setResumeOpen(true)
                   return Promise.resolve()
                 }}
                 pins={pinsByChat[activeChat.id] ?? []}
+                forks={forksByChat[activeChat.id] ?? []}
+                onRefreshForks={() => setForksVersion(version => version + 1)}
+                onShowFork={fork => {
+                  setInfoOpen(false)
+                  void jumpToMessage({ id: fork.pointMessageId, seq: fork.pointSeq }).catch(handleError)
+                }}
+                onOpenFork={chatId => openChat(chatId)}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
                 onJump={pin => {
                   setInfoOpen(false)
-                  void jumpToPin(pin).catch(handleError)
+                  void jumpToMessage(pin).catch(handleError)
                 }}
               />
             )}

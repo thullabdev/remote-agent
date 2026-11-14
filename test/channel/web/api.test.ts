@@ -76,6 +76,7 @@ function stubSpawner(): ApiDeps['spawner'] {
     },
     newCommand: async () => null,
     fork: async () => 'Forking api. Open its topic.',
+    forkAt: async () => ({ toast: 'Forking api. Open its topic.', newSessionId: null }),
     resume: async () => 'Resuming the existing Session.',
     lastModel: async () => null,
   }
@@ -994,4 +995,116 @@ test('sub-agent routes answer 404 when no sub-agent source is configured', async
   build()
   const chatId = seedSession()
   expect((await call('GET', `/api/chats/${chatId}/subagents/a1/activity`)).status).toBe(404)
+})
+
+/** A real spawner, a trusted session s1 in ~/Sites/api, and its transcript with uuids u1, a1, u2. Returns the chat and the reply a1. */
+async function seedForkableChat(options: { transcriptUuids?: string[]; replyIsLast?: boolean } = {}): Promise<{ chatId: string; replyId: string }> {
+  await useRealSpawner()
+  store.upsertSession({ sessionId: 's1', cwd: `${home}/Sites/api` })
+  channel.sessionSeen(store.getSession('s1')!)
+  const chatId = store.getSession('s1')!.chatId!
+  const uuids = options.transcriptUuids ?? ['u1', 'a1', 'u2']
+  const projectDir = `${home}/.claude/projects/${`${home}/Sites/api`.replace(/[/.]/g, '-')}`
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(`${projectDir}/s1.jsonl`, uuids.map(uuid => JSON.stringify({ uuid, sessionId: 's1', type: 'user' })).join('\n') + '\n')
+  const reply = chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Done.' }, { sourceId: 'a1:0' })
+  if (options.replyIsLast !== true) {
+    chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Then more.' }, { sourceId: 'a2:0' })
+  }
+  return { chatId, replyId: reply.id }
+}
+
+test('fork from a reply copies the transcript up to it, links both chats, and shows the link on the original', async () => {
+  const { chatId, replyId } = await seedForkableChat()
+
+  const { status, body } = await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })
+
+  expect(status).toBe(200)
+  const forkedChatId = (body as { chatId: string }).chatId
+  expect(forkedChatId).toEqual(expect.any(String))
+  expect(chatLog.getChat(forkedChatId)?.forkedFrom).toEqual({ chatId, title: expect.any(String), fromMessageId: replyId, anchorMessageId: null, anchorSeq: null })
+  expect(chatLog.listForks(chatId)).toEqual([{ chatId: forkedChatId, title: expect.any(String) }])
+  // The original's feed gets no link row: the fork is listed in the details panel instead.
+  expect(chatLog.listMessages(chatId, { limit: 50 }).messages.some(message => message.kind === 'fork_link')).toBe(false)
+  const argv = tmux.calls.find(line => line.includes('claude')) ?? []
+  expect(argv).toEqual(expect.arrayContaining(['--resume']))
+  expect(argv.includes('--fork-session')).toBe(false)
+})
+
+test('the last message of a chat cannot be forked from the feed', async () => {
+  const { chatId, replyId } = await seedForkableChat({ replyIsLast: true })
+  expect((await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })).status).toBe(409)
+  expect(tmux.calls.find(line => line.includes('claude'))).toBeUndefined()
+})
+
+test('a reply can be forked while its chat is busy', async () => {
+  const { chatId, replyId } = await seedForkableChat()
+  chatLog.updateChat(chatId, { busy: true })
+  expect((await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })).status).toBe(200)
+})
+
+test('a message the bridge wrote itself, with no transcript uuid, cannot be forked', async () => {
+  const { chatId } = await seedForkableChat()
+  const own = chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Written by the bridge.' })
+  chatLog.appendMessage(chatId, { kind: 'agent_text', markdown: 'Later.' }, { sourceId: 'a3:0' })
+  expect((await call('POST', `/api/chats/${chatId}/fork`, { messageId: own.id })).status).toBe(409)
+})
+
+test('fork from a message of another chat is 404', async () => {
+  const { chatId } = await seedForkableChat()
+  const other = chatLog.createChat({ id: 'other', sessionId: null, title: 'Other' })
+  const stray = chatLog.appendMessage(other.id, { kind: 'agent_text', markdown: 'Elsewhere.' }, { sourceId: 'x1:0' })
+  expect((await call('POST', `/api/chats/${chatId}/fork`, { messageId: stray.id })).status).toBe(404)
+})
+
+test('fork from a reply whose uuid is no longer in the transcript is 409', async () => {
+  const { chatId, replyId } = await seedForkableChat({ transcriptUuids: ['u1', 'u2'] })
+  expect((await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })).status).toBe(409)
+})
+
+test('fork without a messageId keeps the whole-chat fork', async () => {
+  const { chatId } = await seedForkableChat()
+  const { status, body } = await call('POST', `/api/chats/${chatId}/fork`)
+  expect(status).toBe(200)
+  expect(body).toEqual({ toast: expect.stringContaining('Forking') })
+  const argv = tmux.calls.find(line => line.includes('claude')) ?? []
+  expect(argv.includes('--fork-session')).toBe(true)
+})
+
+test('GET forks lists each fork with its title, status, and the reply it was made from', async () => {
+  const { chatId, replyId } = await seedForkableChat()
+  const forked = await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })
+  const forkedChatId = (forked.body as { chatId: string }).chatId
+
+  const { status, body } = await call('GET', `/api/chats/${chatId}/forks`)
+
+  expect(status).toBe(200)
+  expect(body).toEqual({
+    forks: [{
+      chatId: forkedChatId,
+      title: expect.any(String),
+      status: 'active',
+      createdAt: expect.any(Number),
+      pointMessageId: replyId,
+      pointSeq: expect.any(Number),
+      pointPreview: 'Done.',
+      pointVisible: true,
+    }],
+  })
+})
+
+test('GET forks with no forks answers an empty list, and an unknown chat is 404', async () => {
+  const { chatId } = await seedForkableChat()
+  expect(await call('GET', `/api/chats/${chatId}/forks`)).toEqual({ status: 200, body: { forks: [] } })
+  expect((await call('GET', '/api/chats/nope/forks')).status).toBe(404)
+})
+
+test('a fork whose reply was cleared from the original is listed as no longer visible', async () => {
+  const { chatId, replyId } = await seedForkableChat()
+  await call('POST', `/api/chats/${chatId}/fork`, { messageId: replyId })
+  chatLog.clearChat(chatId)
+
+  const { body } = await call('GET', `/api/chats/${chatId}/forks`)
+
+  expect(body.forks).toEqual([expect.objectContaining({ pointMessageId: replyId, pointVisible: false })])
 })

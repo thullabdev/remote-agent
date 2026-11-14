@@ -26,7 +26,7 @@ export type ApiDeps = {
   handlers: () => ChannelHandlers | null
   store: Store
   away: AwayMode
-  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'resume' | 'lastModel'>
+  spawner: Pick<Spawner, 'end' | 'newCommand' | 'fork' | 'forkAt' | 'resume' | 'lastModel'>
   sink: Pick<ChatSink, 'instructionQueued'>
   /** The current accounts and per-chat usage, read fresh for each state request. */
   usage: () => UsageView
@@ -101,6 +101,7 @@ const ROUTES: Route[] = [
   { method: 'POST', pattern: ['chats', ':id', 'pin'], run: ({ deps, request }, id) => pinChat(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'rename'], run: ({ deps, request }, id) => renameChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'pins'], run: ({ deps }, id) => listPins(deps, id) },
+  { method: 'GET', pattern: ['chats', ':id', 'forks'], run: ({ deps }, id) => listForks(deps, id) },
   { method: 'GET', pattern: ['chats', ':id', 'draft'], run: ({ deps }, id) => getDraft(deps, id) },
   { method: 'PUT', pattern: ['chats', ':id', 'draft'], run: ({ deps, request }, id) => saveDraft(deps, request, id) },
   { method: 'GET', pattern: ['uploads'], run: ({ deps }) => listUploads(deps) },
@@ -110,7 +111,7 @@ const ROUTES: Route[] = [
   { method: 'DELETE', pattern: ['uploads', ':id'], run: ({ deps }, id) => removeUpload(deps, id) },
   { method: 'POST', pattern: ['messages', ':id', 'pin'], run: ({ deps, request }, id) => pinMessage(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'clear'], run: ({ deps }, id) => clearHistory(deps, id) },
-  { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps }, id) => forkChat(deps, id) },
+  { method: 'POST', pattern: ['chats', ':id', 'fork'], run: ({ deps, request }, id) => forkChat(deps, request, id) },
   { method: 'POST', pattern: ['chats', ':id', 'resume'], run: ({ deps, request }, id) => resumeChat(deps, request, id) },
   { method: 'GET', pattern: ['chats', ':id', 'resume-model'], run: ({ deps }, id) => resumeModel(deps, id) },
   { method: 'GET', pattern: ['chats', ':id', 'subagents', '*', 'activity'], run: ({ deps, url }, id) => subagentActivity(deps, id, url) },
@@ -606,6 +607,11 @@ function listPins(deps: ApiDeps, chatId: string): unknown {
   return { pins: deps.chatLog.listPins(chatId) }
 }
 
+function listForks(deps: ApiDeps, chatId: string): unknown {
+  requireChat(deps, chatId)
+  return { forks: deps.chatLog.listForkDetails(chatId) }
+}
+
 function getDraft(deps: ApiDeps, chatId: string): unknown {
   requireChat(deps, chatId)
   return { draft: deps.chatLog.getDraft(chatId) }
@@ -637,14 +643,52 @@ function clearHistory(deps: ApiDeps, chatId: string): unknown {
   return { ok: true }
 }
 
-async function forkChat(deps: ApiDeps, chatId: string): Promise<unknown> {
-  requireChat(deps, chatId)
+const ForkChatSchema = z.object({ messageId: z.string().min(1).optional() })
+
+/** Without a messageId, forks the whole chat as before. With one, forks at that reply, which must end a turn. */
+async function forkChat(deps: ApiDeps, request: Request, chatId: string): Promise<unknown> {
+  const chat = requireChat(deps, chatId)
   const session = requireSession(deps, chatId)
+  const text = await request.text()
+  const body = text.trim() === '' ? ForkChatSchema.parse({}) : await readJsonBody(text, ForkChatSchema)
+  if (body.messageId !== undefined) {
+    return forkFromMessage(deps, chat, session, body.messageId)
+  }
   const toast = await deps.spawner.fork(session.id)
   if (toast === NOT_TRUSTED) {
     throw new ApiError(409, toast)
   }
   return { toast }
+}
+
+/** Forks at one reply. Links the new chat to this one and records the link in this chat's feed. */
+async function forkFromMessage(deps: ApiDeps, chat: Chat, session: SessionRow, messageId: string): Promise<unknown> {
+  const message = deps.chatLog.findMessage(messageId)
+  if (message === undefined || message.chatId !== chat.id) {
+    throw new ApiError(404, 'Unknown message.')
+  }
+  // The last message is the whole chat: the details panel's fork covers that, so the feed does not offer it here.
+  if (chat.lastMessage?.seq === message.seq) {
+    throw new ApiError(409, 'The last message is the whole chat. Fork the chat from its details instead.')
+  }
+  if (message.kind !== 'agent_text' || message.forkable !== true) {
+    throw new ApiError(409, 'Only a reply from the session transcript can be forked.')
+  }
+  const uuid = (deps.chatLog.sourceIdOf(message.id) ?? '').split(':')[0] ?? ''
+  if (uuid === '') {
+    throw new ApiError(409, 'This reply cannot be forked.')
+  }
+  const model = await deps.spawner.lastModel(session.id)
+  const { toast, newSessionId } = await deps.spawner.forkAt(session.id, uuid, model)
+  if (newSessionId === null) {
+    throw new ApiError(409, toast)
+  }
+  const forkedChatId = deps.store.getSession(newSessionId)?.chatId ?? null
+  // The link lives on the fork; the original lists its forks in the details panel, not in its feed.
+  if (forkedChatId !== null) {
+    deps.chatLog.setForkOrigin(forkedChatId, { chatId: chat.id, messageId: message.id })
+  }
+  return { toast, chatId: forkedChatId }
 }
 
 /** The model a resumed Session would use by default: the one it last ran on, or null when unknown. */

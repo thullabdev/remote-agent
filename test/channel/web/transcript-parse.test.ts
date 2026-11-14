@@ -141,3 +141,21 @@ test('parse: a compaction summary and its boundary marker show nothing', () => {
   expect(parseTranscriptLine(summaryAsBlocks)).toEqual([])
   expect(parseTranscriptLine(boundary)).toEqual([])
 })
+
+test('agent text is plain text whatever the message stop reason, so no turn flag is stored', () => {
+  const endLine = (uuid: string, stopReason: string, content: unknown[]) =>
+    JSON.stringify({ type: 'assistant', uuid, timestamp: AT, message: { id: 'msg_2', role: 'assistant', stop_reason: stopReason, content } })
+
+  expect(parseTranscriptLine(endLine('e-1', 'end_turn', [{ type: 'text', text: 'Done.' }]))).toEqual([
+    { sourceId: 'e-1:0', at: MS, item: { kind: 'agent_text', markdown: 'Done.' } },
+  ])
+  expect(parseTranscriptLine(endLine('e-2', 'tool_use', [{ type: 'text', text: 'Checking.' }]))).toEqual([
+    { sourceId: 'e-2:0', at: MS, item: { kind: 'agent_text', markdown: 'Checking.' } },
+  ])
+  expect(
+    parseTranscriptLine(endLine('e-3', 'end_turn', [{ type: 'text', text: 'First.' }, { type: 'text', text: 'Last.' }])),
+  ).toEqual([
+    { sourceId: 'e-3:0', at: MS, item: { kind: 'agent_text', markdown: 'First.' } },
+    { sourceId: 'e-3:1', at: MS, item: { kind: 'agent_text', markdown: 'Last.' } },
+  ])
+})
