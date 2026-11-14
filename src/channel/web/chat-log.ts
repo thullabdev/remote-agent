@@ -351,10 +351,12 @@ export class ChatLog {
       return null
     }
     const anchor = this.forkAnchorOf(record.id, record.fork_point_message_id)
+    const point = this.findMessage(record.fork_point_message_id)
     return {
       chatId: record.forked_from_chat_id,
       title: record.origin_custom_title ?? record.origin_title,
       fromMessageId: record.fork_point_message_id,
+      fromMessageSeq: point?.seq ?? null,
       anchorMessageId: anchor?.id ?? null,
       anchorSeq: anchor?.seq ?? null,
     }

@@ -1022,7 +1022,7 @@ test('fork from a reply copies the transcript up to it, links both chats, and sh
   expect(status).toBe(200)
   const forkedChatId = (body as { chatId: string }).chatId
   expect(forkedChatId).toEqual(expect.any(String))
-  expect(chatLog.getChat(forkedChatId)?.forkedFrom).toEqual({ chatId, title: expect.any(String), fromMessageId: replyId, anchorMessageId: null, anchorSeq: null })
+  expect(chatLog.getChat(forkedChatId)?.forkedFrom).toEqual({ chatId, title: expect.any(String), fromMessageId: replyId, fromMessageSeq: expect.any(Number), anchorMessageId: null, anchorSeq: null })
   expect(chatLog.listForks(chatId)).toEqual([{ chatId: forkedChatId, title: expect.any(String) }])
   // The original's feed gets no link row: the fork is listed in the details panel instead.
   expect(chatLog.listMessages(chatId, { limit: 50 }).messages.some(message => message.kind === 'fork_link')).toBe(false)

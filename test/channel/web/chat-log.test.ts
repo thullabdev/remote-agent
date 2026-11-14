@@ -713,7 +713,7 @@ test('a fork records its origin and the origin lists it', () => {
   log.createChat({ id: 'f1', sessionId: null, title: 'Fork' })
   log.setForkOrigin('f1', { chatId: 'c1', messageId: message.id })
 
-  expect(log.getChat('f1')?.forkedFrom).toEqual({ chatId: 'c1', title: 'app session', fromMessageId: message.id, anchorMessageId: null, anchorSeq: null })
+  expect(log.getChat('f1')?.forkedFrom).toEqual({ chatId: 'c1', title: 'app session', fromMessageId: message.id, fromMessageSeq: message.seq, anchorMessageId: null, anchorSeq: null })
   expect(log.getChat('c1')?.forkedFrom).toBeNull()
   expect(log.listForks('c1')).toEqual([{ chatId: 'f1', title: 'Fork' }])
 })
@@ -732,7 +732,7 @@ test('a fork of a fork points at its immediate parent, and each chat lists only 
   log.createChat({ id: 'f2', sessionId: null, title: 'Second fork' })
   log.setForkOrigin('f2', { chatId: 'f1', messageId: reply.id })
 
-  expect(log.getChat('f2')?.forkedFrom).toEqual({ chatId: 'f1', title: 'First fork', fromMessageId: reply.id, anchorMessageId: null, anchorSeq: null })
+  expect(log.getChat('f2')?.forkedFrom).toEqual({ chatId: 'f1', title: 'First fork', fromMessageId: reply.id, fromMessageSeq: reply.seq, anchorMessageId: null, anchorSeq: null })
   expect(log.listForks('f1')).toEqual([{ chatId: 'f2', title: 'Second fork' }])
   expect(log.listForks('c1')).toEqual([{ chatId: 'f1', title: 'First fork' }])
 })

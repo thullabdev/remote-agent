@@ -66,11 +66,12 @@ export type Chat = {
   draft: { preview: string; at: number } | null
   /** Set on a chat made by forking another: the origin's title and the message it was forked from. Null for other chats; absent in tests that build a bare chat. */
   /**
-   * `fromMessageId` is the message in the origin the fork was made from. `anchorMessageId` and `anchorSeq` are this chat's own copy of
-   * that reply, where the fork's banner sits; the banner goes right after it, or above the oldest loaded message when the copy is in an
-   * older page. Both are null until the copied history has been recorded.
+   * `fromMessageId` is the message in the origin the fork was made from, and `fromMessageSeq` its place there, so the origin can be
+   * paged to it. `anchorMessageId` and `anchorSeq` are this chat's own copy of that reply, where the fork's banner sits; the banner goes
+   * right after it, or above the oldest loaded message when the copy is in an older page. Both are null until the copied history has
+   * been recorded.
    */
-  forkedFrom?: { chatId: string; title: string; fromMessageId: string; anchorMessageId?: string | null; anchorSeq?: number | null } | null
+  forkedFrom?: { chatId: string; title: string; fromMessageId: string; fromMessageSeq?: number | null; anchorMessageId?: string | null; anchorSeq?: number | null } | null
   pinned: boolean
   tmuxName: string | null
   /** The full model id the Session runs on, from Claude Code's model switch. Null until it is known; absent in tests that build a bare chat. */

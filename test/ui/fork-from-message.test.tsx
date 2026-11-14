@@ -5,7 +5,7 @@ import type { Chat, Message } from '../../src/channel/web/protocol.ts'
 import { MessageFeed } from '../../src/ui/components/message-feed.tsx'
 
 const FORK_BUTTON = 'aria-label="Fork from this message"'
-const JUMP_TO_POINT = 'aria-label="Go to fork point"'
+const JUMP_TO_POINT = 'Show fork point</button>'
 const JUMP_TO_FORK = 'aria-label="Jump to fork"'
 
 const chat = (overrides: Partial<Chat> = {}): Chat => ({

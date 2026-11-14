@@ -29,7 +29,7 @@ type MessageFeedProps = {
   /** Forks the chat at this reply. Only offered on a reply that ends a turn, and not while the chat is busy. */
   onFork?(message: Message): void
   /** Opens another chat, and when given a message in it, scrolls to that message: used for a fork's origin and its fork point. */
-  onOpenChat?(chatId: string, messageId?: string): void
+  onOpenChat?(chatId: string, messageId?: string, seq?: number | null): void
   /** Opens a background sub-agent's full activity in the details panel. */
   onOpenSubagent?(agentId: string, title: string): void
 }
@@ -383,15 +383,15 @@ function ForkLinkCard({
       <span className="min-w-0 truncate text-muted-foreground">
         {label} <span className="font-medium text-foreground">{title}</span>
       </span>
-      <span className="ml-auto flex items-center gap-1">
+      <span className="ml-auto flex items-center gap-2">
         <button
           type="button"
           onClick={onGoToPoint}
-          aria-label="Go to fork point"
-          title="Go to fork point"
-          className="rounded-md p-1 text-current opacity-80 transition-opacity hover:bg-black/5 hover:opacity-100"
+          aria-label="Show fork point"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
           <Crosshair className="size-3.5" aria-hidden="true" />
+          Show fork point
         </button>
         <button type="button" onClick={onOpen} className="rounded-md px-1.5 py-0.5 text-xs text-primary underline underline-offset-2 hover:bg-black/5">
           {openLabel}
@@ -402,14 +402,14 @@ function ForkLinkCard({
 }
 
 /** A fork's feed ends with where it came from: the original chat, and the message the fork was made from. */
-function ForkBanner({ origin, onOpen }: { origin: NonNullable<Chat['forkedFrom']>; onOpen?(chatId: string, messageId?: string): void }) {
+function ForkBanner({ origin, onOpen }: { origin: NonNullable<Chat['forkedFrom']>; onOpen?: MessageFeedProps['onOpenChat'] }) {
   return (
     <ForkLinkCard
       label="Forked from"
       title={origin.title}
       openLabel="Open original"
       onOpen={() => onOpen?.(origin.chatId)}
-      onGoToPoint={() => onOpen?.(origin.chatId, origin.fromMessageId)}
+      onGoToPoint={() => onOpen?.(origin.chatId, origin.fromMessageId, origin.fromMessageSeq ?? null)}
     />
   )
 }

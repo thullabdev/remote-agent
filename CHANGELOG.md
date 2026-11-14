@@ -50,3 +50,4 @@ All notable changes to Remote Agent are recorded here. The format follows [Keep 
 - A Session's transcript and its resume use the folder the Session was launched in.
 - Old transcript entries that the Chat never recorded are no longer backfilled.
 - Text copies even where the async clipboard is unavailable, such as over plain http.
+- **Show fork point** waits for the original chat's page and loads older pages until the reply is there, like a bookmark, instead of only scrolling to what was already loaded. Bookmarks, fork points and Prompts now share one reveal helper.
