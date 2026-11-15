@@ -4,14 +4,19 @@ import { ArrowLeft, Plus, X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
+import { closeSession } from './sessions-client.ts'
 
 export type TerminalSession = {
   id: string
+  /** The folder the shell was started in. It does not follow `cd`. */
   cwd: string
   login: string
   connected: boolean
   bytesIn?: number
   bytesOut?: number
+  project?: string
+  chatId?: string | null
+  createdAt?: number
 }
 
 type Density = 'compact' | 'comfortable'
@@ -21,8 +26,9 @@ type TerminalPanelProps = {
   activeTerminalId: string | null
   /** Back to the chat list, or the General view. The terminal stays running; only its view is left. */
   onBack(): void
-  onNew(): void
-  /** Called after the session has been asked to close on the server. */
+  /** Starts a shell: in `cwd` when given, else in home. */
+  onNew(cwd?: string): void
+  /** Called once the session has been closed on the server. */
   onClose(sid: string): void
   density?: Density
 }
@@ -38,27 +44,16 @@ type ServerMessage =
   | { type: 'replay'; sid: string; data: string }
   | { type: 'output'; sid: string; data: string }
   | { type: 'exit'; sid: string; code: number | null }
-  | { type: 'error'; sid?: string; message: string }
+  | { type: 'error'; sid?: string; code?: string; message: string }
 
 type ViewportState = 'connecting' | 'connected' | 'reconnecting' | 'exited' | 'error'
 
-type ViewportStatus = { state: ViewportState; cwd: string | null; message: string | null }
+/** `code` is set for an open that the server refused with a reason the UI acts on, such as `not_found`. */
+type ViewportStatus = { state: ViewportState; cwd: string | null; message: string | null; code: string | null }
 
 export function terminalSocketUrl(location: Location): string {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
   return `${scheme}://${location.host}${TERMINAL_WS_ROUTE}`
-}
-
-/** Asks the server to kill a session. Used for tabs that are not currently attached. */
-export function requestSessionClose(sid: string): void {
-  const socket = new WebSocket(terminalSocketUrl(window.location))
-  socket.onopen = () => {
-    socket.send(JSON.stringify({ type: 'close', sid }))
-    socket.close()
-  }
-  socket.onerror = () => {
-    // Best effort: the tab is removed either way, and the idle timer reaps anything left behind.
-  }
 }
 
 /** Terminal colours from the app's CSS tokens, so the terminal follows theme, accent and dark mode. */
@@ -91,22 +86,33 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
   const reportStatus = useCallback((sid: string, patch: Partial<ViewportStatus>) => {
     setStatuses(current => ({
       ...current,
-      [sid]: { state: 'connecting', cwd: null, message: null, ...current[sid], ...patch },
+      [sid]: { state: 'connecting', cwd: null, message: null, code: null, ...current[sid], ...patch },
     }))
   }, [])
 
   const retry = (sid: string) => {
-    setStatuses(current => ({ ...current, [sid]: { state: 'connecting', cwd: null, message: null } }))
+    setStatuses(current => ({ ...current, [sid]: { state: 'connecting', cwd: null, message: null, code: null } }))
     setAttempts(current => ({ ...current, [sid]: (current[sid] ?? 0) + 1 }))
   }
 
   const handleClose = (sid: string) => {
-    requestSessionClose(sid)
-    setStatuses(current => {
-      const { [sid]: _removed, ...rest } = current
-      return rest
-    })
-    onClose(sid)
+    // The tab goes only once the server has killed the shell. If that fails, the tab stays and says why.
+    closeSession(sid)
+      .then(() => {
+        setStatuses(current => {
+          const { [sid]: _removed, ...rest } = current
+          return rest
+        })
+        onClose(sid)
+      })
+      .catch(error => {
+        reportStatus(sid, { state: 'error', message: error instanceof Error ? error.message : 'could not close the terminal' })
+      })
+  }
+
+  const folderOf = (sid: string | null): string | undefined => {
+    const tab = tabs.find(terminal => terminal.id === sid)
+    return tab === undefined || tab.cwd === '' ? undefined : tab.cwd
   }
 
   if (tabs.length === 0) {
@@ -117,7 +123,7 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
         </div>
         <p className="mt-5 font-display text-xl font-semibold tracking-tight">No terminal sessions</p>
         <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Open a shell over Tailscale. Sessions survive reloads.</p>
-        <Button className="mt-5" variant="outline" onClick={onNew}>
+        <Button className="mt-5" variant="outline" onClick={() => onNew()}>
           <Plus className="mr-2 size-4" aria-hidden="true" />
           Start terminal
         </Button>
@@ -161,25 +167,39 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
             )
           })}
         </div>
-        <Button size="icon-sm" variant="ghost" onClick={onNew} title="New terminal" aria-label="New terminal">
+        <Button size="icon-sm" variant="ghost" onClick={() => onNew()} title="New terminal" aria-label="New terminal">
           <Plus className="size-3.5" aria-hidden="true" />
         </Button>
       </header>
 
       {activeTerminalId !== null ? (
-        <TerminalViewport
-          key={`${activeTerminalId}:${attempts[activeTerminalId] ?? 0}`}
-          sid={activeTerminalId}
-          cwd={activeTab?.cwd ?? ''}
-          density={density}
-          onStatus={patch => reportStatus(activeTerminalId, patch)}
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <TerminalViewport
+            key={`${activeTerminalId}:${attempts[activeTerminalId] ?? 0}`}
+            sid={activeTerminalId}
+            density={density}
+            onStatus={patch => reportStatus(activeTerminalId, patch)}
+          />
+          {activeStatus?.code === 'not_found' ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/90 px-8 text-center">
+              <p className="font-display text-lg font-semibold tracking-tight">This shell has ended</p>
+              <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Its session is closed, so there is nothing to reattach to.</p>
+              <Button className="mt-4" variant="outline" onClick={() => onNew(folderOf(activeTerminalId))}>
+                Start a new shell{folderOf(activeTerminalId) === undefined ? '' : ' here'}
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <footer className={cn('flex shrink-0 items-center gap-4 border-t border-border/60 bg-muted/50 text-xs text-muted-foreground', padX, padY)}>
         {activeTerminalId !== null ? <span className="truncate">{activeTerminalId}</span> : null}
         {activeTab !== null && activeTab.login !== '' ? <span>{activeTab.login}</span> : null}
-        {(activeStatus?.cwd ?? activeTab?.cwd) ? <span className="min-w-0 truncate">{activeStatus?.cwd ?? activeTab?.cwd}</span> : null}
+        {(activeStatus?.cwd ?? activeTab?.cwd) ? (
+          <span className="min-w-0 truncate" title="The folder this shell was started in">
+            Started in {activeStatus?.cwd ?? activeTab?.cwd}
+          </span>
+        ) : null}
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <span className={cn('size-1.5 rounded-full', dotClass(activeStatus?.state))} aria-hidden="true" />
           <span>{stateLabel(activeStatus)}</span>
@@ -195,7 +215,7 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
 }
 
 /** One xterm instance on one WebSocket. It owns the connection, reconnects with backoff, and reattaches with `replay`. */
-function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: string; density: Density; onStatus(patch: Partial<ViewportStatus>): void }) {
+function TerminalViewport({ sid, density, onStatus }: { sid: string; density: Density; onStatus(patch: Partial<ViewportStatus>): void }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const statusRef = useRef(onStatus)
   statusRef.current = onStatus
@@ -228,7 +248,8 @@ function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: s
         if (term === null) {
           return
         }
-        send({ type: 'open', sid, cols: term.cols, rows: term.rows, ...(cwd === '' ? {} : { cwd }) })
+        // The folder is stored on the server with the session; the client only says how big its screen is.
+        send({ type: 'open', sid, cols: term.cols, rows: term.rows })
       }
       ws.onmessage = event => {
         if (term === null) {
@@ -244,7 +265,7 @@ function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: s
           case 'ready':
             ready = true
             backoffAttempt = 0
-            statusRef.current({ state: 'connected', cwd: message.cwd, message: null })
+            statusRef.current({ state: 'connected', cwd: message.cwd, message: null, code: null })
             return
           case 'replay':
             // The buffer is the whole history so far: start from a clean screen, then write it.
@@ -257,13 +278,13 @@ function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: s
           case 'exit':
             finished = true
             term.write(`\r\n\x1b[2m[shell exited${message.code === null ? '' : ` with code ${message.code}`}]\x1b[0m\r\n`)
-            statusRef.current({ state: 'exited', message: null })
+            statusRef.current({ state: 'exited', message: null, code: null })
             return
           case 'error':
             if (!ready) {
               // The session could not be opened (already attached elsewhere, limit reached, another user's). Show it; Retry reopens.
               finished = true
-              statusRef.current({ state: 'error', message: message.message })
+              statusRef.current({ state: 'error', message: message.message, code: message.code ?? null })
               socket?.close()
               return
             }
@@ -276,7 +297,7 @@ function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: s
           return
         }
         ready = false
-        statusRef.current({ state: 'reconnecting', message: null })
+        statusRef.current({ state: 'reconnecting', message: null, code: null })
         const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** backoffAttempt)
         backoffAttempt += 1
         retryTimer = setTimeout(connect, delay)
@@ -309,7 +330,7 @@ function TerminalViewport({ sid, cwd, density, onStatus }: { sid: string; cwd: s
         }
       })
       themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] })
-      statusRef.current({ state: 'connecting', message: null })
+      statusRef.current({ state: 'connecting', message: null, code: null })
       connect()
     })
 

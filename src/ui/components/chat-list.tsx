@@ -10,6 +10,7 @@ import { useNow } from './usage-meters.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
+import { groupByFolder } from '../../../extensions/terminal/frontend/grouping.ts'
 
 type ChatListProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
@@ -26,8 +27,10 @@ type ChatListProps = {
   onNew(): void
   /** Opens a terminal section by session id. */
   onOpenTerminal?(sid: string): void
+  /** Starts another shell in a folder, from that folder's group in the Terminals section. */
+  onNewTerminal?(cwd: string): void
   /** Active terminal sessions, listed in the sidebar. */
-  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean }>
+  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean; createdAt?: number }>
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
   onSettings(): void
@@ -217,6 +220,7 @@ export function ChatList({
   onOpen,
   onNew,
   onOpenTerminal,
+  onNewTerminal,
   terminals = [],
   onRetry,
   onSettings,
@@ -441,19 +445,32 @@ export function ChatList({
         )}
         {terminals.length > 0 && (
           <Section id="list-terminals" title="Terminals">
-            {terminals.map(term => (
-              <button
-                key={term.id}
-                type="button"
-                onClick={() => void onOpenTerminal?.(term.id)}
-                className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors ${
-                  activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
-                }`}
-              >
-                <span className="mr-2">{term.id}</span>
-                <span className="min-w-0 flex-1 truncate">{term.cwd}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{term.connected ? 'connected' : 'disconnected'}</span>
-              </button>
+            {groupByFolder(terminals).map(group => (
+              <div key={group.cwd} className="space-y-0.5">
+                <div className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate font-medium" title={group.cwd}>
+                    {group.project}
+                  </span>
+                  {onNewTerminal !== undefined && (
+                    <Button variant="ghost" size="icon-sm" aria-label={`New terminal in ${group.project}`} title={`New terminal in ${group.cwd}`} onClick={() => onNewTerminal(group.cwd)}>
+                      <Plus aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+                {group.sessions.map(term => (
+                  <button
+                    key={term.id}
+                    type="button"
+                    onClick={() => void onOpenTerminal?.(term.id)}
+                    className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors ${
+                      activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{term.id.replace(/^term-/, '').slice(0, 8)}</span>
+                    {term.createdAt !== undefined && <span className="shrink-0 text-xs text-muted-foreground">{new Date(term.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  </button>
+                ))}
+              </div>
             ))}
           </Section>
         )}

@@ -13,6 +13,7 @@ import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { TerminalPanel, type TerminalSession } from '../../extensions/terminal/frontend/TerminalPanel.tsx'
+import { createSession, listSessions, type SessionView } from '../../extensions/terminal/frontend/sessions-client.ts'
 // Import extension frontend entries so they call registerPanel. One import per extension.
 import '../../extensions/terminal/frontend/index.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
@@ -50,6 +51,14 @@ export function App() {
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => deepLinkTerminal(window.location.search))
   const [terminals, setTerminals] = useState<TerminalSession[]>([])
+  // The server keeps the list of open sessions; this state is its copy for the sidebar, dashboard and panel.
+  useEffect(() => {
+    void listSessions()
+      .then(sessions => setTerminals(sessions.map(terminalOf)))
+      .catch(() => {
+        // The terminal extension may be missing or the list unreachable; the rest of the app does not depend on it.
+      })
+  }, [])
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -193,15 +202,33 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  /**
-   * Opens a fresh terminal with a new session id, starting in `cwd` (a chat's project folder). Without one the shell starts in the
-   * home directory.
-   */
-  const openNewTerminal = useCallback((cwd?: string) => {
-    const sid = `term-${crypto.randomUUID()}`
-    setTerminals(current => [...current, { id: sid, cwd: cwd ?? '', login: '', connected: false }])
-    openTerminal(sid)
-  }, [openTerminal])
+  /** Starts a shell on the server in `cwd` (home when omitted) and opens it. The server chooses the session id. */
+  const startTerminal = useCallback(
+    async (cwd?: string, chatId?: string | null) => {
+      try {
+        const created = await createSession({ cwd, chatId: chatId ?? null })
+        setTerminals(current => [terminalOf({ sid: created.sid, cwd: created.cwd, chatId: chatId ?? null, createdAt: created.createdAt }), ...current])
+        openTerminal(created.sid)
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Could not start the terminal', 'error')
+      }
+    },
+    [openTerminal, notify],
+  )
+
+  /** A chat's terminal: the open shell for its project folder if there is one, else a new shell there, linked to the chat. */
+  const openTerminalForChat = useCallback(
+    (chat: Chat) => {
+      const folder = chat.launchCwd ?? chat.cwd ?? undefined
+      const existing = folder === undefined ? undefined : terminals.find(terminal => terminal.cwd === folder)
+      if (existing !== undefined) {
+        openTerminal(existing.id)
+        return
+      }
+      void startTerminal(folder, chat.id)
+    },
+    [terminals, openTerminal, startTerminal],
+  )
 
   /** Closes a terminal session and removes it from the list. */
   const closeTerminal = useCallback((sid: string) => {
@@ -631,6 +658,7 @@ export function App() {
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onOpenTerminal={openTerminal}
+        onNewTerminal={cwd => void startTerminal(cwd)}
         terminals={terminals}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
@@ -668,7 +696,7 @@ export function App() {
             terminals={terminals}
             activeTerminalId={activeTerminalId}
             onBack={() => openChat(null)}
-            onNew={openNewTerminal}
+            onNew={cwd => void startTerminal(cwd)}
             onClose={closeTerminal}
             density={preferences.density}
           />
@@ -693,7 +721,7 @@ export function App() {
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
                 model={activeChat?.model ?? sessionModel}
-                onOpenTerminal={() => openNewTerminal(activeChat.launchCwd ?? activeChat.cwd ?? undefined)}
+                onOpenTerminal={() => openTerminalForChat(activeChat)}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -854,6 +882,11 @@ export function App() {
       />
     </div>
   )
+}
+
+/** The terminal list entry for a session the server reported or just created. */
+function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt'>>): TerminalSession {
+  return { id: view.sid, cwd: view.cwd, login: '', connected: false, chatId: view.chatId ?? null, createdAt: view.createdAt }
 }
 
 function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
