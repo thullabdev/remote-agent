@@ -7,6 +7,8 @@ import { authorize } from './auth.ts'
 import type { ChatLog } from './chat-log.ts'
 import { closeQuietly, Hub } from './hub.ts'
 import { ClientEventSchema, type UsageView } from './protocol.ts'
+import { createExtensionApi, type ExtensionRouteRegistrar } from '../../extension-sdk/index.ts'
+import { loadExtensions } from './extension-registry.ts'
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 const MAX_FRAME_BYTES = 16 * 1024 * 1024
@@ -14,7 +16,17 @@ const WS_IDLE_TIMEOUT_SECONDS = 120
 const REAP_INTERVAL_MS = 30_000
 const STALE_AFTER_MS = 90_000
 
-type SocketData = { after: number; id: string | null }
+type SocketData = {
+  after: number
+  id: string | null
+  /** Set for extension WebSocket sockets; null for the chat WebSocket. */
+  extensionId: string | null
+  extensionHandlers: {
+    open?: (ws: ServerWebSocket<SocketData>) => void
+    message?: (ws: ServerWebSocket<SocketData>, raw: string | Buffer) => void
+    close?: (ws: ServerWebSocket<SocketData>) => void
+  } | null
+}
 
 export type WebServerDeps = {
   config: WebConfig
@@ -26,6 +38,8 @@ export type WebServerDeps = {
   log: Log
   port?: number
   idleMs?: number
+  /** Directory scanned for extensions at startup. Defaults to <cwd>/extensions. */
+  extensionDir?: string
 }
 
 export type WebServer = { port: number; hostname: string; stop(): void }
@@ -119,6 +133,25 @@ export function startWebServer(deps: WebServerDeps): WebServer {
   const staleAfterMs = deps.idleMs ?? STALE_AFTER_MS
   const sockets = new Set<ServerWebSocket<SocketData>>()
 
+  /** Routes registered by extensions, namespaced under /api/extensions/<extensionId>/... */
+  const extensionHttpRoutes = new Array<{ method: string; path: string; handler: (request: Request) => Promise<Response | null> }>()
+  const extensionWebSocketRoutes = new Array<{ path: string; handlers: { open?: (ws: ServerWebSocket<SocketData>) => void; message?: (ws: ServerWebSocket<SocketData>, raw: string | Buffer) => void; close?: (ws: ServerWebSocket<SocketData>) => void } }>()
+
+  const registrar: ExtensionRouteRegistrar = {
+    onHttpRoute(method, path, handler) {
+      extensionHttpRoutes.push({ method, path, handler })
+    },
+    onWebSocketRoute(path, handlers) {
+      extensionWebSocketRoutes.push({ path, handlers })
+    },
+    onFrontendPanel: () => {
+      // Frontend panels are registered by the frontend host, not the web server.
+    },
+  }
+
+  const api = createExtensionApi(registrar)
+  void loadExtensions(deps.extensionDir ?? join(resolve('.'), 'extensions'), { api, log })
+
   /** Routes one request; any throw becomes the generic 500 in `fetch`. */
   async function handle(request: Request, server: Server<SocketData>): Promise<Response | undefined> {
     const auth = authorize(request, { allowedLogin: config.allowedLogin, origins: config.origins, token: config.token })
@@ -140,9 +173,21 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       }
       return json({ error: 'expected a WebSocket upgrade' }, 400)
     }
+    const extensionWsRoute = extensionWebSocketRoutes.find(route => url.pathname === route.path)
+    if (extensionWsRoute && request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+      if (server.upgrade(request, { data: { after: 0, id: null, extensionId: extensionWsRoute.path, extensionHandlers: extensionWsRoute.handlers } })) {
+        return undefined
+      }
+      return json({ error: 'expected a WebSocket upgrade' }, 400)
+    }
     const handled = await deps.api(request)
     if (handled !== null) {
       return handled
+    }
+    for (const route of extensionHttpRoutes) {
+      if (route.method === request.method && url.pathname === route.path) {
+        return route.handler(request)
+      }
     }
     if (url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404)
@@ -163,6 +208,16 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       sendPings: true,
       open(ws) {
         sockets.add(ws)
+        // Extension WebSocket sockets bypass the chat hub entirely.
+        if (ws.data.extensionId !== null) {
+          try {
+            ws.data.extensionHandlers.open?.(ws)
+          } catch (error) {
+            log('extension websocket open failed', error)
+            closeQuietly(ws, 1011, 'handshake failed')
+          }
+          return
+        }
         try {
           // Synchronous from hello to registration, so no live event can land between replay and the client joining.
           ws.send(JSON.stringify({ type: 'hello', seq: chatLog.currentSeq() }))
@@ -183,6 +238,11 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       },
       message(ws, raw) {
         try {
+          // Extension WebSocket sockets bypass the chat hub entirely.
+          if (ws.data.extensionId !== null) {
+            ws.data.extensionHandlers.message?.(ws, raw)
+            return
+          }
           const id = ws.data.id
           if (id === null) {
             return
@@ -219,6 +279,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       close(ws) {
         try {
           sockets.delete(ws)
+          if (ws.data.extensionId !== null) {
+            ws.data.extensionHandlers.close?.(ws)
+            return
+          }
           if (ws.data.id !== null) {
             hub.remove(ws.data.id)
             ws.data.id = null
