@@ -9,6 +9,7 @@ import { ChatLog } from '../channel/web/chat-log.ts'
 import { Hub } from '../channel/web/hub.ts'
 import { loadOrCreateVapid, PushService } from '../channel/web/push.ts'
 import { startWebServer, type WebServer } from '../channel/web/server.ts'
+import { createExtensionStorageHost } from '../channel/web/extension-storage.ts'
 import { TranscriptReader } from '../channel/web/transcript/reader.ts'
 import { createSubagentSource } from '../channel/web/transcript/subagent.ts'
 import { UploadLibrary } from '../channel/web/uploads.ts'
@@ -150,6 +151,7 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         usage: () => store.usageForChats(Date.now()),
         log,
         extensionDir: join(import.meta.dir, '..', '..', 'extensions'),
+        extensionStorage: createExtensionStorageHost(store.database),
       })
     }
 

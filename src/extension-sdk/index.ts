@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import type { CollectionSpec, ExtensionStorage } from './storage.ts'
+import { assertIndexType, assertValidCollectionName, assertValidField } from './storage.ts'
 
 /** Permissions the host currently grants to extensions. Unknown values are rejected. */
-export type ExtensionPermission = 'pty' | 'websocket-routes' | 'http-routes'
+export type ExtensionPermission = 'pty' | 'websocket-routes' | 'http-routes' | 'storage'
 
 /** An extension manifest, one per extension folder under `extensions/`. */
 export type ExtensionManifest = {
@@ -11,6 +13,8 @@ export type ExtensionManifest = {
   frontend: { entry: string }
   backend: { entry: string }
   permissions: ExtensionPermission[]
+  /** Collections the extension stores documents in. Needs the `storage` permission. */
+  storage: { collections: Record<string, CollectionSpec> }
 }
 
 /** Capabilities exposed to an extension's frontend code. Filled in by the host at load time. */
@@ -21,6 +25,8 @@ export type ExtensionFrontendApi = {
 
 /** Capabilities exposed to an extension's backend code. Filled in by the host at load time. */
 export type ExtensionBackendApi = {
+  /** Key/value storage and declared collections. Present only when the manifest grants `storage`. */
+  storage?: ExtensionStorage
   /** Registers an HTTP route namespaced under this extension's id. */
   registerHttpRoute(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -67,7 +73,7 @@ export function scopeRegistrar(extensionId: string, base: ExtensionRouteRegistra
 }
 
 /** Creates the extension API surface. The host injects route registration via `registrar`. */
-export function createExtensionApi(registrar: ExtensionRouteRegistrar): ExtensionApi {
+export function createExtensionApi(registrar: ExtensionRouteRegistrar, options: { storage?: ExtensionStorage } = {}): ExtensionApi {
   return {
     frontend: {
       registerPanel: (panelId, component, title) => {
@@ -75,6 +81,7 @@ export function createExtensionApi(registrar: ExtensionRouteRegistrar): Extensio
       },
     },
     backend: {
+      storage: options.storage,
       registerHttpRoute: (method, path, handler) => {
         registrar.onHttpRoute(method, path, handler)
       },
@@ -92,10 +99,31 @@ const ManifestSchema = z.object({
   version: z.string().min(1),
   frontend: z.object({ entry: z.string().min(1) }),
   backend: z.object({ entry: z.string().min(1) }),
-  permissions: z.array(z.enum(['pty', 'websocket-routes', 'http-routes'])).default([]),
+  permissions: z.array(z.enum(['pty', 'websocket-routes', 'http-routes', 'storage'])).default([]),
+  storage: z
+    .object({
+      collections: z.record(z.string(), z.object({ indexes: z.record(z.string(), z.string()).default({}) })).default({}),
+    })
+    .default({ collections: {} }),
 })
 
 /** Validates and normalizes a raw manifest object. Throws on invalid input. */
 export function validatePluginManifest(raw: unknown): ExtensionManifest {
-  return ManifestSchema.parse(raw) as ExtensionManifest
+  const manifest = ManifestSchema.parse(raw)
+  const collections = Object.entries(manifest.storage.collections)
+  if (collections.length > 0 && !manifest.permissions.includes('storage')) {
+    throw new Error(`${manifest.id} declares collections but does not request the storage permission`)
+  }
+  const checked: Record<string, CollectionSpec> = {}
+  for (const [name, spec] of collections) {
+    assertValidCollectionName(name)
+    const indexes: CollectionSpec['indexes'] = {}
+    for (const [field, type] of Object.entries(spec.indexes)) {
+      assertValidField(field)
+      assertIndexType(type, field)
+      indexes[field] = type
+    }
+    checked[name] = { indexes }
+  }
+  return { ...manifest, storage: { collections: checked } } as ExtensionManifest
 }

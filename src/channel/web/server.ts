@@ -7,8 +7,9 @@ import { authorize } from './auth.ts'
 import type { ChatLog } from './chat-log.ts'
 import { closeQuietly, Hub } from './hub.ts'
 import { ClientEventSchema, type UsageView } from './protocol.ts'
-import { createExtensionApi, scopeRegistrar, type ExtensionRouteRegistrar } from '../../extension-sdk/index.ts'
+import type { ExtensionRouteRegistrar } from '../../extension-sdk/index.ts'
 import { loadExtensions } from './extension-registry.ts'
+import type { ExtensionStorageHost } from './extension-storage.ts'
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 const MAX_FRAME_BYTES = 16 * 1024 * 1024
@@ -40,6 +41,8 @@ export type WebServerDeps = {
   idleMs?: number
   /** Directory scanned for extensions at startup. Defaults to <cwd>/extensions. */
   extensionDir?: string
+  /** Storage for extensions that request it. Required when any extension in `extensionDir` asks for storage. */
+  extensionStorage?: ExtensionStorageHost
 }
 
 export type WebServer = { port: number; hostname: string; stop(): void }
@@ -150,7 +153,7 @@ export function startWebServer(deps: WebServerDeps): WebServer {
   }
 
   if (deps.extensionDir !== undefined) {
-    void loadExtensions(deps.extensionDir, { createApi: extensionId => createExtensionApi(scopeRegistrar(extensionId, registrar)), log })
+    void loadExtensions(deps.extensionDir, { registrar, storage: deps.extensionStorage, log })
   }
 
   /** Routes one request; any throw becomes the generic 500 in `fetch`. */

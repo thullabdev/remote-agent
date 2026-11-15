@@ -4,6 +4,7 @@ Date: 2026-11-15
 Status: draft, awaiting approval
 Glossary: [`CONTEXT.md`](../../../CONTEXT.md)
 Builds on: [Web terminal spec](/tmp/opencode/uploads/efebc2e7-131a-4988-9c29-de4e88c8d0b3/Web terminal spec.md) (attached, not committed)
+Storage: [Extension platform storage](2026-11-15-extension-storage-design.md) (key/value, declared collections, migrations, purge). Implemented on `feat/extension-storage`.
 
 ## Intent
 
