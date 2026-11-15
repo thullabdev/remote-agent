@@ -40,6 +40,32 @@ export type ExtensionApi = {
   backend: ExtensionBackendApi
 }
 
+/** Callbacks the host uses to wire extension-registered routes into the web server. */
+export type ExtensionRouteRegistrar = {
+  onHttpRoute(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, handler: (request: Request) => Promise<Response | null>): void
+  onWebSocketRoute(path: string, handlers: { open?: (ws: unknown) => void; message?: (ws: unknown, raw: string | Buffer) => void; close?: (ws: unknown) => void }): void
+  onFrontendPanel(panelId: string, component: React.ComponentType, title: string): void
+}
+
+/** Creates the extension API surface. The host injects route registration via `registrar`. */
+export function createExtensionApi(registrar: ExtensionRouteRegistrar): ExtensionApi {
+  return {
+    frontend: {
+      registerPanel: (panelId, component, title) => {
+        registrar.onFrontendPanel(panelId, component, title)
+      },
+    },
+    backend: {
+      registerHttpRoute: (method, path, handler) => {
+        registrar.onHttpRoute(method, path, handler)
+      },
+      registerWebSocketRoute: (path, handlers) => {
+        registrar.onWebSocketRoute(path, handlers)
+      },
+    },
+  }
+}
+
 /** Manifest schema: only known permissions are allowed, entries must be relative paths. */
 const ManifestSchema = z.object({
   id: z.string().min(1),
@@ -53,23 +79,4 @@ const ManifestSchema = z.object({
 /** Validates and normalizes a raw manifest object. Throws on invalid input. */
 export function validatePluginManifest(raw: unknown): ExtensionManifest {
   return ManifestSchema.parse(raw) as ExtensionManifest
-}
-
-/** Creates the extension API surface. Host-provided implementations are injected by the registry. */
-export function createExtensionApi(): ExtensionApi {
-  return {
-    frontend: {
-      registerPanel: () => {
-        // No-op until the host injects a real implementation.
-      },
-    },
-    backend: {
-      registerHttpRoute: () => {
-        // No-op until the host injects a real implementation.
-      },
-      registerWebSocketRoute: () => {
-        // No-op until the host injects a real implementation.
-      },
-    },
-  }
 }
