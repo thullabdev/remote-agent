@@ -30,10 +30,12 @@ describe('loadExtensions', () => {
     makeExtension(id, false)
     ;(globalThis as any)[activatedId(id)] = false
 
-    const instances = await loadExtensions(dir, createApi())
+    const instances = await loadExtensions(dir, { api: createApi(), log: () => {} })
 
     expect(instances.length).toBe(1)
-    expect(instances[0].manifest.id).toBe(id)
+    const instance = instances[0]
+    expect(instance).toBeDefined()
+    expect(instance!.manifest.id).toBe(id)
     expect((globalThis as any)[activatedId(id)]).toBe(true)
   })
 
@@ -41,7 +43,7 @@ describe('loadExtensions', () => {
     dir = mkdtempSync(join(tmpdir(), 'ra-ext-test-'))
     makeExtension('remote-agent.bad-ext', true)
 
-    const instances = await loadExtensions(dir, createApi())
+    const instances = await loadExtensions(dir, { api: createApi(), log: () => {} })
 
     expect(instances.length).toBe(0)
   })

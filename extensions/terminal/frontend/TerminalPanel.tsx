@@ -18,12 +18,14 @@ type TerminalPanelProps = {
   activeTerminalId: string | null
   onNew(): void
   onClose(sid: string): void
+  /** 'compact' uses tighter padding; 'comfortable' is the default. */
+  density?: 'compact' | 'comfortable'
 }
 
 /** xterm.js is imported lazily inside useEffect so the component renders server-side (SSR)
  * without a DOM. The addons (fit, webgl, links, search, unicode11) are loaded from the xterm
  * package in a follow-up; v1 uses the core Terminal with manual resize. */
-export function TerminalPanel({ terminals, activeTerminalId, onNew, onClose }: TerminalPanelProps) {
+export function TerminalPanel({ terminals, activeTerminalId, onNew, onClose, density }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [term, setTerm] = useState<TerminalType | null>(null)
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 })
@@ -98,10 +100,14 @@ export function TerminalPanel({ terminals, activeTerminalId, onNew, onClose }: T
     )
   }
 
+  const effectiveDensity = density ?? 'comfortable'
+  const padY = effectiveDensity === 'compact' ? 'py-1' : 'py-1.5'
+  const padX = effectiveDensity === 'compact' ? 'px-2' : 'px-3'
+
   return (
     <div className="min-w-0 flex-1 flex-col">
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-card/80 px-3 py-1.5 backdrop-blur">
+      <header className={`flex shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-card/80 backdrop-blur ${padX} ${padY}`}>
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground">Terminal</span>
         </div>
@@ -143,7 +149,7 @@ export function TerminalPanel({ terminals, activeTerminalId, onNew, onClose }: T
       />
 
       {/* Status bar */}
-      <footer className="shrink-0 border-t border-border/60 bg-muted/50 px-3 py-1 text-xs">
+      <footer className={`shrink-0 border-t border-border/60 bg-muted/50 text-xs ${padX} ${padY}`}>
         {activeTerminal !== null ? (
           <span className="mr-4">{activeTerminal.id}</span>
         ) : null}
