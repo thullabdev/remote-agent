@@ -20,7 +20,7 @@ import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
-import { connectionNoticeText, deepLink, pendingPromptMessage } from './presentation.ts'
+import { connectionNoticeText, deepLink, deepLinkTerminal, pendingPromptMessage } from './presentation.ts'
 import { revealMessage, type RevealTarget } from './reveal.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
@@ -48,10 +48,7 @@ function errorText(error: unknown): string {
 export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('terminal') || null
-  })
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => deepLinkTerminal(window.location.search))
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
