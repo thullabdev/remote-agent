@@ -13,6 +13,8 @@ import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { ExtensionRegistry } from './components/extension-registry.tsx'
+// Import extension frontend entries so they call registerPanel. One import per extension.
+import '../../extensions/terminal/frontend/index.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
