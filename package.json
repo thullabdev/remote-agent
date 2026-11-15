@@ -9,7 +9,8 @@
     "telegram:ids": "bun run scripts/telegram-ids.ts",
     "dev": "vite",
     "build": "vite build",
-    "icons": "bun run scripts/make-icons.ts"
+    "icons": "bun run scripts/make-icons.ts",
+    "extension": "bun run scripts/extension-admin.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
