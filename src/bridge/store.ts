@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite'
 import type { AccountUsageView, SessionUsageView, UsageView } from '../core/usage-types.ts'
+import { addColumnIfMissing, runUserVersionMigrations, type MigrationStep } from './migrations.ts'
 import { accountLimits, sessionUsage, type UsageReport } from './usage.ts'
 import { projectName, type Answer, type AnswerSource, type Instruction, type PromptBody, type SessionInfo } from '../../mod/remote-agent/hooks/protocol.ts'
 
@@ -114,6 +115,31 @@ function toInstruction(record: InstructionRecord): Instruction {
   return { id: record.id, sessionId: record.session_id, text: record.text }
 }
 
+/**
+ * Host schema, in order. Every step is idempotent: a database from before versioning has all of these already, and runs
+ * through the steps once with `user_version` at 0. Add new changes as new steps at the end, never edit an old one.
+ */
+const HOST_MIGRATIONS: MigrationStep[] = [
+  {
+    version: 1,
+    up: db => {
+      db.exec(SCHEMA)
+    },
+  },
+  {
+    version: 2,
+    up: db => {
+      addColumnIfMissing(db, 'sessions', 'title', 'title TEXT')
+      addColumnIfMissing(db, 'sessions', 'spawned', 'spawned INTEGER NOT NULL DEFAULT 0')
+      addColumnIfMissing(db, 'sessions', 'tmux_name', 'tmux_name TEXT')
+      addColumnIfMissing(db, 'sessions', 'started_at', 'started_at INTEGER')
+      addColumnIfMissing(db, 'sessions', 'chat_id', 'chat_id TEXT')
+      addColumnIfMissing(db, 'sessions', 'launch_cwd', 'launch_cwd TEXT')
+      addColumnIfMissing(db, 'sessions', 'model', 'model TEXT')
+    },
+  },
+]
+
 export class Store {
   private readonly db: Database
   private readonly usage = new Map<string, { report: UsageReport; measuredAt: number; source: string }>()
@@ -122,28 +148,10 @@ export class Store {
     this.db = new Database(path, { create: true, strict: true })
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec('PRAGMA foreign_keys = ON;')
-    this.db.exec(SCHEMA)
-    this.migrate()
+    runUserVersionMigrations(this.db, HOST_MIGRATIONS)
   }
 
-  private migrate(): void {
-    const columns = new Set(this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all().map(column => column.name))
-    const added: [string, string][] = [
-      ['title', 'title TEXT'],
-      ['spawned', 'spawned INTEGER NOT NULL DEFAULT 0'],
-      ['tmux_name', 'tmux_name TEXT'],
-      ['started_at', 'started_at INTEGER'],
-      ['chat_id', 'chat_id TEXT'],
-      ['launch_cwd', 'launch_cwd TEXT'],
-      ['model', 'model TEXT'],
-    ]
-    for (const [name, definition] of added) {
-      if (!columns.has(name)) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN ${definition}`)
-      }
-    }
-  }
-
+  /** The shared database file. Extensions get their storage from it, so there is one file to back up. */
   get database(): Database {
     return this.db
   }
