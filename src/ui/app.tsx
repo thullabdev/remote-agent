@@ -12,6 +12,7 @@ import { ChatList } from './components/chat-list.tsx'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
+import { ExtensionRegistry } from './components/extension-registry.tsx'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
@@ -45,6 +46,10 @@ function errorText(error: unknown): string {
 export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('terminal') || null
+  })
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -168,6 +173,19 @@ export function App() {
     } else {
       url.searchParams.set('chat', chatId)
     }
+    window.history.pushState(null, '', url)
+  }, [])
+
+  /** Opens (or reattaches to) a terminal section by session id, replacing the chat in the main area. */
+  const openTerminal = useCallback((sid: string) => {
+    newChatWatch.current = null
+    setActiveChatId(null)
+    setActiveTerminalId(sid)
+    setInfoOpen(false)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('chat')
+    url.searchParams.delete('prompt')
+    url.searchParams.set('terminal', sid)
     window.history.pushState(null, '', url)
   }, [])
 
@@ -614,10 +632,12 @@ export function App() {
           touchStart.current = null
         }}
         className={`absolute inset-0 z-20 flex min-w-0 bg-background shadow-2xl transition-transform duration-300 md:static md:z-auto md:flex-1 md:translate-x-0 md:shadow-none ${
-          activeChatId === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
+          activeChatId === null && activeTerminalId === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
         }`}
       >
-        {activeChat ? (
+        {activeTerminalId !== null ? (
+          <ExtensionRegistry activePanelId={activeTerminalId} onClose={() => setActiveTerminalId(null)} />
+        ) : activeChat ? (
           <>
             <section className="flex min-w-0 flex-1 flex-col">
               <ChatHeader
