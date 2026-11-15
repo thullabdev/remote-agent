@@ -30,7 +30,7 @@ describe('loadExtensions', () => {
     makeExtension(id, false)
     ;(globalThis as any)[activatedId(id)] = false
 
-    const instances = await loadExtensions(dir, { createApi: () => createApi(), log: () => {} })
+    const instances = await loadExtensions(dir, { registrar: noopRegistrar, log: () => {} })
 
     expect(instances.length).toBe(1)
     const instance = instances[0]
@@ -43,16 +43,14 @@ describe('loadExtensions', () => {
     dir = mkdtempSync(join(tmpdir(), 'ra-ext-test-'))
     makeExtension('remote-agent.bad-ext', true)
 
-    const instances = await loadExtensions(dir, { createApi: () => createApi(), log: () => {} })
+    const instances = await loadExtensions(dir, { registrar: noopRegistrar, log: () => {} })
 
     expect(instances.length).toBe(0)
   })
 })
 
-function createApi() {
-  return {
-    frontend: { registerPanel: () => {} },
-    backend: { registerHttpRoute: () => {}, registerWebSocketRoute: () => {} },
-    log: () => {},
-  }
+const noopRegistrar = {
+  onHttpRoute: () => {},
+  onWebSocketRoute: () => {},
+  onFrontendPanel: () => {},
 }
