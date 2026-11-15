@@ -426,3 +426,47 @@ test('a new client gets the current usage once, with no seq, after hello', async
   expect(await inbox.next()).toEqual({ type: 'usage.updated', usage })
   inbox.socket.close()
 })
+
+test('an extension HTTP route is reached even when the chat API would answer 404 for an unknown /api path', async () => {
+  // The chat API answers every unknown /api/ path with a 404, so extension routes must be tried before it.
+  const extensions = join(root, 'extensions')
+  const extDir = join(extensions, 'fixture')
+  await mkdir(extDir, { recursive: true })
+  await writeFile(
+    join(extDir, 'plugin.json'),
+    JSON.stringify({
+      id: 'fixture.ext',
+      name: 'Fixture',
+      version: '0.0.1',
+      frontend: { entry: './frontend.ts' },
+      backend: { entry: './backend.ts' },
+      permissions: ['http-routes'],
+    }),
+  )
+  await writeFile(join(extDir, 'frontend.ts'), 'export {}\n')
+  await writeFile(
+    join(extDir, 'backend.ts'),
+    "export function onActivate(api) { api.backend.registerHttpRoute('GET', '/ping', async () => Response.json({ pong: true })) }\n",
+  )
+  const chatApi = async (request: Request) => {
+    if (new URL(request.url).pathname.startsWith('/api/')) {
+      return Response.json({ error: 'Not found.' }, { status: 404 })
+    }
+    return null
+  }
+  running = startWebServer({
+    config: configFor(staticDir),
+    chatLog,
+    api: chatApi,
+    hub,
+    log,
+    port: 0,
+    extensionDir: extensions,
+  })
+  await Bun.sleep(100)
+
+  const response = await fetch(url('/api/extensions/fixture.ext/ping'), { headers })
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ pong: true })
+})

@@ -184,10 +184,7 @@ export function startWebServer(deps: WebServerDeps): WebServer {
       }
       return json({ error: 'expected a WebSocket upgrade' }, 400)
     }
-    const handled = await deps.api(request)
-    if (handled !== null) {
-      return handled
-    }
+    // Extension routes first: they sit under /api/extensions/<id>, and the chat API answers every other unknown /api path with a 404.
     for (const route of extensionHttpRoutes) {
       if (route.method === request.method && url.pathname === route.path) {
         const response = await route.handler(request)
@@ -195,6 +192,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
           return response
         }
       }
+    }
+    const handled = await deps.api(request)
+    if (handled !== null) {
+      return handled
     }
     if (url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404)
