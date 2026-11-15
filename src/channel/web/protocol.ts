@@ -56,6 +56,8 @@ export type Chat = {
   title: string
   project: string | null
   cwd: string | null
+  /** The folder the Session was first started in. Unlike `cwd`, it does not follow `cd`. Absent in tests that build a bare chat. */
+  launchCwd?: string | null
   status: 'active' | 'ended'
   spawned: boolean
   archived: boolean

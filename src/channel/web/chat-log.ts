@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS drafts (
 `
 
 const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.pinned, c.hidden_before_seq,
-  c.archived, s.project, s.cwd, s.spawned, s.tmux_name, s.model,
+  c.archived, s.project, s.cwd, s.launch_cwd, s.spawned, s.tmux_name, s.model,
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
   (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
   (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments,
@@ -90,6 +90,7 @@ type ChatRecord = {
   archived: number
   project: string | null
   cwd: string | null
+  launch_cwd: string | null
   spawned: number | null
   tmux_name: string | null
   model: string | null
@@ -941,6 +942,7 @@ export class ChatLog {
       title: record.custom_title ?? record.title,
       project: record.project,
       cwd: record.cwd,
+      launchCwd: record.launch_cwd,
       status: record.status,
       spawned: record.spawned === 1,
       archived: record.archived === 1,

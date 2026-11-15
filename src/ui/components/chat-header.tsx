@@ -1,4 +1,4 @@
-import { ArrowLeft, Info, Pencil, Radio, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Info, Pencil, Radio, Terminal } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { useEffect, useRef, useState } from 'react'
@@ -162,7 +162,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
       )}
       {!isGeneral && onOpenTerminal !== undefined && (
         <Button variant="ghost" size="icon-sm" aria-label="Open a terminal in this session's directory" onClick={onOpenTerminal}>
-          <RotateCcw className="size-4" aria-hidden="true" />
+          <Terminal className="size-4" aria-hidden="true" />
         </Button>
       )}
     </header>

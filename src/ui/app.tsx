@@ -12,7 +12,7 @@ import { ChatList } from './components/chat-list.tsx'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
-import { ExtensionRegistry } from './components/extension-registry.tsx'
+import { TerminalPanel, type TerminalSession } from '../../extensions/terminal/frontend/TerminalPanel.tsx'
 // Import extension frontend entries so they call registerPanel. One import per extension.
 import '../../extensions/terminal/frontend/index.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
@@ -49,6 +49,7 @@ export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => deepLinkTerminal(window.location.search))
+  const [terminals, setTerminals] = useState<TerminalSession[]>([])
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -136,6 +137,7 @@ export function App() {
   useEffect(() => {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
+      setActiveTerminalId(deepLinkTerminal(window.location.search))
       setFocusPrompt(null)
       setInfoOpen(false)
     }
@@ -163,10 +165,13 @@ export function App() {
     // Opening a chat by hand, or from the redirect itself, ends any wait for a new chat.
     newChatWatch.current = null
     setActiveChatId(chatId)
+    // A chat and a terminal are alternative main-area views: opening either one leaves the other.
+    setActiveTerminalId(null)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('prompt')
+    url.searchParams.delete('terminal')
     if (chatId === null) {
       url.searchParams.delete('chat')
     } else {
@@ -188,11 +193,27 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  /** Opens a fresh terminal section with a new session id. */
-  const openNewTerminal = useCallback(() => {
+  /**
+   * Opens a fresh terminal with a new session id, starting in `cwd` (a chat's project folder). Without one the shell starts in the
+   * home directory.
+   */
+  const openNewTerminal = useCallback((cwd?: string) => {
     const sid = `term-${crypto.randomUUID()}`
+    setTerminals(current => [...current, { id: sid, cwd: cwd ?? '', login: '', connected: false }])
     openTerminal(sid)
   }, [openTerminal])
+
+  /** Closes a terminal session and removes it from the list. */
+  const closeTerminal = useCallback((sid: string) => {
+    setTerminals(current => current.filter(t => t.id !== sid))
+    if (activeTerminalId === sid) {
+      setActiveTerminalId(null)
+      // Replace, not push: going back must not reopen a session that was just closed.
+      const url = new URL(window.location.href)
+      url.searchParams.delete('terminal')
+      window.history.replaceState(null, '', url)
+    }
+  }, [activeTerminalId])
 
   /**
    * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use
@@ -609,8 +630,8 @@ export function App() {
         onRetry={retry}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
-        onOpenTerminal={openNewTerminal}
-        terminals={[]}
+        onOpenTerminal={openTerminal}
+        terminals={terminals}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
@@ -643,7 +664,14 @@ export function App() {
         }`}
       >
         {activeTerminalId !== null ? (
-          <ExtensionRegistry activePanelId={activeTerminalId} onClose={() => setActiveTerminalId(null)} />
+          <TerminalPanel
+            terminals={terminals}
+            activeTerminalId={activeTerminalId}
+            onBack={() => openChat(null)}
+            onNew={openNewTerminal}
+            onClose={closeTerminal}
+            density={preferences.density}
+          />
         ) : activeChat ? (
           <>
             <section className="flex min-w-0 flex-1 flex-col">
@@ -665,7 +693,7 @@ export function App() {
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
                 model={activeChat?.model ?? sessionModel}
-                onOpenTerminal={openNewTerminal}
+                onOpenTerminal={() => openNewTerminal(activeChat.launchCwd ?? activeChat.cwd ?? undefined)}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -698,8 +726,8 @@ export function App() {
                       armNewChatWatch()
                       return runChatAction(() => api.resumeChat(chatId))
                     }}
-                    terminals={[]}
-                    onOpenTerminal={openNewTerminal}
+                    terminals={terminals}
+                    onOpenTerminal={openTerminal}
                   />
                 ) : (
                 <MessageFeed
