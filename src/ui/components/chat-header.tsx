@@ -7,7 +7,7 @@ import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
 import { Button } from './ui/button.tsx'
 import { Badge } from './ui/badge.tsx'
-import { chatAvatar, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
+import { chatAvatar, modelLabel, NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
 import type { GeneralViewPreference } from '../preferences.ts'
 import { RenameDialog } from './rename-dialog.tsx'
 import { useNow } from './usage-meters.tsx'
@@ -30,6 +30,8 @@ type ChatHeaderProps = {
   summary?: string
   /** General only: how many sessions need you; the avatar glows while it is above zero. */
   needsYou?: number
+  /** The full model id the Session last ran on, or null when unknown. Shown as a short label after the subtitle. */
+  model?: string | null
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -47,7 +49,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0 }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, model = null }: ChatHeaderProps) {
   const state = chatState(chat)
   // General is the command chat and its dashboard already shows usage, so it has no usage toggle and no details panel.
   const isGeneral = chat.id === 'general'
@@ -114,6 +116,15 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
           <span className={`truncate ${state === 'needs_you' ? `font-medium ${NEEDS_YOU_TEXT_CLASS}` : ''}`}>
             {state === 'needs_you' ? 'Waiting for your answer' : state === 'working' ? 'Working on your instruction' : chat.project ?? chat.cwd ?? summary ?? 'General command chat'}
           </span>
+          {model !== null && (
+            <span
+              className="shrink-0 whitespace-nowrap rounded-md bg-muted px-1.5 py-px font-medium text-foreground/80"
+              title={`Model: ${model}`}
+              aria-label={`Model ${modelLabel(model)}`}
+            >
+              {modelLabel(model)}
+            </span>
+          )}
           <span className="hidden items-center gap-1.5 sm:inline-flex">
             <span className={`size-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-600 dark:bg-emerald-400' : 'bg-amber-500'}`} />
             {connectionLabel(status)}

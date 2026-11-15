@@ -377,6 +377,15 @@ export class WebChannel implements Channel, ChatSink {
     this.chatLog.updateChat(chatId, { busy })
   }
 
+  /** The session's model changed: its chat is sent again so the header shows the new one. */
+  modelChanged(sessionId: string): void {
+    const chatId = this.chatIdOf(sessionId)
+    if (chatId === null || this.chatLog.getChat(chatId) === undefined) {
+      return
+    }
+    this.chatLog.refreshChat(chatId)
+  }
+
   systemMessage(sessionId: string | null, text: string): void {
     if (sessionId === null) {
       this.chatLog.appendMessage(GENERAL_ID, { kind: 'system', text })

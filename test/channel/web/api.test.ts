@@ -32,6 +32,8 @@ let handlers: ChannelHandlers | null
 let pushDeps: ApiDeps['push']
 let spawnerDep: ApiDeps['spawner']
 let projectsDep: ApiDeps['projects']
+let subagentsDep: ApiDeps['subagents']
+const subagentCalls: string[] = []
 let uploadsLibrary: UploadLibrary | undefined
 let tmux: FakeTmux
 let home: string
@@ -80,6 +82,15 @@ function stubSpawner(): ApiDeps['spawner'] {
 }
 
 let usageDep: { accounts: never[]; chats: Record<string, never> } = { accounts: [], chats: {} }
+// What the terminal fake was asked to type, as `name|line`, and whether its pane is still running.
+const terminalTyped: string[] = []
+let terminalAlive = true
+const terminalDep = {
+  type: async (name: string, line: string) => {
+    terminalTyped.push(`${name}|${line}`)
+  },
+  exists: async () => terminalAlive,
+}
 
 function build(): void {
   api = createApi({
@@ -96,7 +107,22 @@ function build(): void {
       logged.push(message)
     },
     push: pushDeps,
+    terminal: terminalDep,
+    subagents: subagentsDep,
   })
+}
+
+/** A sub-agent source that knows one agent: its activity has one item and one more page. */
+function stubSubagents(): ApiDeps['subagents'] {
+  return {
+    activity: async (session, agentId, cursor, limit) => {
+      subagentCalls.push(`activity ${session.id} ${agentId} ${cursor} ${limit}`)
+      if (agentId !== 'a1') {
+        return null
+      }
+      return { items: [{ kind: 'agent_text', markdown: `page ${cursor}` }], nextCursor: cursor === 0 ? 1 : null }
+    },
+  }
 }
 
 /** Swaps the stub for a real Spawner over a temp home: `api` is trusted in Claude config; `secret` is not. */
@@ -160,6 +186,8 @@ function seedSession(id = 's1'): string {
 beforeEach(() => {
   clock = 1_000
   logged.length = 0
+  terminalTyped.length = 0
+  terminalAlive = true
   spawnerCalls.length = 0
   handled.buttons.length = 0
   handled.texts.length = 0
@@ -171,6 +199,8 @@ beforeEach(() => {
   handlers = fakeHandlers()
   spawnerDep = stubSpawner()
   projectsDep = undefined
+  subagentsDep = stubSubagents()
+  subagentCalls.length = 0
   uploadsLibrary = new UploadLibrary(store.database, mkdtempSync(`${tmpdir()}/ra-uploads-`), () => clock)
   pushDeps = undefined
   pushCalls.subscribed.length = 0
@@ -906,4 +936,62 @@ test('at most five sessions can be pinned, and unpinning one makes room', async 
   expect((await call('POST', `/api/chats/${chatIds[0]}/pin`, { pinned: false })).status).toBe(200)
   expect((await call('POST', `/api/chats/${chatIds[5]}/pin`, { pinned: true })).status).toBe(200)
   expect((await call('POST', `/api/chats/${chatIds[1]}/pin`, { pinned: true })).status).toBe(200)
+})
+
+test('a slash command in a session the Bridge started is typed into its terminal and never queued for the model', async () => {
+  const chatId = seedSession()
+  store.database.query('UPDATE sessions SET spawned = 1, tmux_name = ? WHERE id = ?').run('ra-s1', 's1')
+  const { status, body } = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c1', text: '/model haiku' })
+  expect(status).toBe(200)
+  expect(terminalTyped).toEqual(['ra-s1|/model haiku'])
+  expect(body.message).toMatchObject({ kind: 'user_text', status: 'delivered', text: '/model haiku' })
+  expect(store.listPendingInstructions('s1')).toEqual([])
+})
+
+test('a slash command is refused, and nothing is queued, where no terminal can take it', async () => {
+  const chatId = seedSession()
+  const plain = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c2', text: '/reload-plugins' })
+  expect(plain.status).toBe(409)
+  store.database.query('UPDATE sessions SET spawned = 1, tmux_name = ? WHERE id = ?').run('ra-s1', 's1')
+  terminalAlive = false
+  const gone = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c3', text: '/reload-plugins' })
+  expect(gone.status).toBe(409)
+  expect(terminalTyped).toEqual([])
+  expect(store.listPendingInstructions('s1')).toEqual([])
+})
+
+test('text that only starts with a path is still an instruction for the session', async () => {
+  const chatId = seedSession()
+  const { status } = await call('POST', `/api/chats/${chatId}/messages`, { clientId: 'c4', text: '/home/u/app explain the build' })
+  expect(status).toBe(200)
+  expect(store.listPendingInstructions('s1')).toHaveLength(1)
+})
+
+test('a sub-agent id that is not a plain id is refused before any file is read', async () => {
+  const chatId = seedSession()
+  expect((await call('GET', `/api/chats/${chatId}/subagents/..%2Fsecret/activity`)).status).toBe(400)
+  expect(subagentCalls).toEqual([])
+})
+
+test('GET /api/chats/:id/subagents/:agent/activity pages with a cursor and a limit', async () => {
+  const chatId = seedSession()
+  const first = await call('GET', `/api/chats/${chatId}/subagents/a1/activity?limit=5`)
+  expect(first.status).toBe(200)
+  expect(first.body).toEqual({ items: [{ kind: 'agent_text', markdown: 'page 0' }], nextCursor: 1 })
+  const second = await call('GET', `/api/chats/${chatId}/subagents/a1/activity?cursor=1&limit=5`)
+  expect(second.body.nextCursor).toBeNull()
+  expect(subagentCalls).toEqual(['activity s1 a1 0 5', 'activity s1 a1 1 5'])
+})
+
+test('activity rejects a cursor that is not a line number, and an unknown sub-agent answers 404', async () => {
+  const chatId = seedSession()
+  expect((await call('GET', `/api/chats/${chatId}/subagents/a1/activity?cursor=-1`)).status).toBe(400)
+  expect((await call('GET', `/api/chats/${chatId}/subagents/nope/activity`)).status).toBe(404)
+})
+
+test('sub-agent routes answer 404 when no sub-agent source is configured', async () => {
+  subagentsDep = undefined
+  build()
+  const chatId = seedSession()
+  expect((await call('GET', `/api/chats/${chatId}/subagents/a1/activity`)).status).toBe(404)
 })

@@ -35,6 +35,9 @@ function header(chat: Chat): string {
 function info(chat: Chat): string {
   return renderToStaticMarkup(
     createElement(ChatInfo, {
+      api: { subagentActivity: async () => ({ items: [], nextCursor: null }) },
+      subagent: null,
+      onCloseSubagent: () => {},
       chat, onNotify: () => {}, onClose: () => {}, onEnd: async () => {}, onArchive: async () => {},
       onUnarchive: async () => {}, onRename: async () => {}, onPin: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
       pins: [], onUnpin: async () => {}, onJump: () => {}

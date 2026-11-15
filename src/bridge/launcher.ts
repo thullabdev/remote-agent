@@ -90,6 +90,18 @@ export class Launcher {
     }
   }
 
+  /** Types one line into the session's terminal, as a person would: the text is literal and Enter then submits it. */
+  async type(name: string, line: string): Promise<void> {
+    const typed = await this.run(['tmux', 'send-keys', '-t', name, '-l', '--', line])
+    if (typed.code !== 0) {
+      throw failure(typed)
+    }
+    const entered = await this.run(['tmux', 'send-keys', '-t', name, 'Enter'])
+    if (entered.code !== 0) {
+      throw failure(entered)
+    }
+  }
+
   async kill(name: string): Promise<void> {
     const result = await this.run(['tmux', 'kill-session', '-t', `=${name}`])
     if (result.code !== 0 && !GONE.test(result.stderr)) {

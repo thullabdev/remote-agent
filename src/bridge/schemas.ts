@@ -45,6 +45,9 @@ export const UsageRequestSchema = z.object({
 
 export const TitleRequestSchema = z.object({ session: SessionInfoSchema, title: z.string() })
 
+/** A model id as the hook reads it from Claude Code: letters, digits, dots and dashes, never a path or a sentence. */
+export const ModelRequestSchema = z.object({ session: SessionInfoSchema, model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/) })
+
 export const SettleRequestSchema = z.object({
   scope: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('tool'), tool: z.string().min(1), input: z.unknown(), denied: z.boolean() }),

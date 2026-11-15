@@ -1,9 +1,9 @@
 import { ZodError } from 'zod'
-import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ReportRequest, type SettleRequest, type TitleRequest, type UsageRequest } from '../../mod/remote-agent/hooks/protocol.ts'
+import { MAX_WAIT_MS, type Answer, type CreatePromptRequest, type ModelRequest, type ReportRequest, type SettleRequest, type TitleRequest, type UsageRequest } from '../../mod/remote-agent/hooks/protocol.ts'
 import { BadRequest } from './errors.ts'
 import type { Notifier } from './notifier.ts'
 import type { Log, PromptService } from './prompts.ts'
-import { CreatePromptSchema, LocalAnswerSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema, UsageRequestSchema } from './schemas.ts'
+import { CreatePromptSchema, LocalAnswerSchema, ModelRequestSchema, ReportRequestSchema, SettleRequestSchema, TitleRequestSchema, UsageRequestSchema } from './schemas.ts'
 import type { UsageView } from '../core/usage-types.ts'
 import type { Store } from './store.ts'
 
@@ -18,6 +18,8 @@ export type HttpDeps = {
   activity?: SessionActivity
   /** Called after each recorded usage report with the fresh accounts and per-chat view. */
   onUsage?: (view: UsageView) => void
+  /** Called after a session's model is stored, so the chat it belongs to can be sent to the web clients again. */
+  onModel?: (sessionId: string) => void
 }
 
 function sessionSeen(deps: HttpDeps, sessionId: string): void {
@@ -132,6 +134,20 @@ async function route(deps: HttpDeps, request: Request): Promise<Response> {
       deps.log('usage broadcast failed', error)
     }
     return empty(202)
+  }
+
+  if (method === 'POST' && path === '/models') {
+    const body = ModelRequestSchema.parse(await request.json()) as ModelRequest
+    const sessionId = body.session.sessionId
+    deps.store.upsertSession(body.session)
+    deps.store.setSessionModel(sessionId, body.model)
+    try {
+      deps.onModel?.(sessionId)
+    } catch (error) {
+      deps.log('model broadcast failed', error)
+    }
+    sessionSeen(deps, sessionId)
+    return empty(204)
   }
 
   if (method === 'POST' && path === '/titles') {

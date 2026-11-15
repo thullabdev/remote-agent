@@ -36,6 +36,16 @@ test('without systemd-run, launch starts tmux directly and still clears the Tele
   expect(tmux.calls[0]).not.toContain('systemd-run')
 })
 
+test('type sends the line literally to the pane, then Enter, and reports a failed send', async () => {
+  await launcher.type('ra-3f2a9c1b', '/model opus')
+  expect(tmux.calls.slice(-2)).toEqual([
+    ['tmux', 'send-keys', '-t', 'ra-3f2a9c1b', '-l', '--', '/model opus'],
+    ['tmux', 'send-keys', '-t', 'ra-3f2a9c1b', 'Enter'],
+  ])
+  tmux.sendKeysFails = 'no pane'
+  await expect(launcher.type('ra-3f2a9c1b', '/model opus')).rejects.toBeInstanceOf(LaunchError)
+})
+
 test('launch passes --model to claude when a model is given', async () => {
   await launcher.launch({ sessionId: id, cwd: '/x', model: 'opus' })
   expect(tmux.calls[0]?.slice(-5)).toEqual(['claude', '--session-id', id, '--model', 'opus'])
