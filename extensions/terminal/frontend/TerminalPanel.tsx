@@ -28,6 +28,8 @@ type TerminalPanelProps = {
   onBack(): void
   /** Starts a shell: in `cwd` when given, else in home. */
   onNew(cwd?: string): void
+  /** Shows another terminal in this panel. The one left behind keeps running. */
+  onSelect(sid: string): void
   /** Called once the session has been closed on the server. */
   onClose(sid: string): void
   density?: Density
@@ -68,7 +70,7 @@ export function themeFromCss(element: Element): ITheme {
   }
 }
 
-export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onClose, density = 'comfortable' }: TerminalPanelProps) {
+export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onSelect, onClose, density = 'comfortable' }: TerminalPanelProps) {
   const [statuses, setStatuses] = useState<Record<string, ViewportStatus>>({})
 
   // A reload with ?terminal=<sid> has no entry in the list yet; the tab still has to reattach to its session.
@@ -148,9 +150,17 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
               <div
                 key={tab.id}
                 role="tab"
+                tabIndex={0}
                 aria-selected={selected}
+                onClick={() => onSelect(tab.id)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelect(tab.id)
+                  }
+                }}
                 className={cn(
-                  'flex shrink-0 items-center gap-1 rounded-xl border pl-2.5 pr-1 py-1 text-xs transition-colors',
+                  'flex shrink-0 cursor-pointer items-center gap-1 rounded-xl border pl-2.5 pr-1 py-1 text-xs transition-colors',
                   selected ? 'border-primary bg-primary text-primary-foreground' : 'border-transparent bg-muted text-muted-foreground hover:bg-accent',
                 )}
               >
@@ -159,7 +169,11 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onCl
                   type="button"
                   aria-label={`Close ${tab.id}`}
                   className="rounded-md p-0.5 opacity-60 hover:opacity-100"
-                  onClick={() => handleClose(tab.id)}
+                  onClick={event => {
+                    // The close control sits inside the tab: closing must not also select it.
+                    event.stopPropagation()
+                    handleClose(tab.id)
+                  }}
                 >
                   <X className="size-3.5" aria-hidden="true" />
                 </button>

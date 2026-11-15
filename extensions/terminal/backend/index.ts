@@ -69,7 +69,7 @@ export function onActivate(api: ExtensionApi) {
   const routes = createSessionRoutes({
     owner,
     repo: rt.repo,
-    tmux: { available: tmuxAvailable, create: createSession, kill: killSession },
+    tmux: { available: tmuxAvailable, create: createSession, kill: killSession, alive: hasSession },
     newSid: () => `term-${crypto.randomUUID()}`,
     nameFor: sessionNameFor,
     shell: process.env.SHELL || '/bin/sh',

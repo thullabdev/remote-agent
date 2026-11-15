@@ -14,6 +14,7 @@ import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { TerminalPanel, type TerminalSession } from '../../extensions/terminal/frontend/TerminalPanel.tsx'
 import { createSession, listSessions, type SessionView } from '../../extensions/terminal/frontend/sessions-client.ts'
+import { openSessionInFolder } from '../../extensions/terminal/frontend/grouping.ts'
 // Import extension frontend entries so they call registerPanel. One import per extension.
 import '../../extensions/terminal/frontend/index.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
@@ -216,18 +217,29 @@ export function App() {
     [openTerminal, notify],
   )
 
-  /** A chat's terminal: the open shell for its project folder if there is one, else a new shell there, linked to the chat. */
+  /**
+   * A chat's terminal: the open shell for its project folder if there is one, else a new shell there, linked to the chat.
+   * The server is asked first: a shell that exited is only known to it, so the list in memory can name a session that is gone.
+   */
   const openTerminalForChat = useCallback(
-    (chat: Chat) => {
+    async (chat: Chat) => {
       const folder = chat.launchCwd ?? chat.cwd ?? undefined
-      const existing = folder === undefined ? undefined : terminals.find(terminal => terminal.cwd === folder)
-      if (existing !== undefined) {
-        openTerminal(existing.id)
+      let sessions: SessionView[]
+      try {
+        sessions = await listSessions()
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Could not reach the terminals', 'error')
         return
       }
-      void startTerminal(folder, chat.id)
+      setTerminals(sessions.map(terminalOf))
+      const existing = folder === undefined ? undefined : openSessionInFolder(sessions, folder)
+      if (existing !== undefined) {
+        openTerminal(existing.sid)
+        return
+      }
+      await startTerminal(folder, chat.id)
     },
-    [terminals, openTerminal, startTerminal],
+    [openTerminal, startTerminal, notify],
   )
 
   /** Closes a terminal session and removes it from the list. */
@@ -697,6 +709,7 @@ export function App() {
             activeTerminalId={activeTerminalId}
             onBack={() => openChat(null)}
             onNew={cwd => void startTerminal(cwd)}
+            onSelect={openTerminal}
             onClose={closeTerminal}
             density={preferences.density}
           />
@@ -721,7 +734,7 @@ export function App() {
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
                 model={activeChat?.model ?? sessionModel}
-                onOpenTerminal={() => openTerminalForChat(activeChat)}
+                onOpenTerminal={() => void openTerminalForChat(activeChat)}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">

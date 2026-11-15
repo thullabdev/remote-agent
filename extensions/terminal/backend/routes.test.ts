@@ -22,6 +22,8 @@ describe('session routes', () => {
   let repo: SessionRepository
   let created: Array<{ name: string; cwd: string }>
   let killed: string[]
+  /** tmux session names whose shell has exited: `alive` reports them gone. */
+  let dead: Set<string>
   let tmux: TmuxOps
   let tmuxAvailable: boolean
   let tmuxFailure: string | null
@@ -38,6 +40,7 @@ describe('session routes', () => {
     repo = createSessionRepository(host.storageFor(manifest), () => clock)
     created = []
     killed = []
+    dead = new Set()
     tmuxAvailable = true
     tmuxFailure = null
     next = 0
@@ -52,6 +55,7 @@ describe('session routes', () => {
       kill: async name => {
         killed.push(name)
       },
+      alive: async name => !dead.has(name),
     }
     routes = createSessionRoutes({
       owner: OWNER,
@@ -110,6 +114,31 @@ describe('session routes', () => {
     expect(response.status).toBe(409)
     expect(body.open).toBe(MAX_OPEN_SESSIONS)
     expect(created).toEqual([])
+    cleanup()
+  })
+
+  it('lists only sessions whose shell is still running, and closes the rest', async () => {
+    repo.create({ sid: 'live', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-live' })
+    repo.create({ sid: 'exited', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-exited' })
+    dead.add('ra-term-exited')
+
+    const body = (await (await routes.list()).json()) as { sessions: Array<{ sid: string }> }
+
+    expect(body.sessions.map(session => session.sid)).toEqual(['live'])
+    expect(repo.get('exited')).toMatchObject({ closedAt: 1_000, closeReason: 'missing' })
+    cleanup()
+  })
+
+  it('does not count a session whose shell has exited against the limit', async () => {
+    for (let i = 0; i < MAX_OPEN_SESSIONS; i++) {
+      repo.create({ sid: `open-${i}`, owner: OWNER, launchCwd: dir, chatId: null, tmuxName: `ra-term-open-${i}` })
+      dead.add(`ra-term-open-${i}`)
+    }
+
+    const response = await routes.create(post('/sessions', { cwd: dir }))
+
+    expect(response.status).toBe(201)
+    expect(created).toEqual([{ name: 'ra-term-term-1', cwd: dir }])
     cleanup()
   })
 

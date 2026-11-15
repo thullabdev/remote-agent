@@ -9,7 +9,7 @@ describe('TerminalPanel', () => {
 
   it('renders an empty state when no terminals are open', () => {
     const html = renderToStaticMarkup(
-      <TerminalPanel terminals={[]} activeTerminalId={null} onBack={() => {}} onNew={() => {}} onClose={() => {}} />
+      <TerminalPanel terminals={[]} activeTerminalId={null} onBack={() => {}} onNew={() => {}} onSelect={() => {}} onClose={() => {}} />
     )
     expect(html).toContain('No terminal sessions')
     expect(html).toContain('Start terminal')
@@ -22,6 +22,7 @@ describe('TerminalPanel', () => {
         activeTerminalId="sid-1"
         onBack={() => {}}
         onNew={() => {}}
+        onSelect={() => {}}
         onClose={() => {}}
       />
     )
@@ -39,6 +40,7 @@ describe('TerminalPanel navigation', () => {
         activeTerminalId="sid-1"
         onBack={() => {}}
         onNew={() => {}}
+        onSelect={() => {}}
         onClose={() => {}}
       />
     )

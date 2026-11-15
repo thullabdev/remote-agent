@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { groupByFolder, projectName } from './grouping.ts'
+import { groupByFolder, openSessionInFolder, projectName, sameFolder } from './grouping.ts'
 
 describe('groupByFolder', () => {
   it('groups by launch folder, newest group first, newest session first inside it', () => {
@@ -31,5 +31,36 @@ describe('groupByFolder', () => {
 
   it('returns no groups for no sessions', () => {
     expect(groupByFolder([])).toEqual([])
+  })
+})
+
+describe('sameFolder', () => {
+  it('treats a trailing slash as the same folder', () => {
+    expect(sameFolder('/home/me/app/', '/home/me/app')).toBe(true)
+  })
+
+  it('treats different folders as different, even with a shared name', () => {
+    expect(sameFolder('/home/me/app', '/work/app')).toBe(false)
+  })
+
+  it('keeps the root as the root', () => {
+    expect(sameFolder('/', '/')).toBe(true)
+    expect(sameFolder('/', '/home')).toBe(false)
+  })
+})
+
+describe('openSessionInFolder', () => {
+  it('returns the newest session in the folder, and ignores other folders', () => {
+    const sessions = [
+      { sid: 'b-new', cwd: '/work/b' },
+      { sid: 'a-new', cwd: '/home/me/app/' },
+      { sid: 'a-old', cwd: '/home/me/app' },
+    ]
+
+    expect(openSessionInFolder(sessions, '/home/me/app')?.sid).toBe('a-new')
+  })
+
+  it('returns undefined when no session is in the folder', () => {
+    expect(openSessionInFolder([{ sid: 'x', cwd: '/elsewhere' }], '/home/me/app')).toBeUndefined()
   })
 })

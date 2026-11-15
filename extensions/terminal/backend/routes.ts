@@ -9,6 +9,8 @@ export type TmuxOps = {
   available(): Promise<boolean>
   create(input: { name: string; cwd: string; cols: number; rows: number; shell: string }): Promise<void>
   kill(name: string): Promise<void>
+  /** Whether the tmux session is still running. A session whose shell exited is not, even though it is still stored as open. */
+  alive(name: string): Promise<boolean>
 }
 
 export type RouteDeps = {
@@ -35,12 +37,25 @@ export function viewOf(doc: SessionDoc): SessionView {
   return { sid: doc.sid, cwd: doc.launchCwd, project: doc.project, chatId: doc.chatId, createdAt: doc.createdAt, lastAttachedAt: doc.lastAttachedAt }
 }
 
+/**
+ * Closes every stored open session whose tmux session is gone. A shell that exits is not closed by anyone else until the
+ * browser tries to open it, so without this the list, the limit and folder reuse would all count it as running.
+ */
+export async function pruneExited(deps: Pick<RouteDeps, 'owner' | 'repo' | 'tmux'>): Promise<void> {
+  for (const doc of deps.repo.listOpen(deps.owner)) {
+    if (!(await deps.tmux.alive(doc.tmuxName))) {
+      deps.repo.close(doc.sid, 'missing')
+    }
+  }
+}
+
 export function createSessionRoutes(deps: RouteDeps) {
   const home = deps.home ?? homedir()
 
   return {
     /** GET: the caller's open sessions, newest first. */
     async list(): Promise<Response> {
+      await pruneExited(deps)
       return json({ sessions: deps.repo.listOpen(deps.owner).map(viewOf) })
     },
 
@@ -64,6 +79,7 @@ export function createSessionRoutes(deps: RouteDeps) {
       if (!isDirectory(cwd)) {
         return json({ error: `folder does not exist: ${cwd}` }, 400)
       }
+      await pruneExited(deps)
       const open = deps.repo.countOpen(deps.owner)
       if (open >= MAX_OPEN_SESSIONS) {
         return json({ error: `too many open terminals (${open} of ${MAX_OPEN_SESSIONS}); close one first`, open }, 409)

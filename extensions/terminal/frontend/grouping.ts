@@ -35,3 +35,18 @@ export function projectName(cwd: string): string {
   const last = trimmed.slice(trimmed.lastIndexOf('/') + 1)
   return last === '' ? cwd : last
 }
+
+/** Whether two launch folders are the same one, ignoring a trailing slash: `/a/b/` and `/a/b` name one project. */
+export function sameFolder(a: string, b: string): boolean {
+  return trimTrailingSlashes(a) === trimTrailingSlashes(b)
+}
+
+/** The session to reuse for a folder: the newest open one started there, or none. Sessions are expected newest first. */
+export function openSessionInFolder<T extends { cwd: string }>(sessions: T[], folder: string): T | undefined {
+  return sessions.find(session => sameFolder(session.cwd, folder))
+}
+
+function trimTrailingSlashes(path: string): string {
+  const trimmed = path.replace(/\/+$/, '')
+  return trimmed === '' ? '/' : trimmed
+}
