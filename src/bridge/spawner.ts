@@ -3,6 +3,7 @@ import type { Channel, SessionStatus, ThreadRef } from '../channel/types.ts'
 import { redactSecrets, truncate } from '../core/text.ts'
 import { END_GRACE_MS, STARTUP_TIMEOUT_MS } from './config.ts'
 import { tmuxNameFor, type Launcher } from './launcher.ts'
+import { cutTranscript, TranscriptCutError } from '../channel/web/transcript/cut.ts'
 import { transcriptPath } from '../channel/web/transcript/path.ts'
 import { launchFolderOf } from './launch-folder.ts'
 import type { Notifier } from './notifier.ts'
@@ -21,6 +22,7 @@ export const NOT_SPAWNED = 'Only sessions started by the Bridge can be ended rem
 export const NO_TRANSCRIPT = 'This Session never got a first message, so there is nothing to resume. Start a new one with /new <folder>.'
 export const UNKNOWN_SESSION = 'Unknown session.'
 export const SESSION_ALREADY_ACTIVE = 'This Session is already active.'
+export const NO_FORK_POINT = 'That message is no longer in this Session\'s transcript, so the chat cannot be forked there.'
 
 const CAPTURE_LINES = 15
 const CAPTURE_MAX = 1_500
@@ -226,6 +228,45 @@ export class Spawner {
       }
       throw error
     }
+  }
+
+  /**
+   * Starts a Spawned Session that resumes a copy of `sessionId`'s transcript, cut after the message `uuid`, so the new Session has only
+   * the history up to that message. The copy is written where the new Session looks for its transcript: its own cwd. Returns the toast
+   * and the new Session id, or a null id when nothing was started.
+   */
+  async forkAt(sessionId: string, uuid: string, model: string | null): Promise<{ toast: string; newSessionId: string | null }> {
+    const { store, trusted, home, log } = this.deps
+    const session = store.getSession(sessionId)
+    if (session === undefined) {
+      return { toast: UNKNOWN_SESSION, newSessionId: null }
+    }
+    let cwd: string | null
+    try {
+      cwd = await trusted.isTrusted(session.cwd)
+    } catch (error) {
+      if (error instanceof TrustedFoldersUnavailable) {
+        log('reading Claude Code trusted folders failed', error)
+        return { toast: CONFIG_UNREADABLE, newSessionId: null }
+      }
+      throw error
+    }
+    if (cwd === null) {
+      return { toast: NOT_TRUSTED, newSessionId: null }
+    }
+    const source = transcriptPath(home, await this.launchFolder(session), sessionId)
+    const newId = this.newId()
+    try {
+      await cutTranscript({ source, destination: transcriptPath(home, cwd, newId), uuid, sessionId: newId })
+    } catch (error) {
+      if (error instanceof TranscriptCutError) {
+        log(`forking ${sessionId} at ${uuid} failed`, error)
+        return { toast: NO_FORK_POINT, newSessionId: null }
+      }
+      throw error
+    }
+    const toast = await this.start(cwd, model, undefined, { sessionId: newId })
+    return { toast, newSessionId: toast.startsWith('❌') ? null : newId }
   }
 
   /** The folder a Session was launched from; see launchFolderOf. */
@@ -515,9 +556,10 @@ export class Spawner {
     return this.start(cwd, model, resumeFrom)
   }
 
-  private async start(cwd: string, model: string | null, resumeFrom?: string): Promise<string> {
+  /** `prepared` is a Session whose transcript copy is already in place under its id: it resumes that copy in place. */
+  private async start(cwd: string, model: string | null, resumeFrom?: string, prepared?: { sessionId: string }): Promise<string> {
     const { store, notifier, channel, launcher, log } = this.deps
-    const sessionId = this.newId()
+    const sessionId = prepared?.sessionId ?? this.newId()
     const tmuxName = tmuxNameFor(sessionId)
     store.createSpawnedSession({ id: sessionId, cwd, tmuxName })
     // The Thread must exist before claude starts, or the mod's first request would create a second one.
@@ -530,7 +572,8 @@ export class Spawner {
       return '❌ Could not create a topic for the session.'
     }
     try {
-      await launcher.launch({ sessionId, cwd, model, resumeFrom, ...this.libraryDirs() })
+      const resume = prepared === undefined ? { resumeFrom } : { resumeFrom: sessionId, fork: false }
+      await launcher.launch({ sessionId, cwd, model, ...resume, ...this.libraryDirs() })
       if (resumeFrom !== undefined) {
         this.historySource(sessionId, resumeFrom)
       }
@@ -547,7 +590,7 @@ export class Spawner {
       log(`announcing the start of ${sessionId} failed`, sendError)
     })
     const withModel = model === null ? '' : ` with ${model}`
-    if (resumeFrom !== undefined) {
+    if (resumeFrom !== undefined || prepared !== undefined) {
       return `Forking ${projectName(cwd)}${withModel}. Open its topic.`
     }
     return `🚀 Starting ${projectName(cwd)}${withModel}. Open its topic.`

@@ -1,10 +1,10 @@
 import { beforeEach, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Launcher } from '../../src/bridge/launcher.ts'
 import { AwayMode, Notifier } from '../../src/bridge/notifier.ts'
-import { BAD_MODEL, CONFIG_UNREADABLE, NO_TRANSCRIPT, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
+import { BAD_MODEL, CONFIG_UNREADABLE, NO_FORK_POINT, NO_TRANSCRIPT, NOT_SPAWNED, NOT_TRUSTED, READY, STALE_PICKER, Spawner, USAGE, parseNewArgs, type Schedule } from '../../src/bridge/spawner.ts'
 import { Store } from '../../src/bridge/store.ts'
 import { TrustedFolders } from '../../src/bridge/trusted.ts'
 import { ChatLog } from '../../src/channel/web/chat-log.ts'
@@ -585,4 +585,37 @@ test('resume finds the launch folder of an older Session from its transcript whe
   expect(await spawner.resume(idFor(10))).toBe('Resuming api in this Session. Open its chat.')
   const launch = tmux.calls.find(argv => argv.includes('claude'))
   expect(launch).toEqual(expect.arrayContaining(['-c', launchDir]))
+})
+
+test('forkAt copies the transcript up to the message into a new session and resumes that copy with the given model', async () => {
+  const cwd = `${home}/Sites/api`
+  store.createSpawnedSession({ id: idFor(7), cwd, tmuxName: 'ra-00000007' })
+  await mkdir(dirname(transcriptPath(home, cwd, idFor(7))), { recursive: true })
+  await writeFile(transcriptPath(home, cwd, idFor(7)), [
+    { uuid: 'u1', sessionId: idFor(7), type: 'user' },
+    { uuid: 'a1', sessionId: idFor(7), type: 'assistant' },
+    { uuid: 'u2', sessionId: idFor(7), type: 'user' },
+  ].map(line => JSON.stringify(line)).join('\n') + '\n')
+
+  const result = await spawner.forkAt(idFor(7), 'a1', 'claude-sonnet-5-5')
+
+  expect(result.toast).toBe('Forking api with claude-sonnet-5-5. Open its topic.')
+  expect(result.newSessionId).not.toBeNull()
+  const newId = result.newSessionId ?? ''
+  const copied = (await readFile(transcriptPath(home, cwd, newId), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  expect(copied.map(line => line.uuid).slice(0, 2)).toEqual(['u1', 'a1'])
+  expect(copied.every(line => line.sessionId === newId)).toBe(true)
+  const launch = tmux.calls.find(argv => argv.includes('claude'))
+  expect(launch).toEqual(expect.arrayContaining(['--resume', newId, '--model', 'claude-sonnet-5-5']))
+  expect(launch?.includes('--fork-session')).toBe(false)
+})
+
+test('forkAt launches nothing when the message is not in the transcript', async () => {
+  const cwd = `${home}/Sites/api`
+  store.createSpawnedSession({ id: idFor(7), cwd, tmuxName: 'ra-00000007' })
+  await mkdir(dirname(transcriptPath(home, cwd, idFor(7))), { recursive: true })
+  await writeFile(transcriptPath(home, cwd, idFor(7)), `${JSON.stringify({ uuid: 'u1', sessionId: idFor(7) })}\n`)
+
+  expect(await spawner.forkAt(idFor(7), 'missing', null)).toEqual({ toast: NO_FORK_POINT, newSessionId: null })
+  expect(tmux.calls.find(argv => argv.includes('claude'))).toBeUndefined()
 })

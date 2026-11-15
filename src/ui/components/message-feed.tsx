@@ -1,4 +1,4 @@
-import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, FileText, ImageIcon, ListTree, LoaderCircle, Wrench, X } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, Crosshair, FileText, GitBranch, ImageIcon, ListTree, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SessionStatusCard } from './session-status-card.tsx'
 import { chatState } from '../../channel/web/chat-state.ts'
@@ -26,6 +26,10 @@ type MessageFeedProps = {
   onPromptReply(promptId: string, body: { questionIndex: number; text: string }): Promise<void>
   onPickerAction(chatId: string, body: { pickerId: string; choice: number }): Promise<void>
   onTogglePin?(message: Message): void
+  /** Forks the chat at this reply. Only offered on a reply that ends a turn, and not while the chat is busy. */
+  onFork?(message: Message): void
+  /** Opens another chat, and when given a message in it, scrolls to that message: used for a fork's origin and its fork point. */
+  onOpenChat?(chatId: string, messageId?: string, seq?: number | null): void
   /** Opens a background sub-agent's full activity in the details panel. */
   onOpenSubagent?(agentId: string, title: string): void
 }
@@ -62,9 +66,12 @@ function MessageFeedView({
   onPromptReply,
   onPickerAction,
   onTogglePin,
+  onFork,
+  onOpenChat,
   onOpenSubagent,
 }: MessageFeedProps) {
-  const grouped = useMemo(() => groupMessages(messages), [messages])
+  // Older chats hold "Forked to" rows in their feed. Forks are listed in the details panel now, so those rows are not shown.
+  const grouped = useMemo(() => groupMessages(messages.filter(message => !(message.kind === 'fork_link' && message.direction === 'forked_to'))), [messages])
 
   const feedRef = useRef<HTMLDivElement>(null)
   const wasNearBottom = useRef(true)
@@ -86,6 +93,23 @@ function MessageFeedView({
 
   // Rows grouped by local calendar day. Each day is its own section, so its date label
   // sticks only while that day is on screen and scrolls away with it.
+  const forkOrigin = chat.forkedFrom ?? null
+  const forkAnchorSeq = forkOrigin?.anchorSeq ?? null
+  /**
+   * Where the banner goes, as an index into `grouped`: right after the last loaded message at or before the fork point's copy, so new
+   * turns below it never move it. -1 puts it at the very top of the feed, for a copy that sits in an older page than the loaded ones.
+   * Null means the copy has not been recorded yet, and the banner waits at the bottom.
+   */
+  let bannerAfter: number | null = null
+  if (forkOrigin !== null && forkAnchorSeq !== null) {
+    bannerAfter = -1
+    grouped.forEach((entry, index) => {
+      if (entry.kind === 'message' && entry.message.seq <= forkAnchorSeq) {
+        bannerAfter = index
+      }
+    })
+  }
+  let bannerPlaced = false
   const dayGroups: { day: string | null; at: number | null; nodes: ReactNode[] }[] = []
   const addRow = (key: string, at: number | undefined, node: ReactNode) => {
     const element = <Fragment key={key}>{node}</Fragment>
@@ -131,10 +155,33 @@ function MessageFeedView({
           onPromptReply={onPromptReply}
           onPickerAction={onPickerAction}
           onTogglePin={onTogglePin}
+          onFork={onFork}
+          isLastMessage={entry.message.seq === chat.lastMessage?.seq}
+          onOpenChat={onOpenChat}
         />
       </div>,
     )
+    // The fork's banner sits at its fork point: right after the copy of the reply it was made from, so new turns below never move it.
+    if (forkOrigin !== null && !bannerPlaced && index === bannerAfter) {
+      bannerPlaced = true
+      addRow(`fork-banner-${entry.message.id}`, entry.message.at, <ForkBanner origin={forkOrigin} onOpen={onOpenChat} />)
+    }
   })
+  if (forkOrigin !== null && !bannerPlaced) {
+    const banner = <ForkBanner origin={forkOrigin} onOpen={onOpenChat} />
+    if (bannerAfter === null) {
+      // The copied history has not been recorded yet, so there is no fork point to sit after: the banner waits at the bottom.
+      addRow('fork-banner', undefined, banner)
+    } else if (dayGroups.length === 0) {
+      addRow('fork-banner-top', undefined, banner)
+    } else {
+      // Every loaded message is newer than the fork point: the banner stands above them, at the top of the feed.
+      const first = dayGroups[0]
+      if (first !== undefined) {
+        first.nodes.unshift(<Fragment key="fork-banner-top">{banner}</Fragment>)
+      }
+    }
+  }
   pendingMessages.forEach(({ message, error, retry }) => {
     addRow(message.id, message.at, <MessageCard message={message} messages={messages} pendingError={error} onRetry={retry} />)
   })
@@ -234,6 +281,10 @@ type MessageCardProps = {
   onPromptReply?: MessageFeedProps['onPromptReply']
   onPickerAction?: MessageFeedProps['onPickerAction']
   onTogglePin?: MessageFeedProps['onTogglePin']
+  onFork?: MessageFeedProps['onFork']
+  /** The chat's last message: the whole chat, which the details panel forks, so the feed offers no Fork here. */
+  isLastMessage?: boolean
+  onOpenChat?: MessageFeedProps['onOpenChat']
 }
 
 const PIN_HOLD_MS = 500
@@ -309,7 +360,61 @@ function PressToPin({ onToggle, children, className }: { onToggle(): void; child
   )
 }
 
-function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin }: MessageCardProps) {
+/**
+ * One card for a fork link, used both where a fork's feed ends (`Forked from`) and in the origin's feed (`Forked to`), so the two read
+ * as the same thing from either side. Each card offers the other chat and the point of the fork in the chat it names.
+ */
+function ForkLinkCard({
+  label,
+  title,
+  openLabel,
+  onOpen,
+  onGoToPoint,
+}: {
+  label: string
+  title: string
+  openLabel: string
+  onOpen(): void
+  onGoToPoint(): void
+}) {
+  return (
+    <div className="mx-auto my-3 flex w-full max-w-4xl flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border bg-card px-3 py-2 text-sm">
+      <GitBranch className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0 truncate text-muted-foreground">
+        {label} <span className="font-medium text-foreground">{title}</span>
+      </span>
+      <span className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onGoToPoint}
+          aria-label="Show fork point"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        >
+          <Crosshair className="size-3.5" aria-hidden="true" />
+          Show fork point
+        </button>
+        <button type="button" onClick={onOpen} className="rounded-md px-1.5 py-0.5 text-xs text-primary underline underline-offset-2 hover:bg-black/5">
+          {openLabel}
+        </button>
+      </span>
+    </div>
+  )
+}
+
+/** A fork's feed ends with where it came from: the original chat, and the message the fork was made from. */
+function ForkBanner({ origin, onOpen }: { origin: NonNullable<Chat['forkedFrom']>; onOpen?: MessageFeedProps['onOpenChat'] }) {
+  return (
+    <ForkLinkCard
+      label="Forked from"
+      title={origin.title}
+      openLabel="Open original"
+      onOpen={() => onOpen?.(origin.chatId)}
+      onGoToPoint={() => onOpen?.(origin.chatId, origin.fromMessageId, origin.fromMessageSeq ?? null)}
+    />
+  )
+}
+
+function MessageCard({ message, messages, pendingError, onRetry, onPromptAction, onPromptReply, onPickerAction, onTogglePin, onFork, isLastMessage, onOpenChat }: MessageCardProps) {
   if (message.kind === 'user_text') {
     const attachments = message.attachments ?? []
     // Files the text names show inline; a file the text does not name (older messages) keeps its own row.
@@ -401,15 +506,28 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
   if (message.kind === 'agent_text') {
     // agent_text messages do not carry an agent id yet, so they show the default agent.
     const agent = agentInfo(undefined)
+    const canFork = onFork !== undefined && message.forkable === true && isLastMessage !== true
     return (
       <article className="min-w-0 w-full max-w-2xl px-4 py-[var(--message-pad,_.7rem)]">
         <div className="mb-2 flex items-center gap-2 text-sm">
           <span className="font-display font-semibold">{agent.name}</span>
           <span className="rounded px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">AGENT</span>
           <time className="font-mono text-xs text-muted-foreground" dateTime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
-          {onTogglePin && (
-            <span className="ml-auto">
-              <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />
+          {(onTogglePin || canFork) && (
+            <span className="ml-auto flex items-center gap-1">
+              {canFork && (
+                <button
+                  type="button"
+                  onClick={() => onFork?.(message)}
+                  aria-label="Fork from this message"
+                  title="Fork from this message"
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-black/5 hover:text-foreground"
+                >
+                  <GitBranch className="size-3.5" aria-hidden="true" />
+                  Fork
+                </button>
+              )}
+              {onTogglePin && <PinButton pinned={message.pinned === true} onToggle={() => onTogglePin(message)} />}
             </span>
           )}
         </div>

@@ -1,7 +1,7 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
 import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Chat, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
+import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
 import { newChatToOpen } from './new-chat.ts'
 import { Button } from './components/ui/button.tsx'
@@ -18,6 +18,7 @@ import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
 import { connectionNoticeText, deepLink, pendingPromptMessage } from './presentation.ts'
+import { revealMessage, type RevealTarget } from './reveal.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
 import { useSessionModel } from './use-session-model.ts'
@@ -32,17 +33,9 @@ type PendingMessage = {
 /** How long after a session is requested a new chat may appear and be opened for the user. */
 const NEW_CHAT_WATCH_MS = 30_000
 
-const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-
-/** The feed renders a loaded page on a later frame, so retry the scroll for a few frames. False when the message never appears. */
-async function scrollWhenRendered(messageId: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    if (scrollToMessage(messageId)) {
-      return true
-    }
-    await nextFrame()
-  }
-  return false
+/** One short wait long enough for React to commit a page or a render, and that still resolves while the tab is hidden. */
+function nextTick(): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, 50))
 }
 
 function errorText(error: unknown): string {
@@ -66,6 +59,8 @@ export function App() {
   const chatsRef = useRef<Chat[]>([])
   const [pinsByChat, setPinsByChat] = useState<Record<string, PinView[]>>({})
   const [pinsVersion, setPinsVersion] = useState(0)
+  const [forksByChat, setForksByChat] = useState<Record<string, ForkView[]>>({})
+  const [forksVersion, setForksVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
@@ -77,6 +72,11 @@ export function App() {
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const toastId = useRef(0)
   const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
+  // The reveal walk below runs after awaits, so it reads the latest chats and messages rather than the ones of the render that started it.
+  const activeChatIdRef = useRef(activeChatId)
+  activeChatIdRef.current = activeChatId
+  const realtimeRef = useRef(realtime)
+  realtimeRef.current = realtime
   const push = usePushSubscription(api)
 
   const notify = useCallback((message: string, kind: ToastKind = 'success') => {
@@ -170,6 +170,76 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  /**
+   * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use
+   * this, since the message they name is often above the newest page. Quiet: false when the message cannot be shown.
+   */
+  const reveal = useCallback((target: RevealTarget): Promise<boolean> => {
+    return revealMessage({
+      openChat: chatId => {
+        if (chatId !== activeChatIdRef.current) {
+          openChat(chatId)
+        }
+      },
+      isLoaded: chatId => realtimeRef.current?.loadedChats.has(chatId) ?? false,
+      messages: chatId => realtimeRef.current?.messages[chatId] ?? [],
+      hasMore: chatId => realtimeRef.current?.hasMore[chatId] ?? false,
+      hiddenBefore: chatId => realtimeRef.current?.hiddenBeforeSeq[chatId] ?? 0,
+      loadOlder: async (chatId, before) => {
+        setBusyChatIds(current => new Set(current).add(`history:${chatId}`))
+        try {
+          await loadMessages(chatId, before)
+        } finally {
+          setBusyChatIds(current => {
+            const next = new Set(current)
+            next.delete(`history:${chatId}`)
+            return next
+          })
+        }
+      },
+      scrollTo: scrollToMessage,
+      wait: nextTick,
+    }, target)
+  }, [loadMessages, openChat])
+
+  /** Reveals a message and says so when it cannot be shown, for a tap the user expects to land somewhere. */
+  const revealOrNotify = useCallback(async (target: RevealTarget) => {
+    if (!(await reveal(target))) {
+      notify('That message could not be found.', 'error')
+    }
+  }, [notify, reveal])
+
+  // Forks the chat at one reply and opens the fork, when the server has already made its chat.
+  // A fork starts a Session, so a second tap while one is in flight is ignored rather than starting another.
+  const forkInFlight = useRef(false)
+  const forkFromMessage = useCallback(async (message: Message) => {
+    if (forkInFlight.current) {
+      return
+    }
+    forkInFlight.current = true
+    try {
+      const result = await api.forkChat(message.chatId, message.id)
+      notify(result.toast)
+      setForksVersion(version => version + 1)
+      if (result.chatId !== null) {
+        openChat(result.chatId)
+      }
+    } catch (reason) {
+      handleError(reason)
+    } finally {
+      forkInFlight.current = false
+    }
+  }, [api, handleError, notify, openChat])
+
+  // Opens a chat and, when given a message, reveals that message once its page has loaded.
+  const openChatAt = useCallback((chatId: string, messageId?: string, seq?: number | null) => {
+    if (messageId === undefined) {
+      openChat(chatId)
+      return
+    }
+    void revealOrNotify({ chatId, seq, find: messages => messages.find(message => message.id === messageId) }).catch(handleError)
+  }, [openChat, revealOrNotify, handleError])
 
   // After a session is requested, the first chat that appears (not General, not one already listed) is opened for the user.
   const armNewChatWatch = useCallback(() => {
@@ -440,55 +510,6 @@ export function App() {
 
   useEffect(openLinkedChat, [chats])
 
-  /** Shows a pinned message: loads older pages until its seq is covered, then scrolls to it. */
-  const jumpToPin = async (pin: PinView) => {
-    const chatId = activeChatId
-    if (chatId === null) {
-      return
-    }
-    let before = messages[0]?.seq
-    let hasMore = realtime?.hasMore[chatId] ?? false
-    if (!scrollToMessage(pin.id) && before !== undefined && pin.seq < before && hasMore) {
-      setBusyChatIds(current => new Set(current).add(`history:${chatId}`))
-      try {
-        while (before !== undefined && pin.seq < before && hasMore) {
-          const page = await loadMessages(chatId, before)
-          hasMore = page.hasMore
-          before = page.messages[0]?.seq ?? before
-        }
-      } finally {
-        setBusyChatIds(current => {
-          const next = new Set(current)
-          next.delete(`history:${chatId}`)
-          return next
-        })
-      }
-    }
-    if (await scrollWhenRendered(pin.id)) {
-      return
-    }
-    notify('That message could not be found in this chat.', 'error')
-  }
-
-  /** Scrolls to the Prompt a session waits on, loading older pages if it is above the loaded ones. Quiet if it was answered meanwhile. */
-  const revealPrompt = async (chatId: string, promptId: string) => {
-    let found = pendingPromptMessage(messages, promptId)
-    let before = messages[0]?.seq
-    let hasMore = realtime?.hasMore[chatId] ?? false
-    while (found === undefined && before !== undefined && hasMore) {
-      const page = await loadMessages(chatId, before)
-      found = pendingPromptMessage(page.messages, promptId)
-      hasMore = page.hasMore
-      if (page.messages.length === 0) {
-        break
-      }
-      before = page.messages[0]?.seq ?? before
-    }
-    if (found !== undefined) {
-      await scrollWhenRendered(found.id)
-    }
-  }
-
   // Once the chat's messages are loaded, scroll to the Prompt that was asked for, then drop it so a reload does not scroll again.
   useEffect(() => {
     if (focusPrompt === null || activeChatId !== focusPrompt.chatId || realtime === null || !realtime.loadedChats.has(focusPrompt.chatId)) {
@@ -501,8 +522,9 @@ export function App() {
       url.searchParams.delete('prompt')
       window.history.replaceState(null, '', url)
     }
-    void revealPrompt(target.chatId, target.promptId).catch(handleError)
-  }, [focusPrompt, activeChatId, realtime?.loadedChats])
+    // Quiet if the Prompt was answered meanwhile: there is nowhere to scroll, and the link is stale rather than broken.
+    void reveal({ chatId: target.chatId, find: messages => pendingPromptMessage(messages, target.promptId) }).catch(handleError)
+  }, [focusPrompt, activeChatId, realtime?.loadedChats, reveal, handleError])
 
   // The chat's bookmarks load when the chat is opened, after a change, and whenever the details open (another device may have changed them).
   useEffect(() => {
@@ -513,6 +535,16 @@ export function App() {
       setPinsByChat(current => ({ ...current, [activeChatId]: result.pins }))
     }).catch(handleError)
   }, [activeChatId, pinsVersion, infoOpen, api, handleError])
+
+  // The chat's forks load when the chat is opened, after a fork is made, and whenever the details open or Refresh is pressed.
+  useEffect(() => {
+    if (activeChatId === null) {
+      return
+    }
+    api.listForks(activeChatId).then(result => {
+      setForksByChat(current => ({ ...current, [activeChatId]: result.forks }))
+    }).catch(handleError)
+  }, [activeChatId, forksVersion, infoOpen, api, handleError])
 
   const initialFailure = realtime === null && status === 'error'
   if (accessDenied || (initialFailure && error instanceof RequestError && error.accessDenied)) {
@@ -652,6 +684,8 @@ export function App() {
                   onPromptReply={handlePromptReply}
                   onPickerAction={handlePickerAction}
                   onTogglePin={togglePin}
+                  onFork={message => void forkFromMessage(message)}
+                  onOpenChat={openChatAt}
                   onOpenSubagent={(agentId, title) => {
                     setSubagentView({ chatId: activeChat.id, agentId, title })
                     setInfoOpen(true)
@@ -690,16 +724,27 @@ export function App() {
                 onPin={pinned => runInfoAction(() => api.pinChat(activeChat.id, pinned))}
                 onNotify={message => notify(message, 'error')}
                 onClear={() => runInfoAction(() => api.clearChat(activeChat.id).then(() => ({ toast: 'Chat history hidden on all devices.' })))}
-                onFork={() => runInfoAction(() => api.forkChat(activeChat.id))}
+                onFork={() => runInfoAction(() => api.forkChat(activeChat.id)).then(() => setForksVersion(version => version + 1))}
                 onResume={() => {
                   setResumeOpen(true)
                   return Promise.resolve()
                 }}
                 pins={pinsByChat[activeChat.id] ?? []}
+                forks={forksByChat[activeChat.id] ?? []}
+                onRefreshForks={() => setForksVersion(version => version + 1)}
+                onShowFork={fork => {
+                  setInfoOpen(false)
+                  void revealOrNotify({
+                    chatId: activeChat.id,
+                    seq: fork.pointSeq,
+                    find: messages => messages.find(message => message.id === fork.pointMessageId),
+                  }).catch(handleError)
+                }}
+                onOpenFork={chatId => openChat(chatId)}
                 onUnpin={messageId => runInfoAction(() => api.pinMessage(messageId, false)).then(() => setPinsVersion(version => version + 1))}
                 onJump={pin => {
                   setInfoOpen(false)
-                  void jumpToPin(pin).catch(handleError)
+                  void revealOrNotify({ chatId: activeChat.id, seq: pin.seq, find: messages => messages.find(message => message.id === pin.id) }).catch(handleError)
                 }}
               />
             )}

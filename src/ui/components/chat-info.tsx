@@ -1,7 +1,7 @@
 import { AlertTriangle, Archive, ArchiveRestore, ArrowLeft, Check, Copy, EyeOff, GitFork, Monitor, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Terminal, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { chatState } from '../../channel/web/chat-state.ts'
-import type { Chat, PinView } from '../../channel/web/protocol.ts'
+import type { Chat, ForkView, PinView } from '../../channel/web/protocol.ts'
 import type { TranscriptItem } from '../../channel/web/transcript/parse.ts'
 import type { ApiClient } from '../api.ts'
 import { subagentMessages } from '../subagent-messages.ts'
@@ -40,6 +40,14 @@ type ChatInfoProps = {
   onUnpin(messageId: string): Promise<void>
   /** Closes the details and shows the bookmarked message in the chat, loading older history if needed. */
   onJump(pin: PinView): void
+  /** The forks made from this chat, oldest first. Empty when not given. */
+  forks?: ForkView[]
+  /** Reads the forks again, for a fork made elsewhere (another device, or from another chat). */
+  onRefreshForks?(): void | Promise<void>
+  /** Closes the details and shows the reply a fork was made from, loading older history if needed. */
+  onShowFork?(fork: ForkView): void
+  /** Opens a fork's chat. */
+  onOpenFork?(chatId: string): void
   /** The full model id the Session last ran on, or null when unknown. */
   model?: string | null
 }
@@ -185,7 +193,7 @@ function useSheetLayout(): boolean {
   return sheet
 }
 
-export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpenSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, model = null }: ChatInfoProps) {
+export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpenSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, forks = [], onRefreshForks, onShowFork, onOpenFork, model = null }: ChatInfoProps) {
   const state = chatState(chat)
   const isGeneral = chat.id === 'general'
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -397,6 +405,43 @@ export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpen
                       <div className="mt-1.5 flex gap-1">
                         <Button variant="ghost" size="sm" onClick={() => onJump(pin)}>Show in chat</Button>
                         <Button variant="ghost" size="sm" onClick={() => void onUnpin(pin.id)}>Remove bookmark</Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </details>
+
+            <details open={forks.length > 0} className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between">
+                <SectionLabel>Forks · {forks.length}</SectionLabel>
+              </summary>
+              <div className="mt-1 flex justify-end">
+                <Button variant="ghost" size="sm" aria-label="Refresh forks" onClick={() => void onRefreshForks?.()}>
+                  <RefreshCw aria-hidden="true" />
+                  Refresh
+                </Button>
+              </div>
+              {forks.length === 0 ? (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Fork from a reply to start one.</p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {forks.map(fork => (
+                    <li key={fork.chatId} className="rounded-xl bg-card p-2.5">
+                      <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                        <GitFork aria-hidden="true" className="size-3" />
+                        <time dateTime={new Date(fork.createdAt).toISOString()}>{formatTime(fork.createdAt)}</time>
+                        {fork.status === 'ended' && <span>Ended</span>}
+                      </div>
+                      <p className="mt-1 text-sm font-medium leading-snug">{fork.title}</p>
+                      {fork.pointVisible && <p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">{fork.pointPreview}</p>}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        {fork.pointVisible ? (
+                          <Button variant="ghost" size="sm" onClick={() => onShowFork?.(fork)}>Show in chat</Button>
+                        ) : (
+                          <span className="px-2 text-xs text-muted-foreground">Fork point no longer shown</span>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => onOpenFork?.(fork.chatId)}>Open fork</Button>
                       </div>
                     </li>
                   ))}

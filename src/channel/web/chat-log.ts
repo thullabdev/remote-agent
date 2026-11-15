@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import type { Store } from '../../bridge/store.ts'
 import { clipChars, redactSecrets, stripMarkdown, truncate } from '../../core/text.ts'
 import { ACTIVITY_KEEP_DAYS, buildDays, groupRecent, type ActivityKind, type ActivityRow, type RecentRow } from './activity.ts'
-import type { ActivityView, Chat, ChatActivity, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ServerEvent } from './protocol.ts'
+import type { ActivityView, Chat, ChatActivity, Draft, Message, MessageBody, MessageKind, PendingPrompt, PromptBodyView, PushSubscriptionRecord, ForkView, ServerEvent } from './protocol.ts'
 
 export const TOOL_RESULT_MAX = 20_000
 /** How many sessions the user can pin (General is always at the top and does not count), so pinning cannot recreate a crowded list. */
@@ -28,6 +28,8 @@ const DRAFT_ADDED_COLUMNS: [string, string][] = [['updated_at', 'updated_at INTE
 const CHAT_ADDED_COLUMNS: [string, string][] = [
   ['archived', 'archived INTEGER NOT NULL DEFAULT 0'],
   ['custom_title', 'custom_title TEXT'],
+  ['forked_from_chat_id', 'forked_from_chat_id TEXT'],
+  ['fork_point_message_id', 'fork_point_message_id TEXT'],
 ]
 
 const SCHEMA = `
@@ -69,10 +71,13 @@ const CHAT_SELECT = `SELECT c.id, c.title, c.custom_title, c.status, c.busy, c.p
   COALESCE((SELECT r.seq FROM read_cursors r WHERE r.chat_id = c.id), 0) AS cursor,
   (SELECT d.text FROM drafts d WHERE d.chat_id = c.id) AS draft_text,
   (SELECT d.attachments FROM drafts d WHERE d.chat_id = c.id) AS draft_attachments,
-  (SELECT d.updated_at FROM drafts d WHERE d.chat_id = c.id) AS draft_at
+  (SELECT d.updated_at FROM drafts d WHERE d.chat_id = c.id) AS draft_at,
+  c.forked_from_chat_id, c.fork_point_message_id,
+  (SELECT o.title FROM chats o WHERE o.id = c.forked_from_chat_id) AS origin_title,
+  (SELECT o.custom_title FROM chats o WHERE o.id = c.forked_from_chat_id) AS origin_custom_title
   FROM chats c LEFT JOIN sessions s ON s.id = c.session_id`
 
-const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned'
+const MESSAGE_COLUMNS = 'id, chat_id, seq, body, created_at, pinned, source_id'
 
 type ChatRecord = {
   id: string
@@ -92,9 +97,13 @@ type ChatRecord = {
   draft_text: string | null
   draft_attachments: string | null
   draft_at: number | null
+  forked_from_chat_id: string | null
+  fork_point_message_id: string | null
+  origin_title: string | null
+  origin_custom_title: string | null
 }
 
-type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number }
+type MessageRecord = { id: string; chat_id: string; seq: number; body: string; created_at: number; pinned: number; source_id: string | null }
 
 type EventRecord = { seq: number; type: string; payload: string }
 
@@ -161,6 +170,8 @@ function previewOf(body: MessageBody): string {
       return plain(body.text)
     case 'picker':
       return clipChars(body.text, PREVIEW_MAX)
+    case 'fork_link':
+      return clipChars(body.direction === 'forked_to' ? `Forked to ${body.title}` : `Forked from ${body.title}`, PREVIEW_MAX)
     case 'session_status':
       return body.state === 'ready' ? 'Ready for your first task' : body.state === 'failed' ? (body.message ?? 'Could not start') : 'Starting the session…'
   }
@@ -192,13 +203,16 @@ function draftPreview(text: string | null, attachments: string | null, at: numbe
 }
 
 function toMessage(record: MessageRecord): Message {
+  const body = JSON.parse(record.body) as MessageBody
   return {
-    ...(JSON.parse(record.body) as MessageBody),
+    ...body,
     id: record.id,
     chatId: record.chat_id,
     seq: record.seq,
     at: record.created_at,
     pinned: record.pinned === 1,
+    // A reply from a transcript carries its uuid in source_id, which is what a fork cuts the transcript at.
+    ...(body.kind === 'agent_text' && record.source_id !== null ? { forkable: true as const } : {}),
   }
 }
 
@@ -286,6 +300,81 @@ export class ChatLog {
   /** Sends a chat to the web clients again, for a change made outside the ChatLog (such as the session's model). */
   refreshChat(id: string): void {
     this.write(() => ({ value: undefined, events: [this.emitChat(id)] }))
+  }
+
+  /** Records that a chat was forked from a message of another chat. Only the fork's row changes; the origin gets its own fork_link message. */
+  setForkOrigin(chatId: string, origin: { chatId: string; messageId: string }): Chat {
+    return this.write(() => {
+      this.chatOrThrow(chatId)
+      this.db
+        .query('UPDATE chats SET forked_from_chat_id = ?, fork_point_message_id = ? WHERE id = ?')
+        .run(origin.chatId, origin.messageId, chatId)
+      return { value: this.chatOrThrow(chatId), events: [this.emitChat(chatId)] }
+    })
+  }
+
+  /** The forks of this chat for its details list, oldest first, each with the reply it was made from. */
+  listForkDetails(chatId: string): ForkView[] {
+    const rows = this.db
+      .query<{ id: string; title: string; custom_title: string | null; status: 'active' | 'ended'; created_at: number; fork_point_message_id: string | null }, [string]>(
+        'SELECT id, title, custom_title, status, created_at, fork_point_message_id FROM chats WHERE forked_from_chat_id = ? ORDER BY created_at, id',
+      )
+      .all(chatId)
+    const hidden = this.hiddenBefore(chatId)
+    return rows.map(row => {
+      const point = row.fork_point_message_id === null ? undefined : this.findMessage(row.fork_point_message_id)
+      return {
+        chatId: row.id,
+        title: row.custom_title ?? row.title,
+        status: row.status,
+        createdAt: row.created_at,
+        pointMessageId: row.fork_point_message_id ?? '',
+        pointSeq: point?.seq ?? 0,
+        pointPreview: point === undefined ? '' : previewOf(point),
+        pointVisible: point !== undefined && point.seq > hidden,
+      }
+    })
+  }
+
+  /** The chats forked from this one, oldest first. */
+  listForks(chatId: string): { chatId: string; title: string }[] {
+    return this.db
+      .query<{ id: string; title: string; custom_title: string | null }, [string]>(
+        'SELECT id, title, custom_title FROM chats WHERE forked_from_chat_id = ? ORDER BY created_at, id',
+      )
+      .all(chatId)
+      .map(row => ({ chatId: row.id, title: row.custom_title ?? row.title }))
+  }
+
+  private forkOriginOf(record: ChatRecord): Chat['forkedFrom'] {
+    if (record.forked_from_chat_id === null || record.fork_point_message_id === null || record.origin_title === null) {
+      return null
+    }
+    const anchor = this.forkAnchorOf(record.id, record.fork_point_message_id)
+    const point = this.findMessage(record.fork_point_message_id)
+    return {
+      chatId: record.forked_from_chat_id,
+      title: record.origin_custom_title ?? record.origin_title,
+      fromMessageId: record.fork_point_message_id,
+      fromMessageSeq: point?.seq ?? null,
+      anchorMessageId: anchor?.id ?? null,
+      anchorSeq: anchor?.seq ?? null,
+    }
+  }
+
+  /**
+   * The fork's own copy of the reply it was made from: the message here whose source id carries the same transcript uuid.
+   * Null until the copied history has been read, or when the origin reply no longer has a transcript source.
+   */
+  private forkAnchorOf(chatId: string, originMessageId: string): { id: string; seq: number } | null {
+    const uuid = (this.sourceIdOf(originMessageId) ?? '').split(':')[0] ?? ''
+    if (uuid === '') {
+      return null
+    }
+    const copy = this.db
+      .query<{ id: string; seq: number }, [string, string]>('SELECT id, seq FROM messages WHERE chat_id = ? AND source_id LIKE ? ORDER BY seq LIMIT 1')
+      .get(chatId, `${uuid}:%`)
+    return copy === null ? null : { id: copy.id, seq: copy.seq }
   }
 
   updateChat(id: string, patch: Partial<Pick<Chat, 'title' | 'status' | 'busy'>>): Chat {
@@ -563,6 +652,12 @@ export class ChatLog {
   findMessage(id: string): Message | undefined {
     const record = this.db.query<MessageRecord, [string]>(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE id = ?`).get(id)
     return record === null ? undefined : toMessage(record)
+  }
+
+  /** The source id a message was stored under (`<uuid>:<block>` for transcript text), or null for messages the bridge wrote itself. */
+  sourceIdOf(messageId: string): string | null {
+    const row = this.db.query<{ source_id: string | null }, [string]>('SELECT source_id FROM messages WHERE id = ?').get(messageId)
+    return row?.source_id ?? null
   }
 
   /** Messages in ascending seq order: the newest page, or the page older than `before` (exclusive). */
@@ -856,6 +951,7 @@ export class ChatLog {
       pinned: record.pinned === 1,
       tmuxName: record.tmux_name,
       model: record.model,
+      forkedFrom: this.forkOriginOf(record),
       pendingPrompt,
       activity: record.status === 'active' && record.busy === 1 && pendingPrompt === null ? this.runningTool(record.id, record.hidden_before_seq) : null,
     }
