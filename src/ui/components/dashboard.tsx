@@ -41,6 +41,10 @@ export type DashboardProps = {
   onNewSession(): void
   onStartProject(cwd: string): Promise<void>
   onResume(chatId: string): Promise<void>
+  /** Active terminal sessions, for the Terminals card. */
+  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean }>
+  /** Opens a terminal section by session id. */
+  onOpenTerminal?(sid: string): void
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
@@ -354,7 +358,7 @@ function ResumeLast({ chat, onResume }: { chat: Chat; onResume(): Promise<void> 
   )
 }
 
-export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat, onPromptAction, onToggleAway, onNewSession, onStartProject, onResume }: DashboardProps) {
+export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat, onPromptAction, onToggleAway, onNewSession, onStartProject, onResume, terminals = [], onOpenTerminal }: DashboardProps) {
   const now = useNow()
   const counts = dashboardCounts(chats)
   const needsYou = needsYouItems(chats)
@@ -432,6 +436,38 @@ export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat
             {ended !== null && <ResumeLast chat={ended} onResume={() => onResume(ended.id)} />}
           </div>
         </Section>
+
+        {terminals.length > 0 && (
+          <Section id="dash-terminals" title="Terminals">
+            <div className="flex flex-wrap gap-2">
+              {terminals.map(term => (
+                <Button
+                  key={term.id}
+                  variant="outline"
+                  size="sm"
+                  className="min-w-0 max-w-full shrink"
+                  disabled={!online}
+                  title={term.cwd}
+                  onClick={() => void onOpenTerminal?.(term.id)}
+                >
+                  <span className="mr-2">{term.id}</span>
+                  <span className="text-muted-foreground truncate">{term.login} · {term.cwd}</span>
+                  {term.connected ? (
+                    <span className="ml-auto flex items-center gap-1">
+                      <span className="size-1.5 shrink-0 rounded-full bg-green-500" aria-hidden="true" />
+                      <span className="text-xs">connected</span>
+                    </span>
+                  ) : (
+                    <span className="ml-auto flex items-center gap-1">
+                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                      <span className="text-xs">disconnected</span>
+                    </span>
+                  )}
+                </Button>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {activity !== null && activity.recent.length > 0 && (
           <Section id="dash-recent" title="Recent activity">
