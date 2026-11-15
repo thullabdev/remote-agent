@@ -142,7 +142,15 @@ export async function createBridge(config: Config, options: BridgeOptions = {}):
         subagents: createSubagentSource(config.home),
         log,
       })
-      webServer = startWebServer({ config: web, chatLog, api, hub, usage: () => store.usageForChats(Date.now()), log })
+      webServer = startWebServer({
+        config: web,
+        chatLog,
+        api,
+        hub,
+        usage: () => store.usageForChats(Date.now()),
+        log,
+        extensionDir: join(import.meta.dir, '..', '..', 'extensions'),
+      })
     }
 
     // Bun.serve's unix option is typed without idleTimeout, but the runtime honours it.

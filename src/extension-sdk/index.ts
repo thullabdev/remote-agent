@@ -16,7 +16,7 @@ export type ExtensionManifest = {
 /** Capabilities exposed to an extension's frontend code. Filled in by the host at load time. */
 export type ExtensionFrontendApi = {
   /** Registers a panel component contributed by this extension. */
-  registerPanel(panelId: string, component: React.ComponentType, title: string): void
+  registerPanel(panelId: string, component: React.ComponentType<any>, title: string): void
 }
 
 /** Capabilities exposed to an extension's backend code. Filled in by the host at load time. */
@@ -30,7 +30,7 @@ export type ExtensionBackendApi = {
   /** Registers a WebSocket route namespaced under this extension's id. */
   registerWebSocketRoute(
     path: string,
-    handlers: { open?: (ws: unknown) => void; message?: (ws: unknown, raw: string | Buffer) => void; close?: (ws: unknown) => void }
+    handlers: { open?: (ws: object) => void; message?: (ws: object, raw: string | Buffer) => void; close?: (ws: object) => void }
   ): void
 }
 
@@ -43,8 +43,27 @@ export type ExtensionApi = {
 /** Callbacks the host uses to wire extension-registered routes into the web server. */
 export type ExtensionRouteRegistrar = {
   onHttpRoute(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, handler: (request: Request) => Promise<Response | null>): void
-  onWebSocketRoute(path: string, handlers: { open?: (ws: unknown) => void; message?: (ws: unknown, raw: string | Buffer) => void; close?: (ws: unknown) => void }): void
+  onWebSocketRoute(path: string, handlers: { open?: (ws: object) => void; message?: (ws: object, raw: string | Buffer) => void; close?: (ws: object) => void }): void
   onFrontendPanel(panelId: string, component: React.ComponentType, title: string): void
+}
+
+/**
+ * Namespaces an extension's backend routes under `/api/extensions/<extensionId>`, so extensions cannot collide with each
+ * other or with the host's own routes. The registrar underneath still sees full paths.
+ */
+export function scopeRegistrar(extensionId: string, base: ExtensionRouteRegistrar): ExtensionRouteRegistrar {
+  const prefix = `/api/extensions/${extensionId}`
+  return {
+    onHttpRoute: (method, path, handler) => {
+      base.onHttpRoute(method, `${prefix}${path}`, handler)
+    },
+    onWebSocketRoute: (path, handlers) => {
+      base.onWebSocketRoute(`${prefix}${path}`, handlers)
+    },
+    onFrontendPanel: (panelId, component, title) => {
+      base.onFrontendPanel(panelId, component, title)
+    },
+  }
 }
 
 /** Creates the extension API surface. The host injects route registration via `registrar`. */
@@ -73,7 +92,7 @@ const ManifestSchema = z.object({
   version: z.string().min(1),
   frontend: z.object({ entry: z.string().min(1) }),
   backend: z.object({ entry: z.string().min(1) }),
-  permissions: z.array(z.enum(['pty', 'websocket-routes', 'http-routes']).default([])).default([]),
+  permissions: z.array(z.enum(['pty', 'websocket-routes', 'http-routes'])).default([]),
 })
 
 /** Validates and normalizes a raw manifest object. Throws on invalid input. */

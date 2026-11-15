@@ -15,6 +15,6 @@
       "@/*": ["./src/ui/*"]
     }
   },
-  "include": ["src", "test", "scripts", "vite.config.ts", "mod/remote-agent/hooks", "mod/remote-agent/bin"],
+  "include": ["src", "test", "extensions", "scripts", "vite.config.ts", "mod/remote-agent/hooks", "mod/remote-agent/bin"],
   "exclude": ["mod/remote-agent/hooks/register.ts"]
 }

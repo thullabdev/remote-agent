@@ -7,7 +7,7 @@ import { authorize } from './auth.ts'
 import type { ChatLog } from './chat-log.ts'
 import { closeQuietly, Hub } from './hub.ts'
 import { ClientEventSchema, type UsageView } from './protocol.ts'
-import { createExtensionApi, type ExtensionRouteRegistrar } from '../../extension-sdk/index.ts'
+import { createExtensionApi, scopeRegistrar, type ExtensionRouteRegistrar } from '../../extension-sdk/index.ts'
 import { loadExtensions } from './extension-registry.ts'
 
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
@@ -149,8 +149,9 @@ export function startWebServer(deps: WebServerDeps): WebServer {
     },
   }
 
-  const api = createExtensionApi(registrar)
-  void loadExtensions(deps.extensionDir ?? join(resolve('.'), 'extensions'), { api, log })
+  if (deps.extensionDir !== undefined) {
+    void loadExtensions(deps.extensionDir, { createApi: extensionId => createExtensionApi(scopeRegistrar(extensionId, registrar)), log })
+  }
 
   /** Routes one request; any throw becomes the generic 500 in `fetch`. */
   async function handle(request: Request, server: Server<SocketData>): Promise<Response | undefined> {
@@ -168,7 +169,7 @@ export function startWebServer(deps: WebServerDeps): WebServer {
         return json({ error: 'expected a WebSocket upgrade' }, 400)
       }
       const after = parseAfter(url.searchParams.get('after')) ?? chatLog.currentSeq()
-      if (server.upgrade(request, { data: { after, id: null } })) {
+      if (server.upgrade(request, { data: { after, id: null, extensionId: null, extensionHandlers: null } })) {
         return undefined
       }
       return json({ error: 'expected a WebSocket upgrade' }, 400)
@@ -186,7 +187,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
     }
     for (const route of extensionHttpRoutes) {
       if (route.method === request.method && url.pathname === route.path) {
-        return route.handler(request)
+        const response = await route.handler(request)
+        if (response !== null) {
+          return response
+        }
       }
     }
     if (url.pathname.startsWith('/api/')) {
@@ -210,11 +214,14 @@ export function startWebServer(deps: WebServerDeps): WebServer {
         sockets.add(ws)
         // Extension WebSocket sockets bypass the chat hub entirely.
         if (ws.data.extensionId !== null) {
-          try {
-            ws.data.extensionHandlers.open?.(ws)
-          } catch (error) {
-            log('extension websocket open failed', error)
-            closeQuietly(ws, 1011, 'handshake failed')
+          const handlers = ws.data.extensionHandlers
+          if (handlers !== null) {
+            try {
+              handlers.open?.(ws)
+            } catch (error) {
+              log('extension websocket open failed', error)
+              closeQuietly(ws, 1011, 'handshake failed')
+            }
           }
           return
         }
@@ -240,7 +247,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
         try {
           // Extension WebSocket sockets bypass the chat hub entirely.
           if (ws.data.extensionId !== null) {
-            ws.data.extensionHandlers.message?.(ws, raw)
+            const handlers = ws.data.extensionHandlers
+            if (handlers !== null) {
+              handlers.message?.(ws, raw)
+            }
             return
           }
           const id = ws.data.id
@@ -280,7 +290,10 @@ export function startWebServer(deps: WebServerDeps): WebServer {
         try {
           sockets.delete(ws)
           if (ws.data.extensionId !== null) {
-            ws.data.extensionHandlers.close?.(ws)
+            const handlers = ws.data.extensionHandlers
+            if (handlers !== null) {
+              handlers.close?.(ws)
+            }
             return
           }
           if (ws.data.id !== null) {

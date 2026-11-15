@@ -10,11 +10,10 @@ export type ExtensionInstance = {
   deactivate(): void
 }
 
-/** Options for loading extensions. */
+/** Options for loading extensions. `createApi` gives each extension its own API, scoped to its id. */
 export type LoadExtensionsOptions = {
-  api: ExtensionApi
+  createApi(extensionId: string): ExtensionApi
   log: Log
-  now?: () => number
 }
 
 /**
@@ -23,7 +22,7 @@ export type LoadExtensionsOptions = {
  * never aborts because of a single bad extension.
  */
 export async function loadExtensions(extensionDir: string, options: LoadExtensionsOptions): Promise<ExtensionInstance[]> {
-  const { api, log } = options
+  const { createApi, log } = options
   const instances: ExtensionInstance[] = []
 
   let entries: string[]
@@ -43,7 +42,7 @@ export async function loadExtensions(extensionDir: string, options: LoadExtensio
     try {
       const manifest = loadManifest(extDir)
       const backendEntry = await loadBackendEntry(extDir, manifest.backend.entry)
-      const deactivate = backendEntry.onActivate?.(api) ?? (() => {})
+      const deactivate = backendEntry.onActivate?.(createApi(manifest.id)) ?? (() => {})
       instances.push({ manifest, deactivate })
       log(`extension loaded: ${manifest.id} v${manifest.version}`)
     } catch (error) {

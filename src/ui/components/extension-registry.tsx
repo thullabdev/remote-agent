@@ -12,7 +12,7 @@ export type ExtensionPanel = {
 const panels = new Map<string, ExtensionPanel>()
 
 /** Registers a panel contributed by an extension. Called by an extension's frontend entry. */
-export function registerPanel(panelId: string, component: React.ComponentType, title: string): void {
+export function registerPanel(panelId: string, component: React.ComponentType<any>, title: string): void {
   panels.set(panelId, { id: panelId, component, title })
 }
 
