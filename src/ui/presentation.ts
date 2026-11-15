@@ -343,6 +343,12 @@ export function deepLink(search: string): { chatId: string | null; promptId: str
   return { chatId, promptId: chatId === null ? null : params.get('prompt') || null }
 }
 
+/** The terminal session id a link names (`/?terminal=<sid>`). */
+export function deepLinkTerminal(search: string): string | null {
+  const params = new URLSearchParams(search)
+  return params.get('terminal') || null
+}
+
 export type Segment = { text: string; match: boolean }
 
 /**
