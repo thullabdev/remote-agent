@@ -6,6 +6,12 @@ const origins = ['https://box.tail.ts.net']
 const config = { allowedLogin, origins, token: null }
 
 describe('extension route auth', () => {
+  function expectRefused(result: { ok: false; status: 401 | 403; reason: string }, status: 401 | 403, reason: string): void {
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(status)
+    expect(result.reason).toBe(reason)
+  }
+
   it('refuses a WebSocket upgrade with missing Tailscale login', () => {
     const req = new Request('http://127.0.0.1:8787/api/extensions/remote-agent.terminal/ws', {
       headers: {
@@ -16,8 +22,7 @@ describe('extension route auth', () => {
     })
     const result = authorize(req, config)
     expect(result.ok).toBe(false)
-    expect(result.status).toBe(401)
-    expect(result.reason).toBe('missing identity')
+    expectRefused(result as { ok: false; status: 401 | 403; reason: string }, 401, 'missing identity')
   })
 
   it('refuses a WebSocket upgrade with a disallowed login', () => {
@@ -31,8 +36,7 @@ describe('extension route auth', () => {
     })
     const result = authorize(req, config)
     expect(result.ok).toBe(false)
-    expect(result.status).toBe(403)
-    expect(result.reason).toBe('login not allowed')
+    expectRefused(result as { ok: false; status: 401 | 403; reason: string }, 403, 'login not allowed')
   })
 
   it('allows an allowlisted login on an allowed origin', () => {
@@ -59,7 +63,6 @@ describe('extension route auth', () => {
     })
     const result = authorize(req, config)
     expect(result.ok).toBe(false)
-    expect(result.status).toBe(403)
-    expect(result.reason).toBe('origin not allowed')
+    expectRefused(result as { ok: false; status: 401 | 403; reason: string }, 403, 'origin not allowed')
   })
 })
