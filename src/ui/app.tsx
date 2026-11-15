@@ -188,6 +188,12 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
+  /** Opens a fresh terminal section with a new session id. */
+  const openNewTerminal = useCallback(() => {
+    const sid = `term-${crypto.randomUUID()}`
+    openTerminal(sid)
+  }, [openTerminal])
+
   /**
    * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use
    * this, since the message they name is often above the newest page. Quiet: false when the message cannot be shown.
@@ -603,6 +609,8 @@ export function App() {
         onRetry={retry}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onOpenTerminal={openNewTerminal}
+        terminals={[]}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
@@ -657,6 +665,7 @@ export function App() {
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
                 model={activeChat?.model ?? sessionModel}
+                onOpenTerminal={openNewTerminal}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -689,6 +698,8 @@ export function App() {
                       armNewChatWatch()
                       return runChatAction(() => api.resumeChat(chatId))
                     }}
+                    terminals={[]}
+                    onOpenTerminal={openNewTerminal}
                   />
                 ) : (
                 <MessageFeed

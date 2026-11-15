@@ -202,3 +202,16 @@ test('the resume dialog offers the model the Session last used first and as the 
   expect(resumeChoices(null).map(choice => choice.label)).toEqual(['Claude default', 'Opus', 'Sonnet', 'Haiku', 'Opus plan'])
   expect(defaultResumeChoice(null)).toBeNull()
 })
+
+test('the Terminals card lists active terminals with go-to links', () => {
+  let opened: string | null = null
+  const html = render([], {
+    terminals: [{ id: 'sid-1', cwd: '/tmp/api', login: 'user', connected: true }],
+    onOpenTerminal: sid => { opened = sid },
+  })
+  expect(html).toContain('Terminals')
+  expect(html).toContain('sid-1')
+  expect(html).toContain('/tmp/api')
+  expect(html).toContain('user')
+  expect(opened).toBeNull()
+})

@@ -1,4 +1,4 @@
-import { ArrowLeft, Info, Pencil, Radio } from 'lucide-react'
+import { ArrowLeft, Info, Pencil, Radio, RotateCcw } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { useEffect, useRef, useState } from 'react'
@@ -32,6 +32,8 @@ type ChatHeaderProps = {
   needsYou?: number
   /** The full model id the Session last ran on, or null when unknown. Shown as a short label after the subtitle. */
   model?: string | null
+  /** Opens a terminal section for this session's working directory. */
+  onOpenTerminal?(): void
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -49,7 +51,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, model = null }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, model = null, onOpenTerminal }: ChatHeaderProps) {
   const state = chatState(chat)
   // General is the command chat and its dashboard already shows usage, so it has no usage toggle and no details panel.
   const isGeneral = chat.id === 'general'
@@ -156,6 +158,11 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
       {!isGeneral && (
         <Button variant={infoOpen ? 'secondary' : 'ghost'} size="icon-sm" aria-label="Session information and actions" onClick={onInfo}>
           <Info aria-hidden="true" />
+        </Button>
+      )}
+      {!isGeneral && onOpenTerminal !== undefined && (
+        <Button variant="ghost" size="icon-sm" aria-label="Open a terminal in this session's directory" onClick={onOpenTerminal}>
+          <RotateCcw className="size-4" aria-hidden="true" />
         </Button>
       )}
     </header>

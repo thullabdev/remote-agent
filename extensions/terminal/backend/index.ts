@@ -66,7 +66,7 @@ export function onActivate(api: ExtensionBackendApi) {
             return
           }
           try {
-            pty.open(msg.sid, msg.cols, msg.rows, process.env.HOME ?? '/', allowedLogin)
+            pty.open(msg.sid, msg.cols, msg.rows, msg.cwd ?? process.env.HOME ?? '/', allowedLogin)
             state.sid = msg.sid
           } catch (error) {
             send(ws, { type: 'error', sid: msg.sid, message: error instanceof Error ? error.message : String(error) })

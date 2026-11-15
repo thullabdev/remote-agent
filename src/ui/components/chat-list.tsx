@@ -24,12 +24,27 @@ type ChatListProps = {
   /** `focus` asks the app to open at a Prompt: a tap on a session that needs you goes straight to what it waits for. */
   onOpen(chatId: string, focus?: { promptId: string }): void
   onNew(): void
+  /** Opens a terminal section by session id. */
+  onOpenTerminal?(sid: string): void
+  /** Active terminal sessions, listed in the sidebar. */
+  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean }>
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onPinSelected(chatIds: string[], pinned: boolean): Promise<void>
   onActionError(error: unknown): void
+}
+
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="grid min-w-0 gap-2">
+      <h2 id={id} className="px-1 text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
 }
 
 /** Narrows the list to sessions started on the computer or spawned from Remote Agent. Sits inside the search field to keep the header light. */
@@ -201,6 +216,8 @@ export function ChatList({
   status,
   onOpen,
   onNew,
+  onOpenTerminal,
+  terminals = [],
   onRetry,
   onSettings,
   onArchiveSelected,
@@ -421,6 +438,24 @@ export function ChatList({
         )}
         {terms.length > 0 && filteredChats.length > 0 && (
           <p className="px-2 pb-2 text-xs text-muted-foreground">{filteredChats.length === 1 ? '1 result' : `${filteredChats.length} results`}</p>
+        )}
+        {terminals.length > 0 && (
+          <Section id="list-terminals" title="Terminals">
+            {terminals.map(term => (
+              <button
+                key={term.id}
+                type="button"
+                onClick={() => void onOpenTerminal?.(term.id)}
+                className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-left transition-colors ${
+                  activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
+                }`}
+              >
+                <span className="mr-2">{term.id}</span>
+                <span className="min-w-0 flex-1 truncate">{term.cwd}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{term.connected ? 'connected' : 'disconnected'}</span>
+              </button>
+            ))}
+          </Section>
         )}
         <div className="space-y-1">
           {filteredChats.map(chat => (
