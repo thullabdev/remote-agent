@@ -4,5 +4,18 @@
   "version": "0.1.0",
   "frontend": { "entry": "./frontend/index.ts" },
   "backend": { "entry": "./backend/index.ts" },
-  "permissions": ["pty", "websocket-routes"]
+  "permissions": ["pty", "websocket-routes", "http-routes", "storage"],
+  "storage": {
+    "collections": {
+      "sessions": {
+        "indexes": {
+          "owner": "text",
+          "launchCwd": "text",
+          "project": "text",
+          "chatId": "text",
+          "closedAt": "integer"
+        }
+      }
+    }
+  }
 }
