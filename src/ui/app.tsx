@@ -1,5 +1,5 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
-import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LockKeyhole, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
@@ -13,6 +13,10 @@ import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
 import { ExtensionRegistry } from './components/extension-registry.tsx'
+import { ChatView } from './shell/ChatView.tsx'
+import { EmptyChatState } from './shell/EmptyChatState.tsx'
+import { FullPageState } from './shell/FullPageState.tsx'
+import { MainArea } from './shell/MainArea.tsx'
 import { chatActionsFor, dashboardCards, sidebarSections, type ActivePanel } from './extension-slots.ts'
 import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
@@ -84,7 +88,6 @@ export function App() {
   const [busyChatIds, setBusyChatIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<ToastState | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const toastId = useRef(0)
   const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
   // The reveal walk below runs after awaits, so it reads the latest chats and messages rather than the ones of the render that started it.
@@ -651,23 +654,7 @@ export function App() {
         onActionError={handleError}
       />
 
-      <main
-        onTouchStart={event => {
-          const touch = event.touches[0]
-          touchStart.current = touch && touch.clientX < 40 ? { x: touch.clientX, y: touch.clientY } : null
-        }}
-        onTouchEnd={event => {
-          const start = touchStart.current
-          const touch = event.changedTouches[0]
-          if (start && touch && touch.clientX - start.x > 80 && Math.abs(touch.clientY - start.y) < 60) {
-            openChat(null)
-          }
-          touchStart.current = null
-        }}
-        className={`absolute inset-0 z-20 flex min-w-0 bg-background shadow-2xl transition-transform duration-300 md:static md:z-auto md:flex-1 md:translate-x-0 md:shadow-none ${
-          activeChatId === null && activePanel === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
-        }`}
-      >
+      <MainArea shown={activeChatId !== null || activePanel !== null} onSwipeBack={() => openChat(null)}>
         {activePanel !== null ? (
           <ExtensionRegistry
             panel={activePanel}
@@ -675,81 +662,32 @@ export function App() {
           />
         ) : activeChat ? (
           <>
-            <section className="flex min-w-0 flex-1 flex-col">
-              <ChatHeader
-                key={`header:${activeChat.id}`}
-                chat={activeChat}
-                status={status}
-                onBack={() => openChat(null)}
-                onInfo={() => {
-                  setSubagentView(null)
-                  setInfoOpen(value => !value)
-                }}
-                infoOpen={infoOpen}
-                usage={realtime.usage.chats[activeChat.id]}
-                accounts={realtime.usage.accounts}
-                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
-                view={preferences.generalView}
-                onView={setGeneralView}
-                summary={summaryText(dashboardCounts(chats))}
-                needsYou={dashboardCounts(chats).needsYou}
-                model={activeChat?.model ?? sessionModel}
-                chatActions={chatActionsFor({ chat: activeChat, openPanel, notify })}
-              />
-              {connectionNoticeText(status) !== undefined && (
-                <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
-                  <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
-                  {connectionNoticeText(status)}
-                  {(status === 'reconnecting' || status === 'error') && (
-                    <button type="button" onClick={retry} className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground hover:bg-background/60">
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="chat-glow flex min-h-0 flex-1 flex-col">
-                {showingDashboard ? (
-                  <Dashboard
-                    loadActivity={loadActivity}
-                    chats={chats}
-                    usage={realtime.usage}
-                    away={realtime.away}
-                    online={status === 'connected'}
-                    onOpenChat={openChat}
-                    onPromptAction={handlePromptAction}
-                    onToggleAway={toggleAway}
-                    onNewSession={() => setNewSessionOpen(true)}
-                    onStartProject={cwd => {
-                      armNewChatWatch()
-                      return runChatAction(() => api.startProject({ cwd }))
-                    }}
-                    onResume={chatId => {
-                      armNewChatWatch()
-                      return runChatAction(() => api.resumeChat(chatId))
-                    }}
-                    cards={dashboardCards({ online: status === 'connected', openPanel, notify })}
-                  />
-                ) : (
-                <MessageFeed
-                  key={`feed:${activeChat.id}`}
+            <ChatView
+              status={status}
+              onRetry={retry}
+              header={
+                <ChatHeader
+                  key={`header:${activeChat.id}`}
                   chat={activeChat}
-                  messages={messages}
-                  pendingMessages={pendingItems}
-                  hasMore={realtime.hasMore[activeChat.id] ?? false}
-                  loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
-                  onLoadEarlier={loadEarlier}
-                  onPromptAction={handlePromptAction}
-                  onPromptReply={handlePromptReply}
-                  onPickerAction={handlePickerAction}
-                  onTogglePin={togglePin}
-                  onFork={message => void forkFromMessage(message)}
-                  onOpenChat={openChatAt}
-                  onOpenSubagent={(agentId, title) => {
-                    setSubagentView({ chatId: activeChat.id, agentId, title })
-                    setInfoOpen(true)
+                  status={status}
+                  onBack={() => openChat(null)}
+                  onInfo={() => {
+                    setSubagentView(null)
+                    setInfoOpen(value => !value)
                   }}
+                  infoOpen={infoOpen}
+                  usage={realtime.usage.chats[activeChat.id]}
+                  accounts={realtime.usage.accounts}
+                  onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
+                  view={preferences.generalView}
+                  onView={setGeneralView}
+                  summary={summaryText(dashboardCounts(chats))}
+                  needsYou={dashboardCounts(chats).needsYou}
+                  model={activeChat?.model ?? sessionModel}
+                  chatActions={chatActionsFor({ chat: activeChat, openPanel, notify })}
                 />
-                )}
+              }
+              composer={
                 <ChatComposer
                   key={`composer:${activeChat.id}`}
                   drafts={api}
@@ -764,8 +702,51 @@ export function App() {
                   onResume={resumeActive}
                   firstTask={awaitingFirstTask}
                 />
-              </div>
-            </section>
+              }
+            >
+              {showingDashboard ? (
+                    <Dashboard
+                      loadActivity={loadActivity}
+                      chats={chats}
+                      usage={realtime.usage}
+                      away={realtime.away}
+                      online={status === 'connected'}
+                      onOpenChat={openChat}
+                      onPromptAction={handlePromptAction}
+                      onToggleAway={toggleAway}
+                      onNewSession={() => setNewSessionOpen(true)}
+                      onStartProject={cwd => {
+                        armNewChatWatch()
+                        return runChatAction(() => api.startProject({ cwd }))
+                      }}
+                      onResume={chatId => {
+                        armNewChatWatch()
+                        return runChatAction(() => api.resumeChat(chatId))
+                      }}
+                      cards={dashboardCards({ online: status === 'connected', openPanel, notify })}
+                    />
+              ) : (
+                  <MessageFeed
+                    key={`feed:${activeChat.id}`}
+                    chat={activeChat}
+                    messages={messages}
+                    pendingMessages={pendingItems}
+                    hasMore={realtime.hasMore[activeChat.id] ?? false}
+                    loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
+                    onLoadEarlier={loadEarlier}
+                    onPromptAction={handlePromptAction}
+                    onPromptReply={handlePromptReply}
+                    onPickerAction={handlePickerAction}
+                    onTogglePin={togglePin}
+                    onFork={message => void forkFromMessage(message)}
+                    onOpenChat={openChatAt}
+                    onOpenSubagent={(agentId, title) => {
+                      setSubagentView({ chatId: activeChat.id, agentId, title })
+                      setInfoOpen(true)
+                    }}
+                  />
+              )}
+            </ChatView>
             {infoOpen && activeChat.id !== 'general' && (
               <ChatInfo
                 chat={activeChat}
@@ -808,20 +789,9 @@ export function App() {
             )}
           </>
         ) : (
-          <div className="chat-glow hidden min-w-0 flex-1 flex-col items-center justify-center px-8 text-center md:flex">
-            <div className="grid size-16 place-items-center rounded-3xl bg-card shadow-sm">
-              <MessageSquareText className="size-6 text-muted-foreground" aria-hidden="true" />
-            </div>
-            <p className="mt-5 font-display text-xl font-semibold tracking-tight">Your Sessions, at a glance.</p>
-            <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              Choose a Chat to review its full conversation, reply to Prompts, or send an Instruction.
-            </p>
-            <Button className="mt-5" variant="outline" onClick={() => setNewSessionOpen(true)}>
-              Start a Session <ArrowRight />
-            </Button>
-          </div>
+          <EmptyChatState onStart={() => setNewSessionOpen(true)} />
         )}
-      </main>
+      </MainArea>
 
       {activeChat !== null && (
         <ResumeDialog
@@ -853,18 +823,5 @@ export function App() {
         onStarting={armNewChatWatch}
       />
     </div>
-  )
-}
-
-function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
-  return (
-    <main className="grain flex h-full items-center justify-center bg-background px-6 text-foreground">
-      <div className="w-full max-w-md rounded-3xl bg-card p-7 text-center shadow-sm sm:p-9">
-        <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
-        <h1 className="mt-5 font-display text-xl font-semibold">{title}</h1>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">{detail}</p>
-        {action && <div className="mt-5">{action}</div>}
-      </div>
-    </main>
   )
 }
