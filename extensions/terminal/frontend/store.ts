@@ -90,10 +90,21 @@ export function applySessionsFrame(data: string): boolean {
 }
 
 const MAX_RECONNECT_MS = 15_000
+/** The server sends the list every 15 seconds, so 40 seconds of silence means the connection is gone even without a close. */
+export const STALE_AFTER_MS = 40_000
+const WATCH_EVERY_MS = 5_000
+/** On return to the page, a socket quiet for longer than a heartbeat and a half is replaced. */
+const RESUME_STALE_MS = 20_000
 let subscribed = false
 
+/** Whether an open connection has gone quiet for too long to trust. */
+export function isStale(lastFrameAt: number, now: number, limitMs: number = STALE_AFTER_MS): boolean {
+  return now - lastFrameAt > limitMs
+}
+
 /**
- * Keeps the list current: subscribes to the server's session events and reconnects with backoff if the socket drops.
+ * Keeps the list current. Subscribes to the server's session events, reconnects with backoff when the socket closes, and treats a
+ * quiet socket as dead. When the page is shown again or the network returns, it reconnects at once and reads the list over HTTP too.
  * Starting it twice does nothing. The server sends the whole list on every connect, so a reconnect cannot leave it stale.
  */
 export function startSessionEvents(url: string = eventsSocketUrl(window.location)): void {
@@ -101,21 +112,70 @@ export function startSessionEvents(url: string = eventsSocketUrl(window.location
     return
   }
   subscribed = true
+  let socket: WebSocket | null = null
   let attempt = 0
-  const open = () => {
-    const socket = new WebSocket(url)
-    socket.onopen = () => {
-      attempt = 0
+  let lastFrameAt = 0
+  let retry: ReturnType<typeof setTimeout> | null = null
+
+  const schedule = (delay: number) => {
+    if (retry !== null) {
+      clearTimeout(retry)
     }
-    socket.onmessage = event => {
+    retry = setTimeout(() => {
+      retry = null
+      open()
+    }, delay)
+  }
+
+  const open = () => {
+    const next = new WebSocket(url)
+    socket = next
+    next.onopen = () => {
+      attempt = 0
+      lastFrameAt = Date.now()
+    }
+    next.onmessage = event => {
+      lastFrameAt = Date.now()
       applySessionsFrame(String(event.data))
     }
-    socket.onclose = () => {
+    next.onclose = () => {
+      if (socket === next) {
+        socket = null
+      }
       const delay = Math.min(MAX_RECONNECT_MS, 500 * 2 ** attempt)
       attempt += 1
-      setTimeout(open, delay)
+      schedule(delay)
     }
   }
+
+  // A socket that stops hearing from the server is closed, which starts the reconnect above.
+  setInterval(() => {
+    if (socket !== null && socket.readyState === WebSocket.OPEN && isStale(lastFrameAt, Date.now())) {
+      socket.close()
+    }
+  }, WATCH_EVERY_MS)
+
+  // Coming back to the page or the network: reconnect now rather than after the backoff, and read the list again.
+  const comeBack = () => {
+    // After sleep a socket can still say it is open while it is dead: a long silence means it must be replaced.
+    if (socket !== null && socket.readyState === WebSocket.OPEN && isStale(lastFrameAt, Date.now(), RESUME_STALE_MS)) {
+      socket.close()
+    }
+    if (socket === null) {
+      attempt = 0
+      schedule(0)
+    }
+    void refreshSessions().catch(() => {
+      // Unreachable for now; the socket keeps trying.
+    })
+  }
+  window.addEventListener('online', comeBack)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      comeBack()
+    }
+  })
+
   open()
 }
 

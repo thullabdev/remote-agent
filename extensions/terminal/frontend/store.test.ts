@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { addSession, applySessionsFrame, currentSessions, eventsSocketUrl, removeSession, resetSessionsForTesting, terminalOf } from './store.ts'
+import { addSession, applySessionsFrame, currentSessions, eventsSocketUrl, isStale, removeSession, resetSessionsForTesting, STALE_AFTER_MS, terminalOf } from './store.ts'
 
 describe('terminal session store', () => {
   beforeEach(() => {
@@ -62,6 +62,18 @@ describe('session events from the server', () => {
   it('subscribes on the extension route, with wss on https', () => {
     expect(eventsSocketUrl({ protocol: 'http:', host: 'localhost:8787' } as Location)).toBe('ws://localhost:8787/api/extensions/remote-agent.terminal/events')
     expect(eventsSocketUrl({ protocol: 'https:', host: 'agent.example.ts.net' } as Location)).toBe('wss://agent.example.ts.net/api/extensions/remote-agent.terminal/events')
+  })
+})
+
+describe('connection staleness', () => {
+  it('treats a socket as stale only after the limit of silence', () => {
+    expect(isStale(1_000, 1_000 + STALE_AFTER_MS)).toBe(false)
+    expect(isStale(1_000, 1_000 + STALE_AFTER_MS + 1)).toBe(true)
+  })
+
+  it('a heartbeat every 15 seconds keeps a healthy socket fresh', () => {
+    const heartbeatMs = 15_000
+    expect(STALE_AFTER_MS).toBeGreaterThan(heartbeatMs * 2)
   })
 })
 

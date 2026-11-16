@@ -13,6 +13,12 @@ export const TERMINAL_WS_PATH = '/ws'
 /** How often a stored session whose shell has exited is closed, so subscribers hear about it within seconds. */
 export const LIVENESS_CHECK_MS = 5_000
 
+/**
+ * How often the whole list is sent to subscribers even when nothing changed. A connection that died without a close (a phone
+ * asleep, a network change) then shows up as silence on the browser's side, and the browser reconnects.
+ */
+export const HEARTBEAT_MS = 15_000
+
 const MAX_INPUT_CHARS = 64 * 1024
 const Sid = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/)
 const Size = { cols: z.number().int().min(1).max(500), rows: z.number().int().min(1).max(200) }
@@ -48,6 +54,7 @@ type Runtime = {
 
 let sweep: ReturnType<typeof setInterval> | null = null
 let liveness: ReturnType<typeof setInterval> | null = null
+let heartbeat: ReturnType<typeof setInterval> | null = null
 
 export function onActivate(api: ExtensionApi) {
   // The Tailscale login the host already authorized. The upgrade is refused before this route runs for anyone else.
@@ -102,6 +109,11 @@ export function onActivate(api: ExtensionApi) {
       .catch(error => log(`liveness check failed: ${String(error)}`))
   }, LIVENESS_CHECK_MS)
   liveness.unref?.()
+  if (heartbeat !== null) {
+    clearInterval(heartbeat)
+  }
+  heartbeat = setInterval(() => rt.publish(), HEARTBEAT_MS)
+  heartbeat.unref?.()
 
   const routes = createSessionRoutes({
     owner,
@@ -175,6 +187,10 @@ export function onDeactivate() {
   if (liveness !== null) {
     clearInterval(liveness)
     liveness = null
+  }
+  if (heartbeat !== null) {
+    clearInterval(heartbeat)
+    heartbeat = null
   }
 }
 
