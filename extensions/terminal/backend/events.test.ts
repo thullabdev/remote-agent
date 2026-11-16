@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { createSessionEvents, frameOf } from './events.ts'
 import type { SessionView } from './routes.ts'
 
-const view: SessionView = { sid: 'term-a', cwd: '/work/api', project: 'api', chatId: null, createdAt: 1, lastAttachedAt: null, attached: false }
+const view: SessionView = { sid: 'term-a', cwd: '/work/api', project: 'api', chatId: null, createdAt: 1, lastAttachedAt: null, attached: false, command: null }
 
 function fakeSocket() {
   const frames: string[] = []

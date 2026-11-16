@@ -5,7 +5,7 @@ import { IDLE_CHECK_MS, reconcile, sweepIdle, type LifecycleDeps } from './lifec
 import { createSessionEvents, EVENTS_WS_PATH, frameOf, type EventSocket } from './events.ts'
 import { createSessionRoutes, viewOf, type SessionView } from './routes.ts'
 import { createSessionRepository, type SessionDoc, type SessionRepository } from './sessions.ts'
-import { createSession, hasSession, killSession, sessionNameFor, tmuxAvailable } from './tmux.ts'
+import { createSession, foregroundCommands, hasSession, killSession, sessionNameFor, tmuxAvailable } from './tmux.ts'
 
 /** WebSocket route, under /api/extensions/remote-agent.terminal. One socket attaches to one stored session. */
 export const TERMINAL_WS_PATH = '/ws'
@@ -18,6 +18,8 @@ export const LIVENESS_CHECK_MS = 5_000
  * asleep, a network change) then shows up as silence on the browser's side, and the browser reconnects.
  */
 export const HEARTBEAT_MS = 15_000
+/** How often the foreground command of each shell is read. A change is published at once, so the tab title follows within about this long. */
+export const COMMAND_POLL_MS = 2_000
 
 const MAX_INPUT_CHARS = 64 * 1024
 const Sid = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/)
@@ -48,6 +50,8 @@ type Runtime = {
   sockets: WeakMap<object, Attached>
   /** Browsers subscribed to session changes. */
   events: ReturnType<typeof createSessionEvents>
+  /** The foreground command of each open shell, keyed by its tmux session name. Read by a poll, not per request. */
+  commands: Map<string, string>
   /** Sends the current list to every subscriber. Call it after anything that changes the list or whether it is attached. */
   publish(): void
 }
@@ -55,6 +59,7 @@ type Runtime = {
 let sweep: ReturnType<typeof setInterval> | null = null
 let liveness: ReturnType<typeof setInterval> | null = null
 let heartbeat: ReturnType<typeof setInterval> | null = null
+let commandPoll: ReturnType<typeof setInterval> | null = null
 
 export function onActivate(api: ExtensionApi) {
   // The Tailscale login the host already authorized. The upgrade is refused before this route runs for anyone else.
@@ -72,6 +77,7 @@ export function onActivate(api: ExtensionApi) {
     attached: new Map(),
     sockets: new WeakMap(),
     events,
+    commands: new Map(),
     publish: () => events.publish(sessionViews(rt)),
   }
   const deps = lifecycleDeps(rt, log)
@@ -114,6 +120,13 @@ export function onActivate(api: ExtensionApi) {
   }
   heartbeat = setInterval(() => rt.publish(), HEARTBEAT_MS)
   heartbeat.unref?.()
+  if (commandPoll !== null) {
+    clearInterval(commandPoll)
+  }
+  commandPoll = setInterval(() => {
+    void refreshCommands(rt).catch(error => log(`command poll failed: ${String(error)}`))
+  }, COMMAND_POLL_MS)
+  commandPoll.unref?.()
 
   const routes = createSessionRoutes({
     owner,
@@ -123,6 +136,7 @@ export function onActivate(api: ExtensionApi) {
     nameFor: sessionNameFor,
     shell: process.env.SHELL || '/bin/sh',
     isAttached: sid => (rt.attached.get(sid) ?? 0) > 0,
+    foreground: name => rt.commands.get(name) ?? null,
     onChange: () => rt.publish(),
   })
   api.backend.registerHttpRoute('GET', '/sessions', () => routes.list())
@@ -192,11 +206,32 @@ export function onDeactivate() {
     clearInterval(heartbeat)
     heartbeat = null
   }
+  if (commandPoll !== null) {
+    clearInterval(commandPoll)
+    commandPoll = null
+  }
 }
 
 /** What the browser sees of every open session of this owner. The same view the HTTP list returns. */
 function sessionViews(rt: Runtime): SessionView[] {
-  return rt.repo.listOpen(rt.owner).map(doc => viewOf(doc, (rt.attached.get(doc.sid) ?? 0) > 0))
+  return rt.repo.listOpen(rt.owner).map(doc => viewOf(doc, (rt.attached.get(doc.sid) ?? 0) > 0, rt.commands.get(doc.tmuxName) ?? null))
+}
+
+/** Reads every shell's foreground command. Publishes only when one of them changed, so a quiet machine sends nothing extra. */
+async function refreshCommands(rt: Runtime): Promise<void> {
+  // With no open shell there is nothing to read, so the poll does not start tmux every few seconds for nothing.
+  if (rt.commands.size === 0 && rt.repo.listOpen(rt.owner).length === 0) {
+    return
+  }
+  const next = await foregroundCommands()
+  const changed = next.size !== rt.commands.size || [...next].some(([name, command]) => rt.commands.get(name) !== command)
+  if (changed) {
+    rt.commands.clear()
+    for (const [name, command] of next) {
+      rt.commands.set(name, command)
+    }
+    rt.publish()
+  }
 }
 
 async function handle(rawSocket: object, message: ClientMessage, rt: Runtime, log: (message: string) => void): Promise<void> {

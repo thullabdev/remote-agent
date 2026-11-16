@@ -80,6 +80,35 @@ export async function createSession(input: { name: string; cwd: string; cols: nu
   }
   await runTmux(['set-option', '-t', input.name, 'window-size', 'latest'])
   await runTmux(['set-option', '-t', input.name, 'status', 'off'])
+  // Mouse mode lets the wheel scroll tmux's own scrollback (copy mode). Without it the terminal has nothing to scroll.
+  // Set globally on the dedicated server, so shells started before this change pick it up too.
+  await runTmux(['set-option', '-g', 'mouse', 'on'])
+}
+
+/**
+ * The foreground command of every session on the dedicated server, keyed by session name. One tmux call for all of them.
+ * An idle shell reports its own name (for example `zsh`). No server running means no entries, not an error.
+ */
+export async function foregroundCommands(): Promise<Map<string, string>> {
+  const result = await runTmux(['list-panes', '-a', '-F', '#{session_name}\t#{pane_current_command}'])
+  return result.code === 0 ? parseForegroundCommands(result.stdout) : new Map()
+}
+
+/** Parses `list-panes -F '#{session_name}\t#{pane_current_command}'` output. The first pane of each session wins. */
+export function parseForegroundCommands(stdout: string): Map<string, string> {
+  const commands = new Map<string, string>()
+  for (const line of stdout.split('\n')) {
+    const tab = line.indexOf('\t')
+    if (tab <= 0) {
+      continue
+    }
+    const name = line.slice(0, tab)
+    const command = line.slice(tab + 1).trim()
+    if (command !== '' && !commands.has(name)) {
+      commands.set(name, command)
+    }
+  }
+  return commands
 }
 
 export async function hasSession(name: string): Promise<boolean> {

@@ -218,7 +218,7 @@ describe('session routes', () => {
     const body = (await (await routes.list()).json()) as { sessions: Array<Record<string, unknown>> }
 
     expect(body.sessions.map(s => s.sid)).toEqual(['term-2', 'term-1'])
-    expect(Object.keys(body.sessions[0] ?? {}).sort()).toEqual(['attached', 'chatId', 'createdAt', 'cwd', 'lastAttachedAt', 'project', 'sid'])
+    expect(Object.keys(body.sessions[0] ?? {}).sort()).toEqual(['attached', 'chatId', 'command', 'createdAt', 'cwd', 'lastAttachedAt', 'project', 'sid'])
     cleanup()
   })
 

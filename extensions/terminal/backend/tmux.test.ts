@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { attachArgv, captureScreen, createSession, hasSession, killSession, runTmux, sessionNameFor, TmuxError, TMUX_SOCKET, tmuxAvailable } from './tmux.ts'
+import { attachArgv, captureScreen, createSession, hasSession, killSession, parseForegroundCommands, runTmux, sessionNameFor, TmuxError, TMUX_SOCKET, tmuxAvailable } from './tmux.ts'
 
 const names: string[] = []
 
@@ -33,6 +33,7 @@ describe('tmux runtime', () => {
     expect(await tmuxAvailable()).toBe(true)
     const name = fresh('life')
     await createSession({ name, cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/sh' })
+    expect((await runTmux(['show-options', '-gv', 'mouse'])).stdout.trim()).toBe('on')
 
     expect(await hasSession(name)).toBe(true)
     await killSession(name)
@@ -94,5 +95,19 @@ describe('tmux runtime', () => {
     const argv = attachArgv('ra-term-x')
     expect(argv).toEqual(['tmux', '-L', 'remote-agent-terminal', 'attach-session', '-t', '=ra-term-x'])
     expect(argv.some(part => part.includes(' '))).toBe(false)
+  })
+})
+
+describe('foreground commands', () => {
+  it('reads the first pane of each session and skips blank lines', () => {
+    const parsed = parseForegroundCommands('ra-term-a\tvim\nra-term-a\tzsh\nra-term-b\tzsh\n\nno-tab-here\n')
+    expect([...parsed]).toEqual([
+      ['ra-term-a', 'vim'],
+      ['ra-term-b', 'zsh'],
+    ])
+  })
+
+  it('ignores a pane with no command', () => {
+    expect([...parseForegroundCommands('ra-term-a\t\n')]).toEqual([])
   })
 })

@@ -23,6 +23,8 @@ export type RouteDeps = {
   home?: string
   /** Whether a browser has this session open on a socket right now. */
   isAttached?(sid: string): boolean
+  /** The foreground command of a session's tmux session, or null when unknown. */
+  foreground?(tmuxName: string): string | null
   /** Called after the open sessions change, so subscribed browsers can be told. */
   onChange?(): void
 }
@@ -37,9 +39,11 @@ export type SessionView = {
   lastAttachedAt: number | null
   /** True while a browser has this session open. */
   attached: boolean
+  /** What the shell is running in the foreground: its own name when idle. Null when unknown. */
+  command: string | null
 }
 
-export function viewOf(doc: SessionDoc, attached = false): SessionView {
+export function viewOf(doc: SessionDoc, attached = false, command: string | null = null): SessionView {
   return {
     sid: doc.sid,
     cwd: doc.launchCwd,
@@ -48,6 +52,7 @@ export function viewOf(doc: SessionDoc, attached = false): SessionView {
     createdAt: doc.createdAt,
     lastAttachedAt: doc.lastAttachedAt,
     attached,
+    command,
   }
 }
 
@@ -70,7 +75,7 @@ export function createSessionRoutes(deps: RouteDeps) {
     /** GET: the caller's open sessions, newest first. */
     async list(): Promise<Response> {
       await pruneExited(deps)
-      const sessions = deps.repo.listOpen(deps.owner).map(doc => viewOf(doc, deps.isAttached?.(doc.sid) ?? false))
+      const sessions = deps.repo.listOpen(deps.owner).map(doc => viewOf(doc, deps.isAttached?.(doc.sid) ?? false, deps.foreground?.(doc.tmuxName) ?? null))
       return json({ sessions })
     },
 
