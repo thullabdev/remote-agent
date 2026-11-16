@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { clearSlotsForTesting, registerSideTab, sideTabRender, sideTabs, type SideTabContext } from '../../src/ui/extension-slots.ts'
 
-const context: SideTabContext = { chats: [], activePanel: null, openPanel: () => {}, notify: () => {} }
+const context: SideTabContext = { activeChat: null, openPanel: () => {}, notify: () => {}, density: 'comfortable' }
 const Icon = () => null
 
 describe('side tabs', () => {
@@ -28,9 +28,9 @@ describe('side tabs', () => {
   })
 
   it('renders a tab with the context, and nothing for an unknown id', () => {
-    registerSideTab('a', { title: 'A', icon: Icon, render: tabContext => `chats:${tabContext.chats.length}` })
+    registerSideTab('a', { title: 'A', icon: Icon, render: tabContext => `chat:${tabContext.activeChat === null ? 'none' : 'open'}` })
 
-    expect(sideTabRender('a', context)).toBe('chats:0')
+    expect(sideTabRender('a', context)).toBe('chat:none')
     expect(sideTabRender('missing', context)).toBeNull()
   })
 })

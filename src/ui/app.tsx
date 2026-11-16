@@ -16,7 +16,7 @@ import { CHATS_TAB, readSideTab, saveSideTab } from './components/side-panel/sid
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
-import { ExtensionRegistry } from './components/extension-registry.tsx'
+import { ExtensionRegistry, getPanels } from './components/extension-registry.tsx'
 import { ChatView } from './shell/ChatView.tsx'
 import { EmptyChatState } from './shell/EmptyChatState.tsx'
 import { FullPageState } from './shell/FullPageState.tsx'
@@ -57,6 +57,19 @@ function clearPanelParams(url: URL, panel: ActivePanel | null): void {
   }
 }
 
+/** The panel a link names, if an extension registered one. A link to a panel nobody registered opens nothing. */
+function registeredPanelOf(search: string): ActivePanel | null {
+  const panel = deepLinkPanel(search)
+  return panel !== null && getPanels().some(item => item.id === panel.id) ? panel : null
+}
+
+/** The side tab a link names, if one is registered (`?panel=terminal` opens the Terminals tab); otherwise the remembered one. */
+function sideTabOf(search: string): string {
+  const named = new URLSearchParams(search).get('panel')
+  const ids = sideTabs().map(tab => tab.id)
+  return named !== null && ids.includes(named) ? named : readSideTab(ids)
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
@@ -65,11 +78,13 @@ export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
   // The extension panel shown in the main area instead of a chat. The host does not read its parameters.
-  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() => deepLinkPanel(window.location.search))
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() => registeredPanelOf(window.location.search))
   const activePanelRef = useRef(activePanel)
   activePanelRef.current = activePanel
   // The tab the side column shows: Chats, or an extension's side tab. Remembered on this device.
-  const [sideTab, setSideTab] = useState(() => readSideTab(sideTabs().map(tab => tab.id)))
+  const [sideTab, setSideTab] = useState(() => sideTabOf(window.location.search))
+  // The chat the person last had open. On a phone the side column covers the chat, so the side tab still needs its folder.
+  const [recentChatId, setRecentChatId] = useState<string | null>(null)
   const selectSideTab = useCallback((id: string) => {
     setSideTab(id)
     try {
@@ -127,6 +142,7 @@ export function App() {
   const chats = realtime?.chats ?? []
   chatsRef.current = chats
   const activeChat = chats.find(chat => chat.id === activeChatId) ?? null
+  const sideChat = chats.find(chat => chat.id === (activeChatId ?? recentChatId)) ?? null
   const messages = activeChatId === null ? [] : realtime?.messages[activeChatId] ?? []
   const pendingForChat = activeChatId === null ? [] : pendingMessages[activeChatId] ?? []
   // The model the Session reported on its last switch wins. The transcript is asked only for sessions that have not reported one yet.
@@ -157,6 +173,12 @@ export function App() {
   }, [preferences, notify])
 
   useEffect(() => {
+    if (activeChatId !== null) {
+      setRecentChatId(activeChatId)
+    }
+  }, [activeChatId])
+
+  useEffect(() => {
     if (activeChatId !== null && realtime !== null && !chats.some(chat => chat.id === activeChatId)) {
       setActiveChatId(null)
     }
@@ -165,7 +187,7 @@ export function App() {
   useEffect(() => {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
-      setActivePanel(deepLinkPanel(window.location.search))
+      setActivePanel(registeredPanelOf(window.location.search))
       setFocusPrompt(null)
       setInfoOpen(false)
     }
@@ -207,6 +229,17 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  /**
+   * Shows a side tab. On a phone the side column covers the chat, so showing it means leaving the chat; the chat stays the
+   * side tab's context. On desktop the chat stays where it is, beside the tab.
+   */
+  const openSideTab = useCallback((id: string) => {
+    selectSideTab(id)
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      openChat(null)
+    }
+  }, [openChat, selectSideTab])
 
   /** Shows an extension panel in the main area, replacing the chat. The panel's parameters go into the URL. */
   const openPanel = useCallback((id: string, params: Record<string, string> = {}) => {
@@ -671,7 +704,7 @@ export function App() {
           />
         ) : (
           <SidePanelFrame label={sideTabList.find(tab => tab.id === sideTab)?.title ?? 'Side panel'}>
-            {sideTabRender(sideTab, { chats, activePanel, openPanel, notify })}
+            {sideTabRender(sideTab, { activeChat: sideChat, openPanel, notify, density: preferences.density })}
           </SidePanelFrame>
         )}
       </SideColumn>
@@ -706,7 +739,7 @@ export function App() {
                   summary={summaryText(dashboardCounts(chats))}
                   needsYou={dashboardCounts(chats).needsYou}
                   model={activeChat?.model ?? sessionModel}
-                  chatActions={chatActionsFor({ chat: activeChat, openPanel, notify })}
+                  chatActions={chatActionsFor({ chat: activeChat, openPanel, openSideTab, notify })}
                 />
               }
               composer={
@@ -745,7 +778,7 @@ export function App() {
                         armNewChatWatch()
                         return runChatAction(() => api.resumeChat(chatId))
                       }}
-                      cards={dashboardCards({ online: status === 'connected', openPanel, notify })}
+                      cards={dashboardCards({ online: status === 'connected', openPanel, openSideTab, notify })}
                     />
               ) : (
                   <MessageFeed

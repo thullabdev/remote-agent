@@ -13,6 +13,8 @@ export type TerminalSession = {
   project?: string
   chatId?: string | null
   createdAt?: number
+  /** What the shell is running in the foreground; its own name when idle. Null or absent when unknown. */
+  command?: string | null
 }
 
 /**
@@ -20,6 +22,8 @@ export type TerminalSession = {
  * It is a cache: the server is the source of truth, and each refresh replaces it.
  */
 let current: TerminalSession[] = []
+/** The shell the person chose to see. Only meaningful while it is open; see `resolveSelected`. */
+let selectedSid: string | null = null
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -37,6 +41,27 @@ function subscribe(listener: () => void): () => void {
 
 function snapshot(): TerminalSession[] {
   return current
+}
+
+function selectedSnapshot(): string | null {
+  return selectedSid
+}
+
+/** Shows a shell in the side tab. */
+export function selectTerminal(sid: string): void {
+  selectedSid = sid
+  emit()
+}
+
+/**
+ * The shell the side tab shows: the chosen one while it is open, otherwise the newest open one (the list is newest first),
+ * or none when no shell is open.
+ */
+export function resolveSelected(sessions: TerminalSession[], chosen: string | null): string | null {
+  if (chosen !== null && sessions.some(session => session.id === chosen)) {
+    return chosen
+  }
+  return sessions[0]?.id ?? null
 }
 
 /** The current list, read without React. */
@@ -180,8 +205,16 @@ export function startSessionEvents(url: string = eventsSocketUrl(window.location
 }
 
 /** The list entry for a session the server reported or just created. */
-export function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt' | 'attached'>>): TerminalSession {
-  return { id: view.sid, cwd: view.cwd, login: '', connected: view.attached ?? false, chatId: view.chatId ?? null, createdAt: view.createdAt }
+export function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt' | 'attached' | 'command'>>): TerminalSession {
+  return {
+    id: view.sid,
+    cwd: view.cwd,
+    login: '',
+    connected: view.attached ?? false,
+    chatId: view.chatId ?? null,
+    createdAt: view.createdAt,
+    command: view.command ?? null,
+  }
 }
 
 /** The open sessions, newest first, re-rendering the caller when they change. */
@@ -189,7 +222,14 @@ export function useTerminalSessions(): TerminalSession[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
+/** The shell the side tab shows, given the open sessions. Re-renders the caller when either changes. */
+export function useSelectedTerminalId(sessions: TerminalSession[]): string | null {
+  const chosen = useSyncExternalStore(subscribe, selectedSnapshot, selectedSnapshot)
+  return resolveSelected(sessions, chosen)
+}
+
 /** For tests only. */
 export function resetSessionsForTesting(next: TerminalSession[] = []): void {
+  selectedSid = null
   setSessions(next)
 }

@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat } from '../../../src/channel/web/protocol.ts'
-import type { ActivePanel } from '../../../src/ui/extension-slots.ts'
-import { TerminalChatAction, TerminalsDashboardCard, TerminalsSideTab } from './surfaces.tsx'
+import { TerminalChatAction, TerminalsDashboardCard } from './surfaces.tsx'
 import { resetSessionsForTesting, type TerminalSession } from './store.ts'
 
 const noop = () => {}
@@ -14,51 +13,6 @@ function session(overrides: Partial<TerminalSession> = {}): TerminalSession {
   return { id: 'term-abc', cwd: '/work/api', login: '', connected: false, createdAt: started, chatId: 'chat-1', ...overrides }
 }
 
-function sidebar(activePanel: ActivePanel | null = null): string {
-  return renderToStaticMarkup(createElement(TerminalsSideTab, { chats: [chat], activePanel, openPanel: noop, notify: noop }))
-}
-
-describe('terminal side tab', () => {
-  beforeEach(() => {
-    resetSessionsForTesting()
-  })
-
-  it('shows an empty state when no shell is open', () => {
-    const html = sidebar()
-
-    expect(html).toContain('No terminals open')
-    expect(html).not.toContain('Shell · ')
-  })
-
-  it('names each shell by its start time and shows the chat it belongs to', () => {
-    resetSessionsForTesting([session()])
-    const html = sidebar()
-
-    expect(html).toContain('Shell · ')
-    expect(html).toContain('Fix billing export')
-    expect(html).toContain('detached')
-    expect(html).not.toContain('>term-abc<')
-  })
-
-  it('says attached while a browser has the shell open', () => {
-    resetSessionsForTesting([session({ connected: true, chatId: null })])
-    const html = sidebar()
-
-    expect(html).toContain('attached')
-    expect(html).not.toContain('Fix billing export')
-  })
-
-  it('highlights the shell whose panel is open, and no other', () => {
-    resetSessionsForTesting([session({ id: 'term-a' }), session({ id: 'term-b', createdAt: started + 60_000 })])
-    const html = sidebar({ id: 'terminal', params: { sid: 'term-b' } })
-
-    const rowOf = (sid: string) => html.match(new RegExp(`<button[^>]*title="${sid}"[^>]*>`))?.[0] ?? ''
-
-    expect(rowOf('term-b')).toContain('bg-muted"')
-    expect(rowOf('term-a')).not.toContain('bg-muted"')
-  })
-})
-
 describe('terminal dashboard card', () => {
   beforeEach(() => {
     resetSessionsForTesting()
@@ -66,7 +20,7 @@ describe('terminal dashboard card', () => {
 
   it('lists each shell by label and folder name, without a login or a connection label', () => {
     resetSessionsForTesting([session({ cwd: '/tmp/api' })])
-    const html = renderToStaticMarkup(createElement(TerminalsDashboardCard, { online: true, openPanel: noop, notify: noop }))
+    const html = renderToStaticMarkup(createElement(TerminalsDashboardCard, { online: true, openPanel: noop, openSideTab: noop, notify: noop }))
 
     expect(html).toContain('Terminals')
     expect(html).toContain('Shell · ')
@@ -77,7 +31,7 @@ describe('terminal dashboard card', () => {
 
 describe('terminal chat action', () => {
   it('is a button that opens a terminal for the chat', () => {
-    const html = renderToStaticMarkup(createElement(TerminalChatAction, { chat, openPanel: noop, notify: noop }))
+    const html = renderToStaticMarkup(createElement(TerminalChatAction, { chat, openPanel: noop, openSideTab: noop, notify: noop }))
 
     expect(html).toContain('Open a terminal in this session')
   })

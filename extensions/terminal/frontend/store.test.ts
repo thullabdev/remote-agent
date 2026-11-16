@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { addSession, applySessionsFrame, currentSessions, eventsSocketUrl, isStale, removeSession, resetSessionsForTesting, STALE_AFTER_MS, terminalOf } from './store.ts'
+import { addSession, applySessionsFrame, currentSessions, eventsSocketUrl, isStale, removeSession, resetSessionsForTesting, resolveSelected, STALE_AFTER_MS, terminalOf } from './store.ts'
 
 describe('terminal session store', () => {
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe('terminal session store', () => {
       login: '',
       connected: true,
       chatId: 'c',
-      createdAt: 9,
+      createdAt: 9, command: null,
     })
     expect(terminalOf({ sid: 'b', cwd: '/y' }).connected).toBe(false)
   })
@@ -46,7 +46,7 @@ describe('session events from the server', () => {
 
     expect(applySessionsFrame(JSON.stringify({ type: 'sessions', sessions: [view] }))).toBe(true)
 
-    expect(currentSessions()).toEqual([{ id: 'a', cwd: '/x', login: '', connected: true, chatId: null, createdAt: 3 }])
+    expect(currentSessions()).toEqual([{ id: 'a', cwd: '/x', login: '', connected: true, chatId: null, createdAt: 3, command: null }])
   })
 
   it('ignores frames it does not know, and anything that is not JSON', () => {
@@ -77,3 +77,23 @@ describe('connection staleness', () => {
   })
 })
 
+
+describe('resolveSelected', () => {
+  const sessions = [
+    { id: 'newest', cwd: '/a', login: '', connected: false },
+    { id: 'older', cwd: '/b', login: '', connected: false },
+  ]
+
+  it('keeps the chosen shell while it is open', () => {
+    expect(resolveSelected(sessions, 'older')).toBe('older')
+  })
+
+  it('falls back to the newest open shell when the chosen one is gone or none was chosen', () => {
+    expect(resolveSelected(sessions, 'closed-long-ago')).toBe('newest')
+    expect(resolveSelected(sessions, null)).toBe('newest')
+  })
+
+  it('is none when no shell is open', () => {
+    expect(resolveSelected([], 'anything')).toBeNull()
+  })
+})

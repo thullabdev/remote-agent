@@ -23,15 +23,21 @@ export type PanelContext = {
   density: 'compact' | 'comfortable'
 }
 
-/** What a side tab's render gets. The side column, not the extension, decides when it is shown. */
-export type SideTabContext = { chats: Chat[]; activePanel: ActivePanel | null; openPanel: OpenPanel; notify: Notify }
+/** Shows a side tab in the side column. */
+export type OpenSideTab = (id: string) => void
+
+/**
+ * What a side tab's render gets. `activeChat` is the chat the person is in: the open one, or the one most recently open when
+ * the side column covers the chat (a phone). Null when no chat has been opened yet.
+ */
+export type SideTabContext = { activeChat: Chat | null; openPanel: OpenPanel; notify: Notify; density: 'compact' | 'comfortable' }
 /** A tab's icon: any component that takes a class name, such as a lucide icon. */
 export type SideTabIcon = ComponentType<{ className?: string }>
 /** A tab in the side column's strip. Its render replaces the whole side panel while the tab is selected. */
 export type SideTab = { title: string; icon: SideTabIcon; render: (context: SideTabContext) => ReactNode }
 
-export type DashboardContext = { online: boolean; openPanel: OpenPanel; notify: Notify }
-export type ChatActionContext = { chat: Chat; openPanel: OpenPanel; notify: Notify }
+export type DashboardContext = { online: boolean; openPanel: OpenPanel; openSideTab: OpenSideTab; notify: Notify }
+export type ChatActionContext = { chat: Chat; openPanel: OpenPanel; openSideTab: OpenSideTab; notify: Notify }
 
 type Slot<C> = Map<string, (context: C) => ReactNode>
 

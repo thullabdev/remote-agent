@@ -11,6 +11,8 @@ export type SessionView = {
   lastAttachedAt: number | null
   /** True while a browser has this session open. */
   attached: boolean
+  /** What the shell is running in the foreground; its own name when idle. Null when unknown. */
+  command: string | null
 }
 
 type Fetch = typeof fetch
