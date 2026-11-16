@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ConnectionStatus } from '../use-web-channel.ts'
-import { ConnectionNotice } from './ConnectionNotice.tsx'
+import { ConnectionNotice } from '../components/connection-notice.tsx'
 
 type ChatViewProps = {
   /** The chat's header bar. */
