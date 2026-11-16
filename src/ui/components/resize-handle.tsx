@@ -14,7 +14,7 @@ type ResizeHandleProps = {
   ariaValues: { 'aria-valuemin': number; 'aria-valuemax': number; 'aria-valuenow': number }
 }
 
-/** The thin drag strip on a desktop panel's edge. Hidden on the narrow layout, where the panel is a sheet. */
+/** The thin drag strip on a panel's edge. Hidden on the narrow layout, where the panel is a sheet. */
 export function ResizeHandle({ edge, label, handle, ariaValues }: ResizeHandleProps) {
   return (
     <div

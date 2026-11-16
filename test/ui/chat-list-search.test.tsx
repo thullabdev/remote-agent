@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ChatList } from '../../src/ui/components/chat-list.tsx'
+import { SidePanel } from '../../src/ui/components/side-panel/SidePanel.tsx'
 
 const noop = () => {}
 const props = {
@@ -17,7 +17,7 @@ const props = {
 }
 
 function render(initialQuery: string): string {
-  return renderToStaticMarkup(createElement(ChatList, { ...props, initialQuery }))
+  return renderToStaticMarkup(createElement(SidePanel, { ...props, initialQuery }))
 }
 
 test('the search field shows a clear button only while it has text', () => {

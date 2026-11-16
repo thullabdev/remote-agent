@@ -8,7 +8,7 @@ import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
-import { ChatList } from './components/chat-list.tsx'
+import { SidePanel } from './components/side-panel/SidePanel.tsx'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
@@ -631,7 +631,7 @@ export function App() {
 
   return (
     <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font} code-${preferences.codeWrap}`}>
-      <ChatList
+      <SidePanel
         chats={chats}
         activeId={activeChatId}
         status={status}

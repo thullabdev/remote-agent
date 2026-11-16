@@ -2,7 +2,7 @@ import { ArrowLeft, X } from 'lucide-react'
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useResizableWidth } from '../../lib/use-resizable-width.ts'
 import { Button } from '../ui/button.tsx'
-import { ResizeHandle } from './ResizeHandle.tsx'
+import { ResizeHandle } from '../resize-handle.tsx'
 import { useSheetLayout } from './use-sheet-layout.ts'
 
 /** The details panel's width rules. The width is remembered on this device. */

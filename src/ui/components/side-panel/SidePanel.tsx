@@ -1,17 +1,33 @@
 import { Archive, Check, Pin, PinOff, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
-import type { Chat } from '../../channel/web/protocol.ts'
-import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, searchTerms, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
-import { chatRowLabel, connectionNoticeText, rowOpenTarget } from '../presentation.ts'
-import { BrandMark } from './brand-mark.tsx'
-import type { ConnectionStatus } from '../use-web-channel.ts'
-import { ChatRowContent } from './chat-row.tsx'
-import { useNow } from './usage-meters.tsx'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
-import { Button } from './ui/button.tsx'
-import { Input } from './ui/input.tsx'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import type { Chat } from '../../../channel/web/protocol.ts'
+import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, searchTerms, visibleFilters, type ListFilter, type OriginFilter } from '../../chat-filters.ts'
+import { chatRowLabel, rowOpenTarget } from '../../presentation.ts'
+import { useResizableWidth } from '../../lib/use-resizable-width.ts'
+import { BrandMark } from '../brand-mark.tsx'
+import { ChatRowContent } from '../chat-row.tsx'
+import { ResizeHandle } from '../resize-handle.tsx'
+import { useNow } from '../usage-meters.tsx'
+import { Button } from '../ui/button.tsx'
+import { Input } from '../ui/input.tsx'
+import { ChatFilterBar } from './ChatFilterBar.tsx'
+import { emptyMessage } from './empty-message.ts'
+import { SourceFilter } from './SourceFilter.tsx'
+import { ConnectionNotice } from './ConnectionNotice.tsx'
+import { selectionGroupOf, type SelectionGroup } from './selection.ts'
+import type { ConnectionStatus } from '../../use-web-channel.ts'
 
-type ChatListProps = {
+/** The side panel's width rules. The width is remembered on this device. */
+export const SIDE_PANEL_WIDTH = {
+  storageKey: 'remote-agent.chat-list-width.v1',
+  defaultWidth: 352, // 22rem, the previous fixed width
+  min: 260,
+  max: 560,
+  keyboardStep: 16,
+  edge: 'right' as const,
+}
+
+export type SidePanelProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
   initialFilter?: ListFilter
   /** The search the list opens with. Empty, unless a test says otherwise. */
@@ -34,167 +50,11 @@ type ChatListProps = {
   onActionError(error: unknown): void
 }
 
-/** Narrows the list to sessions started on the computer or spawned from Remote Agent. Sits inside the search field to keep the header light. */
-function SourceFilter({ value, onSelect }: { value: OriginFilter; onSelect(origin: OriginFilter): void }) {
-  const active = value !== 'all'
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Filter by source"
-          data-active={active ? 'true' : undefined}
-          className={`absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full hover:bg-background/60 ${active ? 'text-primary' : 'text-muted-foreground'}`}
-        >
-          <SlidersHorizontal className="size-4" aria-hidden="true" />
-          {active && <span aria-hidden="true" className="absolute right-1 top-1 size-2 rounded-full bg-primary" />}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {ORIGIN_FILTERS.map(([origin, label]) => (
-          <DropdownMenuItem key={origin} onSelect={() => onSelect(origin)}>
-            <span className="flex-1">{label}</span>
-            {value === origin && <Check className="size-4" aria-hidden="true" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-/** What an empty list says: why it is empty, in the words of what the user asked to see. */
-function emptyMessage(query: string, filter: ListFilter, origin: OriginFilter): string {
-  if (query.trim() !== '') {
-    return 'No sessions match that search.'
-  }
-  if (origin !== 'all') {
-    return `No ${origin} sessions here.`
-  }
-  switch (filter) {
-    case 'all':
-      return 'Your sessions will appear here.'
-    case 'needs_you':
-      return 'Nothing is waiting on you.'
-    case 'working':
-      return 'No session is working right now.'
-    case 'ended':
-      return 'No ended sessions.'
-    case 'archived':
-      return 'No archived sessions.'
-  }
-}
-
-/** Says nothing while all is well. A line that is always on becomes invisible, so it only shows when the connection is not fine. */
-function ConnectionNotice({ status, onRetry }: { status: ConnectionStatus; onRetry?: () => void }) {
-  const text = connectionNoticeText(status)
-  if (text === undefined) {
-    return null
-  }
-  return (
-    <div role="status" className="mx-4 mb-1 flex shrink-0 items-center gap-2 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
-      <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1">{text}</span>
-      {onRetry !== undefined && (status === 'reconnecting' || status === 'error') && (
-        <button type="button" onClick={onRetry} className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-background/60">
-          Retry
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** Horizontally scrolling tabs. Needs you and Working only appear while they hold something. */
-function ChatFilterBar({
-  value,
-  counts,
-  endedUnread,
-  onSelect,
-}: {
-  value: ListFilter
-  counts: Record<ListFilter, number>
-  /** An ended session has unread messages, so a session that just finished or failed is not missed behind the Ended tab. */
-  endedUnread: boolean
-  onSelect(filter: ListFilter): void
-}) {
-  return (
-    <div
-      className="flex shrink-0 gap-2 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      role="group"
-      aria-label="Filter sessions"
-    >
-      {visibleFilters(counts, value).map(([filter, label]) => {
-        const selected = value === filter
-        const count = counts[filter]
-        const attention = filter === 'needs_you' && count > 0
-        const showCount = (filter === 'needs_you' || filter === 'working') && count > 0
-        const showDot = filter === 'ended' && endedUnread
-        return (
-          <button
-            key={filter}
-            type="button"
-            aria-pressed={selected}
-            aria-label={showDot ? `${label}, has unread messages` : undefined}
-            onClick={() => onSelect(filter)}
-            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-medium transition-colors ${
-              selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'
-            } ${attention && !selected ? 'text-status-needs' : ''}`}
-          >
-            {label}
-            {showCount && <span className={`tabular-nums text-xs ${attention ? 'text-status-needs' : ''}`}>{count}</span>}
-            {showDot && <span data-unread="true" aria-hidden="true" className="size-2 rounded-full bg-primary" />}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-const CHAT_LIST_WIDTH_KEY = 'remote-agent.chat-list-width.v1'
-const CHAT_LIST_DEFAULT_WIDTH = 352 // 22rem, the previous fixed width
-const CHAT_LIST_MIN_WIDTH = 260
-const CHAT_LIST_MAX_WIDTH = 560
-const CHAT_LIST_KEYBOARD_STEP = 16
-
-function clampChatListWidth(width: number): number {
-  return Math.min(CHAT_LIST_MAX_WIDTH, Math.max(CHAT_LIST_MIN_WIDTH, Math.round(width)))
-}
-
-function readChatListWidth(): number {
-  try {
-    const stored = Number(localStorage.getItem(CHAT_LIST_WIDTH_KEY))
-    return Number.isFinite(stored) && stored > 0 ? clampChatListWidth(stored) : CHAT_LIST_DEFAULT_WIDTH
-  } catch {
-    return CHAT_LIST_DEFAULT_WIDTH
-  }
-}
-
-function saveChatListWidth(width: number): void {
-  try {
-    localStorage.setItem(CHAT_LIST_WIDTH_KEY, String(width))
-  } catch {
-    // Storage unavailable: the width still applies for this session.
-  }
-}
-
-export function isSelectableChat(chat: Chat): boolean {
-  return chat.id !== 'general' && chat.status === 'ended' && !chat.archived
-}
-
-export function isPinnableChat(chat: Chat): boolean {
-  return chat.id !== 'general' && chat.status !== 'ended' && !chat.archived
-}
-
-type SelectionGroup = 'ended' | 'live'
-
-// A selection holds one kind of session: ended ones can be archived, live ones can be pinned.
-export function selectionGroupOf(chat: Chat): SelectionGroup | null {
-  if (isSelectableChat(chat)) {
-    return 'ended'
-  }
-  return isPinnableChat(chat) ? 'live' : null
-}
-
-export function ChatList({
+/**
+ * The left-hand side panel: the list of sessions, with search, filters, selection, and a resize handle on its right edge.
+ * It slides over the main area on the narrow layout.
+ */
+export function SidePanel({
   initialFilter = 'all',
   initialQuery = '',
   initialOrigin = 'all',
@@ -209,7 +69,7 @@ export function ChatList({
   onArchiveSelected,
   onPinSelected,
   onActionError,
-}: ChatListProps) {
+}: SidePanelProps) {
   const [query, setQuery] = useState(initialQuery)
   const searchInput = useRef<HTMLInputElement>(null)
   const [filter, setFilter] = useState<ListFilter>(initialFilter)
@@ -217,8 +77,7 @@ export function ChatList({
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [archiving, setArchiving] = useState(false)
-  const [width, setWidth] = useState(readChatListWidth)
-  const resizeStart = useRef<{ x: number; width: number } | null>(null)
+  const { width, handle, ariaValues } = useResizableWidth(SIDE_PANEL_WIDTH)
   const longPress = useRef<{ chatId: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   const suppressClick = useRef<string | null>(null)
   const terms = useMemo(() => searchTerms(query), [query])
@@ -319,34 +178,6 @@ export function ChatList({
     } finally {
       setArchiving(false)
     }
-  }
-
-  const onResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    resizeStart.current = { x: event.clientX, width }
-  }
-
-  const onResizePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (resizeStart.current === null) return
-    setWidth(clampChatListWidth(resizeStart.current.width + event.clientX - resizeStart.current.x))
-  }
-
-  const endResize = (event: PointerEvent<HTMLDivElement>) => {
-    if (resizeStart.current === null) return
-    resizeStart.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    saveChatListWidth(width)
-  }
-
-  const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-    event.preventDefault()
-    const next = clampChatListWidth(width + (event.key === 'ArrowRight' ? CHAT_LIST_KEYBOARD_STEP : -CHAT_LIST_KEYBOARD_STEP))
-    setWidth(next)
-    saveChatListWidth(next)
   }
 
   return (
@@ -501,21 +332,7 @@ export function ChatList({
           <Plus aria-hidden="true" className="size-6" />
         </Button>
       )}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize chat list"
-        aria-valuemin={CHAT_LIST_MIN_WIDTH}
-        aria-valuemax={CHAT_LIST_MAX_WIDTH}
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={onResizePointerDown}
-        onPointerMove={onResizePointerMove}
-        onPointerUp={endResize}
-        onPointerCancel={endResize}
-        onKeyDown={onResizeKeyDown}
-        className="absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none outline-none hover:bg-primary/15 focus-visible:bg-primary/25 md:block"
-      />
+      <ResizeHandle edge="right" label="Resize chat list" handle={handle} ariaValues={ariaValues} />
     </aside>
   )
 }
