@@ -2,7 +2,7 @@
   "id": "remote-agent.terminal",
   "name": "Terminal",
   "version": "0.1.0",
-  "frontend": { "entry": "./frontend/index.ts" },
+  "frontend": { "entry": "./frontend/index.tsx" },
   "backend": { "entry": "./backend/index.ts" },
   "permissions": ["pty", "websocket-routes", "http-routes", "storage"],
   "storage": {

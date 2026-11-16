@@ -1,7 +1,7 @@
-import { ArrowLeft, Info, Pencil, Radio, Terminal } from 'lucide-react'
+import { ArrowLeft, Info, Pencil, Radio } from 'lucide-react'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat } from '../../channel/web/protocol.ts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AccountUsageView, SessionUsageView } from '../../core/usage-types.ts'
 import type { ConnectionStatus } from '../use-web-channel.ts'
 import { Avatar } from './ui/avatar.tsx'
@@ -33,7 +33,8 @@ type ChatHeaderProps = {
   /** The full model id the Session last ran on, or null when unknown. Shown as a short label after the subtitle. */
   model?: string | null
   /** Opens a terminal section for this session's working directory. */
-  onOpenTerminal?(): void
+  /** Controls extensions add to the header. Not shown for General. */
+  chatActions?: ReactNode
 }
 
 function connectionLabel(status: ConnectionStatus): string {
@@ -51,7 +52,7 @@ function connectionLabel(status: ConnectionStatus): string {
   }
 }
 
-export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, model = null, onOpenTerminal }: ChatHeaderProps) {
+export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, accounts = [], onRename, view, onView, summary, needsYou = 0, model = null, chatActions }: ChatHeaderProps) {
   const state = chatState(chat)
   // General is the command chat and its dashboard already shows usage, so it has no usage toggle and no details panel.
   const isGeneral = chat.id === 'general'
@@ -160,11 +161,7 @@ export function ChatHeader({ chat, status, onBack, onInfo, infoOpen, usage, acco
           <Info aria-hidden="true" />
         </Button>
       )}
-      {!isGeneral && onOpenTerminal !== undefined && (
-        <Button variant="ghost" size="icon-sm" aria-label="Open a terminal in this session's directory" onClick={onOpenTerminal}>
-          <Terminal className="size-4" aria-hidden="true" />
-        </Button>
-      )}
+      {!isGeneral && chatActions}
     </header>
     {!isGeneral && <UsagePanel open={usageOpen} accounts={accounts} session={usage} now={now} className="absolute inset-x-2 top-full mt-1 shadow-lg ring-1 ring-border/60 md:inset-x-auto md:right-4 md:w-96" />}
     <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />

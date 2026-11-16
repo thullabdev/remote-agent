@@ -12,17 +12,15 @@ import { ChatList } from './components/chat-list.tsx'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
-import { TerminalPanel, type TerminalSession } from '../../extensions/terminal/frontend/TerminalPanel.tsx'
-import { createSession, listSessions, type SessionView } from '../../extensions/terminal/frontend/sessions-client.ts'
-import { openSessionInFolder } from '../../extensions/terminal/frontend/grouping.ts'
-// Import extension frontend entries so they call registerPanel. One import per extension.
-import '../../extensions/terminal/frontend/index.ts'
+import { ExtensionRegistry } from './components/extension-registry.tsx'
+import { chatActionsFor, dashboardCards, sidebarSections, type ActivePanel } from './extension-slots.ts'
+import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
-import { connectionNoticeText, deepLink, deepLinkTerminal, pendingPromptMessage } from './presentation.ts'
+import { connectionNoticeText, deepLink, deepLinkPanel, pendingPromptMessage } from './presentation.ts'
 import { revealMessage, type RevealTarget } from './reveal.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
@@ -43,6 +41,14 @@ function nextTick(): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, 50))
 }
 
+/** Removes a panel's URL parameters: its id, and whatever parameters it set. */
+function clearPanelParams(url: URL, panel: ActivePanel | null): void {
+  url.searchParams.delete('panel')
+  for (const key of Object.keys(panel?.params ?? {})) {
+    url.searchParams.delete(key)
+  }
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
@@ -50,16 +56,10 @@ function errorText(error: unknown): string {
 export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => deepLinkTerminal(window.location.search))
-  const [terminals, setTerminals] = useState<TerminalSession[]>([])
-  // The server keeps the list of open sessions; this state is its copy for the sidebar, dashboard and panel.
-  useEffect(() => {
-    void listSessions()
-      .then(sessions => setTerminals(sessions.map(terminalOf)))
-      .catch(() => {
-        // The terminal extension may be missing or the list unreachable; the rest of the app does not depend on it.
-      })
-  }, [])
+  // The extension panel shown in the main area instead of a chat. The host does not read its parameters.
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() => deepLinkPanel(window.location.search))
+  const activePanelRef = useRef(activePanel)
+  activePanelRef.current = activePanel
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -147,7 +147,7 @@ export function App() {
   useEffect(() => {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
-      setActiveTerminalId(deepLinkTerminal(window.location.search))
+      setActivePanel(deepLinkPanel(window.location.search))
       setFocusPrompt(null)
       setInfoOpen(false)
     }
@@ -175,13 +175,13 @@ export function App() {
     // Opening a chat by hand, or from the redirect itself, ends any wait for a new chat.
     newChatWatch.current = null
     setActiveChatId(chatId)
-    // A chat and a terminal are alternative main-area views: opening either one leaves the other.
-    setActiveTerminalId(null)
+    // A chat and a panel are alternative main-area views: opening either one leaves the other.
+    setActivePanel(null)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('prompt')
-    url.searchParams.delete('terminal')
+    clearPanelParams(url, activePanelRef.current)
     if (chatId === null) {
       url.searchParams.delete('chat')
     } else {
@@ -190,69 +190,36 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  /** Opens (or reattaches to) a terminal section by session id, replacing the chat in the main area. */
-  const openTerminal = useCallback((sid: string) => {
+  /** Shows an extension panel in the main area, replacing the chat. The panel's parameters go into the URL. */
+  const openPanel = useCallback((id: string, params: Record<string, string> = {}) => {
     newChatWatch.current = null
     setActiveChatId(null)
-    setActiveTerminalId(sid)
+    setActivePanel({ id, params })
     setInfoOpen(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('chat')
     url.searchParams.delete('prompt')
-    url.searchParams.set('terminal', sid)
+    clearPanelParams(url, activePanelRef.current)
+    url.searchParams.set('panel', id)
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value)
+    }
     window.history.pushState(null, '', url)
   }, [])
 
-  /** Starts a shell on the server in `cwd` (home when omitted) and opens it. The server chooses the session id. */
-  const startTerminal = useCallback(
-    async (cwd?: string, chatId?: string | null) => {
-      try {
-        const created = await createSession({ cwd, chatId: chatId ?? null })
-        setTerminals(current => [terminalOf({ sid: created.sid, cwd: created.cwd, chatId: chatId ?? null, createdAt: created.createdAt }), ...current])
-        openTerminal(created.sid)
-      } catch (error) {
-        notify(error instanceof Error ? error.message : 'Could not start the terminal', 'error')
-      }
-    },
-    [openTerminal, notify],
-  )
-
   /**
-   * A chat's terminal: the open shell for its project folder if there is one, else a new shell there, linked to the chat.
-   * The server is asked first: a shell that exited is only known to it, so the list in memory can name a session that is gone.
+   * Leaves the panel for the chat list. Replaces the history entry when asked, so going back does not reopen what was closed.
    */
-  const openTerminalForChat = useCallback(
-    async (chat: Chat) => {
-      const folder = chat.launchCwd ?? chat.cwd ?? undefined
-      let sessions: SessionView[]
-      try {
-        sessions = await listSessions()
-      } catch (error) {
-        notify(error instanceof Error ? error.message : 'Could not reach the terminals', 'error')
-        return
-      }
-      setTerminals(sessions.map(terminalOf))
-      const existing = folder === undefined ? undefined : openSessionInFolder(sessions, folder)
-      if (existing !== undefined) {
-        openTerminal(existing.sid)
-        return
-      }
-      await startTerminal(folder, chat.id)
-    },
-    [openTerminal, startTerminal, notify],
-  )
-
-  /** Closes a terminal session and removes it from the list. */
-  const closeTerminal = useCallback((sid: string) => {
-    setTerminals(current => current.filter(t => t.id !== sid))
-    if (activeTerminalId === sid) {
-      setActiveTerminalId(null)
-      // Replace, not push: going back must not reopen a session that was just closed.
-      const url = new URL(window.location.href)
-      url.searchParams.delete('terminal')
+  const closePanel = useCallback((options?: { replace?: boolean }) => {
+    setActivePanel(null)
+    const url = new URL(window.location.href)
+    clearPanelParams(url, activePanelRef.current)
+    if (options?.replace === true) {
       window.history.replaceState(null, '', url)
+    } else {
+      window.history.pushState(null, '', url)
     }
-  }, [activeTerminalId])
+  }, [])
 
   /**
    * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use
@@ -669,9 +636,7 @@ export function App() {
         onRetry={retry}
         onNew={() => setNewSessionOpen(true)}
         onSettings={() => setSettingsOpen(true)}
-        onOpenTerminal={openTerminal}
-        onNewTerminal={cwd => void startTerminal(cwd)}
-        terminals={terminals}
+        sidebarSections={sidebarSections({ chats, activePanel, openPanel, notify })}
         onArchiveSelected={async chatIds => {
           const result = await api.archiveChats(chatIds)
           notify(result.toast)
@@ -700,18 +665,13 @@ export function App() {
           touchStart.current = null
         }}
         className={`absolute inset-0 z-20 flex min-w-0 bg-background shadow-2xl transition-transform duration-300 md:static md:z-auto md:flex-1 md:translate-x-0 md:shadow-none ${
-          activeChatId === null && activeTerminalId === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
+          activeChatId === null && activePanel === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
         }`}
       >
-        {activeTerminalId !== null ? (
-          <TerminalPanel
-            terminals={terminals}
-            activeTerminalId={activeTerminalId}
-            onBack={() => openChat(null)}
-            onNew={cwd => void startTerminal(cwd)}
-            onSelect={openTerminal}
-            onClose={closeTerminal}
-            density={preferences.density}
+        {activePanel !== null ? (
+          <ExtensionRegistry
+            panel={activePanel}
+            context={{ params: activePanel.params, openPanel, closePanel, notify, density: preferences.density }}
           />
         ) : activeChat ? (
           <>
@@ -734,7 +694,7 @@ export function App() {
                 summary={summaryText(dashboardCounts(chats))}
                 needsYou={dashboardCounts(chats).needsYou}
                 model={activeChat?.model ?? sessionModel}
-                onOpenTerminal={() => void openTerminalForChat(activeChat)}
+                chatActions={chatActionsFor({ chat: activeChat, openPanel, notify })}
               />
               {connectionNoticeText(status) !== undefined && (
                 <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
@@ -767,8 +727,7 @@ export function App() {
                       armNewChatWatch()
                       return runChatAction(() => api.resumeChat(chatId))
                     }}
-                    terminals={terminals}
-                    onOpenTerminal={openTerminal}
+                    cards={dashboardCards({ online: status === 'connected', openPanel, notify })}
                   />
                 ) : (
                 <MessageFeed
@@ -895,11 +854,6 @@ export function App() {
       />
     </div>
   )
-}
-
-/** The terminal list entry for a session the server reported or just created. */
-function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt' | 'attached'>>): TerminalSession {
-  return { id: view.sid, cwd: view.cwd, login: '', connected: view.attached ?? false, chatId: view.chatId ?? null, createdAt: view.createdAt }
 }
 
 function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {

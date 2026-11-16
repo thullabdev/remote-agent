@@ -5,20 +5,12 @@ import '@xterm/xterm/css/xterm.css'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
 import { terminalLabel } from './grouping.ts'
+import type { PanelContext } from '../../../src/ui/extension-slots.ts'
+import { startTerminal, TERMINAL_PANEL } from './actions.ts'
+import { removeSession, useTerminalSessions, type TerminalSession } from './store.ts'
 import { closeSession } from './sessions-client.ts'
 
-export type TerminalSession = {
-  id: string
-  /** The folder the shell was started in. It does not follow `cd`. */
-  cwd: string
-  login: string
-  connected: boolean
-  bytesIn?: number
-  bytesOut?: number
-  project?: string
-  chatId?: string | null
-  createdAt?: number
-}
+export type { TerminalSession } from './store.ts'
 
 type Density = 'compact' | 'comfortable'
 
@@ -395,4 +387,26 @@ function dotClass(state: ViewportState | undefined): string {
     default:
       return 'bg-amber-500'
   }
+}
+
+/** The panel as the host mounts it: the session list comes from the store, and navigation goes through the host's panel context. */
+export function TerminalPanelHost({ params, openPanel, closePanel, notify, density }: PanelContext) {
+  const terminals = useTerminalSessions()
+  const activeTerminalId = params.sid ?? null
+  return (
+    <TerminalPanel
+      terminals={terminals}
+      activeTerminalId={activeTerminalId}
+      onBack={() => closePanel()}
+      onNew={cwd => void startTerminal({ cwd }, openPanel, notify)}
+      onSelect={sid => openPanel(TERMINAL_PANEL, { sid })}
+      onClose={sid => {
+        removeSession(sid)
+        if (activeTerminalId === sid) {
+          closePanel({ replace: true })
+        }
+      }}
+      density={density}
+    />
+  )
 }

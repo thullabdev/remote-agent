@@ -343,10 +343,20 @@ export function deepLink(search: string): { chatId: string | null; promptId: str
   return { chatId, promptId: chatId === null ? null : params.get('prompt') || null }
 }
 
-/** The terminal session id a link names (`/?terminal=<sid>`). */
-export function deepLinkTerminal(search: string): string | null {
+/**
+ * The extension panel a link opens (`/?panel=<id>&...`). The id names the panel; every other parameter is the panel's own.
+ * Chat parameters are not the panel's, so they are left out.
+ */
+export function deepLinkPanel(search: string): { id: string; params: Record<string, string> } | null {
   const params = new URLSearchParams(search)
-  return params.get('terminal') || null
+  const id = params.get('panel')
+  if (!id) {
+    return null
+  }
+  params.delete('panel')
+  params.delete('chat')
+  params.delete('prompt')
+  return { id, params: Object.fromEntries(params) }
 }
 
 export type Segment = { text: string; match: boolean }

@@ -1,5 +1,5 @@
 import { Archive, Check, Pin, PinOff, LoaderCircle, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import type { Chat } from '../../channel/web/protocol.ts'
 import { filterChats, filterCounts, matchesOrigin, ORIGIN_FILTERS, searchTerms, visibleFilters, type ListFilter, type OriginFilter } from '../chat-filters.ts'
 import { chatRowLabel, connectionNoticeText, rowOpenTarget } from '../presentation.ts'
@@ -10,7 +10,6 @@ import { useNow } from './usage-meters.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
-import { groupByFolder, terminalLabel } from '../../../extensions/terminal/frontend/grouping.ts'
 
 type ChatListProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
@@ -25,30 +24,14 @@ type ChatListProps = {
   /** `focus` asks the app to open at a Prompt: a tap on a session that needs you goes straight to what it waits for. */
   onOpen(chatId: string, focus?: { promptId: string }): void
   onNew(): void
-  /** Opens a terminal section by session id. */
-  onOpenTerminal?(sid: string): void
-  /** Starts another shell in a folder, from that folder's group in the Terminals section. */
-  onNewTerminal?(cwd: string): void
-  /** Active terminal sessions, listed in the sidebar. */
-  /** `connected` means a browser has the shell open now. `chatId` names the chat that opened it, if any. */
-  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean; createdAt?: number; chatId?: string | null }>
+  /** Sections extensions add above the chats, rendered by the host without knowing what they show. */
+  sidebarSections?: ReactNode
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
   onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onPinSelected(chatIds: string[], pinned: boolean): Promise<void>
   onActionError(error: unknown): void
-}
-
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
-  return (
-    <section aria-labelledby={id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-      <h2 id={id} className="px-1 text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">
-        {title}
-      </h2>
-      {children}
-    </section>
-  )
 }
 
 /** Narrows the list to sessions started on the computer or spawned from Remote Agent. Sits inside the search field to keep the header light. */
@@ -220,9 +203,7 @@ export function ChatList({
   status,
   onOpen,
   onNew,
-  onOpenTerminal,
-  onNewTerminal,
-  terminals = [],
+  sidebarSections,
   onRetry,
   onSettings,
   onArchiveSelected,
@@ -444,47 +425,7 @@ export function ChatList({
         {terms.length > 0 && filteredChats.length > 0 && (
           <p className="px-2 pb-2 text-xs text-muted-foreground">{filteredChats.length === 1 ? '1 result' : `${filteredChats.length} results`}</p>
         )}
-        {terminals.length > 0 && (
-          <Section id="list-terminals" title="Terminals">
-            {groupByFolder(terminals).map(group => (
-              <div key={group.cwd} className="space-y-0.5">
-                <div className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground">
-                  <span className="min-w-0 flex-1 truncate font-medium" title={group.cwd}>
-                    {group.project}
-                  </span>
-                  {onNewTerminal !== undefined && (
-                    <Button variant="ghost" size="icon-sm" aria-label={`New terminal in ${group.project}`} title={`New terminal in ${group.cwd}`} onClick={() => onNewTerminal(group.cwd)}>
-                      <Plus aria-hidden="true" />
-                    </Button>
-                  )}
-                </div>
-                {group.sessions.map(term => {
-                  const chatTitle = term.chatId ? chats.find(chat => chat.id === term.chatId)?.title : undefined
-                  return (
-                    <button
-                      key={term.id}
-                      type="button"
-                      title={term.id}
-                      onClick={() => void onOpenTerminal?.(term.id)}
-                      className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left text-sm transition-colors ${
-                        activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{terminalLabel(term)}</span>
-                        {chatTitle !== undefined && <span className="block truncate text-xs text-muted-foreground">{chatTitle}</span>}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className={`size-1.5 rounded-full ${term.connected ? 'bg-green-500' : 'bg-muted-foreground/50'}`} aria-hidden="true" />
-                        {term.connected ? 'attached' : 'detached'}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
-          </Section>
-        )}
+        {sidebarSections}
         <div className="space-y-1">
           {filteredChats.map(chat => (
             <button

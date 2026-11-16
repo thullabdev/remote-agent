@@ -22,7 +22,6 @@ import {
 } from '../dashboard-model.ts'
 import { NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
 import { barWidth, formatDuration, limitTone } from '../usage-format.ts'
-import { projectName, terminalLabel } from '../../../extensions/terminal/frontend/grouping.ts'
 import { Button } from './ui/button.tsx'
 import { AccountUsageStrip, BAR, TEXT, useNow } from './usage-meters.tsx'
 
@@ -42,10 +41,8 @@ export type DashboardProps = {
   onNewSession(): void
   onStartProject(cwd: string): Promise<void>
   onResume(chatId: string): Promise<void>
-  /** Active terminal sessions, for the Terminals card. */
-  terminals?: Array<{ id: string; cwd: string; createdAt?: number }>
-  /** Opens a terminal section by session id. */
-  onOpenTerminal?(sid: string): void
+  /** Cards extensions add, rendered where the host has no card of its own. */
+  cards?: ReactNode
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
@@ -359,7 +356,7 @@ function ResumeLast({ chat, onResume }: { chat: Chat; onResume(): Promise<void> 
   )
 }
 
-export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat, onPromptAction, onToggleAway, onNewSession, onStartProject, onResume, terminals = [], onOpenTerminal }: DashboardProps) {
+export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat, onPromptAction, onToggleAway, onNewSession, onStartProject, onResume, cards }: DashboardProps) {
   const now = useNow()
   const counts = dashboardCounts(chats)
   const needsYou = needsYouItems(chats)
@@ -438,25 +435,7 @@ export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat
           </div>
         </Section>
 
-        {terminals.length > 0 && (
-          <Section id="dash-terminals" title="Terminals">
-            <div className="grid min-w-0 gap-1">
-              {terminals.map(term => (
-                <Button
-                  key={term.id}
-                  variant="outline"
-                  className="h-auto w-full min-w-0 justify-start gap-3 rounded-2xl px-3 py-2 text-left"
-                  disabled={!online}
-                  title={`${term.id} · ${term.cwd}`}
-                  onClick={() => void onOpenTerminal?.(term.id)}
-                >
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{terminalLabel(term)}</span>
-                  <span className="min-w-0 max-w-[45%] truncate text-xs text-muted-foreground">{projectName(term.cwd)}</span>
-                </Button>
-              ))}
-            </div>
-          </Section>
-        )}
+        {cards}
 
         {activity !== null && activity.recent.length > 0 && (
           <Section id="dash-recent" title="Recent activity">
