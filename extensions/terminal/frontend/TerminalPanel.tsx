@@ -362,7 +362,7 @@ export function TerminalsSideTab({ activeChat, notify, density }: SideTabContext
       ) : null}
 
       {selected !== null ? (
-        <footer className={cn('flex shrink-0 items-center gap-4 border-b border-border/60 bg-muted/50 text-xs text-muted-foreground', padX, 'py-1.5')}>
+        <footer className={cn('flex shrink-0 items-center gap-4 border-b border-border/60 text-xs text-muted-foreground', padX, 'py-1.5')}>
           {activeTab !== null && activeTab.cwd !== '' ? (
             <span className="min-w-0 truncate" title="The folder this shell was started in">
               Started in {activeTab.cwd}
