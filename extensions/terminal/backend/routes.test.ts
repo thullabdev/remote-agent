@@ -133,6 +133,28 @@ describe('session routes', () => {
     cleanup()
   })
 
+  it('tells the caller when the open sessions change: on create and on close', async () => {
+    let changes = 0
+    routes = createSessionRoutes({
+      owner: OWNER,
+      repo,
+      tmux,
+      newSid: () => `term-${++next}`,
+      nameFor: sid => `ra-term-${sid}`,
+      shell: '/bin/sh',
+      home: dir,
+      onChange: () => {
+        changes += 1
+      },
+    })
+
+    await routes.create(post('/sessions', { cwd: dir }))
+    expect(changes).toBe(1)
+    await routes.close(post('/sessions/close', { sid: 'term-1' }))
+    expect(changes).toBe(2)
+    cleanup()
+  })
+
   it('reports which sessions have a browser attached', async () => {
     repo.create({ sid: 'shown', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-shown' })
     repo.create({ sid: 'hidden', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-hidden' })

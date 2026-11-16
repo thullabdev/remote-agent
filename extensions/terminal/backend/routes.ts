@@ -23,6 +23,8 @@ export type RouteDeps = {
   home?: string
   /** Whether a browser has this session open on a socket right now. */
   isAttached?(sid: string): boolean
+  /** Called after the open sessions change, so subscribed browsers can be told. */
+  onChange?(): void
 }
 
 /** What the browser sees of a session. Internal fields such as the tmux name stay on the server. */
@@ -109,6 +111,7 @@ export function createSessionRoutes(deps: RouteDeps) {
         return json({ error: error instanceof Error ? error.message : 'tmux could not start the session' }, 500)
       }
       const doc = deps.repo.create({ sid, owner: deps.owner, launchCwd: cwd, chatId, tmuxName: name })
+      deps.onChange?.()
       return json({ sid, cwd: doc.launchCwd, createdAt: doc.createdAt }, 201)
     },
 
@@ -125,6 +128,7 @@ export function createSessionRoutes(deps: RouteDeps) {
       }
       await deps.tmux.kill(doc.tmuxName)
       deps.repo.close(sid, 'user')
+      deps.onChange?.()
       return json({ ok: true })
     },
   }

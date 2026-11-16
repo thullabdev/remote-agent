@@ -2,12 +2,16 @@ import { z } from 'zod'
 import type { ExtensionApi } from '../../../src/extension-sdk/index.ts'
 import { attach, replayFor, type Attachment } from './attach.ts'
 import { IDLE_CHECK_MS, reconcile, sweepIdle, type LifecycleDeps } from './lifecycle.ts'
-import { createSessionRoutes } from './routes.ts'
+import { createSessionEvents, EVENTS_WS_PATH, frameOf, type EventSocket } from './events.ts'
+import { createSessionRoutes, viewOf, type SessionView } from './routes.ts'
 import { createSessionRepository, type SessionDoc, type SessionRepository } from './sessions.ts'
 import { createSession, hasSession, killSession, sessionNameFor, tmuxAvailable } from './tmux.ts'
 
 /** WebSocket route, under /api/extensions/remote-agent.terminal. One socket attaches to one stored session. */
 export const TERMINAL_WS_PATH = '/ws'
+
+/** How often a stored session whose shell has exited is closed, so subscribers hear about it within seconds. */
+export const LIVENESS_CHECK_MS = 5_000
 
 const MAX_INPUT_CHARS = 64 * 1024
 const Sid = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/)
@@ -36,9 +40,14 @@ type Runtime = {
   /** Sockets currently attached per session. A session with none is detached and eligible for idle reaping. */
   attached: Map<string, number>
   sockets: WeakMap<object, Attached>
+  /** Browsers subscribed to session changes. */
+  events: ReturnType<typeof createSessionEvents>
+  /** Sends the current list to every subscriber. Call it after anything that changes the list or whether it is attached. */
+  publish(): void
 }
 
 let sweep: ReturnType<typeof setInterval> | null = null
+let liveness: ReturnType<typeof setInterval> | null = null
 
 export function onActivate(api: ExtensionApi) {
   // The Tailscale login the host already authorized. The upgrade is refused before this route runs for anyone else.
@@ -49,22 +58,50 @@ export function onActivate(api: ExtensionApi) {
     throw new Error('the terminal extension needs the storage permission')
   }
   const log = (message: string) => console.log(`[terminal] ${message}`)
+  const events = createSessionEvents()
   const rt: Runtime = {
     repo: createSessionRepository(storage, Date.now),
     owner,
     attached: new Map(),
     sockets: new WeakMap(),
+    events,
+    publish: () => events.publish(sessionViews(rt)),
   }
   const deps = lifecycleDeps(rt, log)
 
-  void reconcile(deps).catch(error => log(`reconcile failed: ${String(error)}`))
+  void reconcile(deps)
+    .then(closed => {
+      if (closed > 0) {
+        rt.publish()
+      }
+    })
+    .catch(error => log(`reconcile failed: ${String(error)}`))
   if (sweep !== null) {
     clearInterval(sweep)
   }
   sweep = setInterval(() => {
-    void sweepIdle(deps).catch(error => log(`idle sweep failed: ${String(error)}`))
+    void sweepIdle(deps)
+      .then(reaped => {
+        if (reaped > 0) {
+          rt.publish()
+        }
+      })
+      .catch(error => log(`idle sweep failed: ${String(error)}`))
   }, IDLE_CHECK_MS)
   sweep.unref?.()
+  if (liveness !== null) {
+    clearInterval(liveness)
+  }
+  liveness = setInterval(() => {
+    void reconcile(deps)
+      .then(closed => {
+        if (closed > 0) {
+          rt.publish()
+        }
+      })
+      .catch(error => log(`liveness check failed: ${String(error)}`))
+  }, LIVENESS_CHECK_MS)
+  liveness.unref?.()
 
   const routes = createSessionRoutes({
     owner,
@@ -74,6 +111,7 @@ export function onActivate(api: ExtensionApi) {
     nameFor: sessionNameFor,
     shell: process.env.SHELL || '/bin/sh',
     isAttached: sid => (rt.attached.get(sid) ?? 0) > 0,
+    onChange: () => rt.publish(),
   })
   api.backend.registerHttpRoute('GET', '/sessions', () => routes.list())
   api.backend.registerHttpRoute('POST', '/sessions', request => routes.create(request))
@@ -110,6 +148,23 @@ export function onActivate(api: ExtensionApi) {
       }
     },
   })
+
+  // Subscribers get the whole list on connect, then again after every change.
+  api.backend.registerWebSocketRoute(EVENTS_WS_PATH, {
+    open(rawSocket) {
+      if (owner === '') {
+        ;(rawSocket as { close(code?: number, reason?: string): void }).close(1008, 'terminal disabled')
+        return
+      }
+      const subscriber = rawSocket as EventSocket
+      rt.events.add(subscriber)
+      subscriber.send(frameOf(sessionViews(rt)))
+    },
+    message() {},
+    close(rawSocket) {
+      rt.events.remove(rawSocket as EventSocket)
+    },
+  })
 }
 
 export function onDeactivate() {
@@ -117,6 +172,15 @@ export function onDeactivate() {
     clearInterval(sweep)
     sweep = null
   }
+  if (liveness !== null) {
+    clearInterval(liveness)
+    liveness = null
+  }
+}
+
+/** What the browser sees of every open session of this owner. The same view the HTTP list returns. */
+function sessionViews(rt: Runtime): SessionView[] {
+  return rt.repo.listOpen(rt.owner).map(doc => viewOf(doc, (rt.attached.get(doc.sid) ?? 0) > 0))
 }
 
 async function handle(rawSocket: object, message: ClientMessage, rt: Runtime, log: (message: string) => void): Promise<void> {
@@ -135,6 +199,7 @@ async function handle(rawSocket: object, message: ClientMessage, rt: Runtime, lo
       }
       if (!(await hasSession(doc.tmuxName))) {
         rt.repo.close(message.sid, 'missing')
+        rt.publish()
         send(rawSocket, { type: 'error', sid: message.sid, code: 'not_found', message: 'this terminal has ended' })
         return
       }
@@ -172,6 +237,7 @@ async function handle(rawSocket: object, message: ClientMessage, rt: Runtime, lo
       }
       await killSession(doc.tmuxName)
       rt.repo.close(message.sid, 'user')
+      rt.publish()
       log(`terminal ${message.sid} closed by its owner`)
       return
     }
@@ -204,11 +270,13 @@ async function attachTo(rawSocket: object, doc: SessionDoc, cols: number, rows: 
       if (rt.sockets.get(rawSocket) === state) {
         rt.sockets.delete(rawSocket)
         unmark(rt, doc.sid)
+        rt.publish()
       }
       send(rawSocket, { type: 'exit', sid: doc.sid, code })
       void hasSession(doc.tmuxName).then(alive => {
         if (!alive && rt.repo.get(doc.sid)?.closedAt === null) {
           rt.repo.close(doc.sid, 'exited')
+          rt.publish()
           log(`terminal ${doc.sid} exited with its shell`)
         }
       })
@@ -217,6 +285,7 @@ async function attachTo(rawSocket: object, doc: SessionDoc, cols: number, rows: 
   rt.sockets.set(rawSocket, state)
   mark(rt, doc.sid)
   rt.repo.touch(doc.sid, Date.now())
+  rt.publish()
 
   const replay = await replayFor(doc.tmuxName)
   send(rawSocket, { type: 'ready', sid: doc.sid, cwd: doc.launchCwd, created: false })
@@ -239,6 +308,7 @@ function detach(current: Attached, rt: Runtime): void {
   current.attachment.detach()
   unmark(rt, current.sid)
   rt.repo.touch(current.sid, Date.now())
+  rt.publish()
 }
 
 function mark(rt: Runtime, sid: string): void {

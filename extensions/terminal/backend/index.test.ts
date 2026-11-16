@@ -55,8 +55,10 @@ describe('terminal WebSocket route on stored sessions', () => {
         storage,
         registerHttpRoute: () => {},
         registerWebSocketRoute: (path, routeHandlers) => {
-          expect(path).toBe(TERMINAL_WS_PATH)
-          captured = routeHandlers as Handlers
+          // The session-events route is registered too; this suite drives only the terminal route.
+          if (path === TERMINAL_WS_PATH) {
+            captured = routeHandlers as Handlers
+          }
         },
       },
     })
