@@ -9,6 +9,8 @@ export type SessionView = {
   chatId: string | null
   createdAt: number
   lastAttachedAt: number | null
+  /** True while a browser has this session open. */
+  attached: boolean
 }
 
 type Fetch = typeof fetch

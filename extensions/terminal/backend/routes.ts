@@ -21,6 +21,8 @@ export type RouteDeps = {
   nameFor(sid: string): string
   shell: string
   home?: string
+  /** Whether a browser has this session open on a socket right now. */
+  isAttached?(sid: string): boolean
 }
 
 /** What the browser sees of a session. Internal fields such as the tmux name stay on the server. */
@@ -31,10 +33,20 @@ export type SessionView = {
   chatId: string | null
   createdAt: number
   lastAttachedAt: number | null
+  /** True while a browser has this session open. */
+  attached: boolean
 }
 
-export function viewOf(doc: SessionDoc): SessionView {
-  return { sid: doc.sid, cwd: doc.launchCwd, project: doc.project, chatId: doc.chatId, createdAt: doc.createdAt, lastAttachedAt: doc.lastAttachedAt }
+export function viewOf(doc: SessionDoc, attached = false): SessionView {
+  return {
+    sid: doc.sid,
+    cwd: doc.launchCwd,
+    project: doc.project,
+    chatId: doc.chatId,
+    createdAt: doc.createdAt,
+    lastAttachedAt: doc.lastAttachedAt,
+    attached,
+  }
 }
 
 /**
@@ -56,7 +68,8 @@ export function createSessionRoutes(deps: RouteDeps) {
     /** GET: the caller's open sessions, newest first. */
     async list(): Promise<Response> {
       await pruneExited(deps)
-      return json({ sessions: deps.repo.listOpen(deps.owner).map(viewOf) })
+      const sessions = deps.repo.listOpen(deps.owner).map(doc => viewOf(doc, deps.isAttached?.(doc.sid) ?? false))
+      return json({ sessions })
     },
 
     /**

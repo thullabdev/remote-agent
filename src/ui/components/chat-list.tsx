@@ -10,7 +10,7 @@ import { useNow } from './usage-meters.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
-import { groupByFolder } from '../../../extensions/terminal/frontend/grouping.ts'
+import { groupByFolder, terminalLabel } from '../../../extensions/terminal/frontend/grouping.ts'
 
 type ChatListProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
@@ -30,7 +30,8 @@ type ChatListProps = {
   /** Starts another shell in a folder, from that folder's group in the Terminals section. */
   onNewTerminal?(cwd: string): void
   /** Active terminal sessions, listed in the sidebar. */
-  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean; createdAt?: number }>
+  /** `connected` means a browser has the shell open now. `chatId` names the chat that opened it, if any. */
+  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean; createdAt?: number; chatId?: string | null }>
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
   onSettings(): void
@@ -41,7 +42,7 @@ type ChatListProps = {
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
-    <section aria-labelledby={id} className="grid min-w-0 gap-2">
+    <section aria-labelledby={id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <h2 id={id} className="px-1 text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">
         {title}
       </h2>
@@ -457,19 +458,29 @@ export function ChatList({
                     </Button>
                   )}
                 </div>
-                {group.sessions.map(term => (
-                  <button
-                    key={term.id}
-                    type="button"
-                    onClick={() => void onOpenTerminal?.(term.id)}
-                    className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors ${
-                      activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{term.id.replace(/^term-/, '').slice(0, 8)}</span>
-                    {term.createdAt !== undefined && <span className="shrink-0 text-xs text-muted-foreground">{new Date(term.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
-                  </button>
-                ))}
+                {group.sessions.map(term => {
+                  const chatTitle = term.chatId ? chats.find(chat => chat.id === term.chatId)?.title : undefined
+                  return (
+                    <button
+                      key={term.id}
+                      type="button"
+                      title={term.id}
+                      onClick={() => void onOpenTerminal?.(term.id)}
+                      className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left text-sm transition-colors ${
+                        activeId === `terminal:${term.id}` ? 'bg-muted' : 'hover:bg-muted/70'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{terminalLabel(term)}</span>
+                        {chatTitle !== undefined && <span className="block truncate text-xs text-muted-foreground">{chatTitle}</span>}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className={`size-1.5 rounded-full ${term.connected ? 'bg-green-500' : 'bg-muted-foreground/50'}`} aria-hidden="true" />
+                        {term.connected ? 'attached' : 'detached'}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             ))}
           </Section>

@@ -29,6 +29,14 @@ export function groupByFolder<T extends GroupableSession>(sessions: T[]): Array<
     .sort((a, b) => newest(b.sessions) - newest(a.sessions))
 }
 
+/** What a shell is called to a person: when it started. The id is internal, so it is only the tooltip. */
+export function terminalLabel(session: { createdAt?: number }): string {
+  if (session.createdAt === undefined) {
+    return 'Shell'
+  }
+  return `Shell · ${new Date(session.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+}
+
 /** The last segment of a folder path, or the path itself for the root. */
 export function projectName(cwd: string): string {
   const trimmed = cwd.replace(/\/+$/, '')

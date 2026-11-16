@@ -206,12 +206,12 @@ test('the resume dialog offers the model the Session last used first and as the 
 test('the Terminals card lists active terminals with go-to links', () => {
   let opened: string | null = null
   const html = render([], {
-    terminals: [{ id: 'sid-1', cwd: '/tmp/api', login: 'user', connected: true }],
+    terminals: [{ id: 'sid-1', cwd: '/tmp/api', createdAt: new Date(2026, 10, 15, 14, 32).getTime() }],
     onOpenTerminal: sid => { opened = sid },
   })
   expect(html).toContain('Terminals')
-  expect(html).toContain('sid-1')
-  expect(html).toContain('/tmp/api')
-  expect(html).toContain('user')
+  expect(html).toContain('Shell · ')
+  expect(html).toContain('api')
+  expect(html).not.toContain('disconnected')
   expect(opened).toBeNull()
 })

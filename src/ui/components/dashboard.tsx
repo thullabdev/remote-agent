@@ -22,6 +22,7 @@ import {
 } from '../dashboard-model.ts'
 import { NEEDS_YOU_BADGE_CLASS, NEEDS_YOU_TEXT_CLASS } from '../presentation.ts'
 import { barWidth, formatDuration, limitTone } from '../usage-format.ts'
+import { projectName, terminalLabel } from '../../../extensions/terminal/frontend/grouping.ts'
 import { Button } from './ui/button.tsx'
 import { AccountUsageStrip, BAR, TEXT, useNow } from './usage-meters.tsx'
 
@@ -42,14 +43,14 @@ export type DashboardProps = {
   onStartProject(cwd: string): Promise<void>
   onResume(chatId: string): Promise<void>
   /** Active terminal sessions, for the Terminals card. */
-  terminals?: Array<{ id: string; cwd: string; login: string; connected: boolean }>
+  terminals?: Array<{ id: string; cwd: string; createdAt?: number }>
   /** Opens a terminal section by session id. */
   onOpenTerminal?(sid: string): void
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section aria-labelledby={id} className="grid min-w-0 gap-2">
+    <section aria-labelledby={id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <h2 id={id} className="px-1 text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">
         {title}
       </h2>
@@ -439,30 +440,18 @@ export function Dashboard({ loadActivity, chats, usage, away, online, onOpenChat
 
         {terminals.length > 0 && (
           <Section id="dash-terminals" title="Terminals">
-            <div className="flex flex-wrap gap-2">
+            <div className="grid min-w-0 gap-1">
               {terminals.map(term => (
                 <Button
                   key={term.id}
                   variant="outline"
-                  size="sm"
-                  className="min-w-0 max-w-full shrink"
+                  className="h-auto w-full min-w-0 justify-start gap-3 rounded-2xl px-3 py-2 text-left"
                   disabled={!online}
-                  title={term.cwd}
+                  title={`${term.id} · ${term.cwd}`}
                   onClick={() => void onOpenTerminal?.(term.id)}
                 >
-                  <span className="mr-2">{term.id}</span>
-                  <span className="text-muted-foreground truncate">{term.login} · {term.cwd}</span>
-                  {term.connected ? (
-                    <span className="ml-auto flex items-center gap-1">
-                      <span className="size-1.5 shrink-0 rounded-full bg-green-500" aria-hidden="true" />
-                      <span className="text-xs">connected</span>
-                    </span>
-                  ) : (
-                    <span className="ml-auto flex items-center gap-1">
-                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
-                      <span className="text-xs">disconnected</span>
-                    </span>
-                  )}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{terminalLabel(term)}</span>
+                  <span className="min-w-0 max-w-[45%] truncate text-xs text-muted-foreground">{projectName(term.cwd)}</span>
                 </Button>
               ))}
             </div>

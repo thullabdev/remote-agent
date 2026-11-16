@@ -898,8 +898,8 @@ export function App() {
 }
 
 /** The terminal list entry for a session the server reported or just created. */
-function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt'>>): TerminalSession {
-  return { id: view.sid, cwd: view.cwd, login: '', connected: false, chatId: view.chatId ?? null, createdAt: view.createdAt }
+function terminalOf(view: Pick<SessionView, 'sid' | 'cwd'> & Partial<Pick<SessionView, 'chatId' | 'createdAt' | 'attached'>>): TerminalSession {
+  return { id: view.sid, cwd: view.cwd, login: '', connected: view.attached ?? false, chatId: view.chatId ?? null, createdAt: view.createdAt }
 }
 
 function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {

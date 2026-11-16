@@ -73,6 +73,7 @@ export function onActivate(api: ExtensionApi) {
     newSid: () => `term-${crypto.randomUUID()}`,
     nameFor: sessionNameFor,
     shell: process.env.SHELL || '/bin/sh',
+    isAttached: sid => (rt.attached.get(sid) ?? 0) > 0,
   })
   api.backend.registerHttpRoute('GET', '/sessions', () => routes.list())
   api.backend.registerHttpRoute('POST', '/sessions', request => routes.create(request))

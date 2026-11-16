@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { groupByFolder, openSessionInFolder, projectName, sameFolder } from './grouping.ts'
+import { groupByFolder, openSessionInFolder, projectName, sameFolder, terminalLabel } from './grouping.ts'
 
 describe('groupByFolder', () => {
   it('groups by launch folder, newest group first, newest session first inside it', () => {
@@ -62,5 +62,17 @@ describe('openSessionInFolder', () => {
 
   it('returns undefined when no session is in the folder', () => {
     expect(openSessionInFolder([{ sid: 'x', cwd: '/elsewhere' }], '/home/me/app')).toBeUndefined()
+  })
+})
+
+describe('terminalLabel', () => {
+  it('names a shell by its start time, not by its id', () => {
+    const label = terminalLabel({ createdAt: new Date(2026, 10, 15, 14, 32).getTime() })
+    expect(label).toMatch(/^Shell · \d{2}:32$|^Shell · \d{1,2}:32/)
+    expect(label).not.toContain('term-')
+  })
+
+  it('falls back to a plain name when the start time is unknown', () => {
+    expect(terminalLabel({})).toBe('Shell')
   })
 })

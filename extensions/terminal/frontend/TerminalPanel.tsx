@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
+import { terminalLabel } from './grouping.ts'
 import { closeSession } from './sessions-client.ts'
 
 export type TerminalSession = {
@@ -164,10 +165,12 @@ export function TerminalPanel({ terminals, activeTerminalId, onBack, onNew, onSe
                   selected ? 'border-primary bg-primary text-primary-foreground' : 'border-transparent bg-muted text-muted-foreground hover:bg-accent',
                 )}
               >
-                <span className="max-w-[140px] truncate">{tab.id}</span>
+                <span className="max-w-[140px] truncate" title={tab.id}>
+                  {terminalLabel(tab)}
+                </span>
                 <button
                   type="button"
-                  aria-label={`Close ${tab.id}`}
+                  aria-label={`Close ${terminalLabel(tab)}`}
                   className="rounded-md p-0.5 opacity-60 hover:opacity-100"
                   onClick={event => {
                     // The close control sits inside the tab: closing must not also select it.

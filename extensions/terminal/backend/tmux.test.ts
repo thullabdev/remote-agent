@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from 'bun:test'
+import { describe, it, expect, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,11 +17,6 @@ async function sleepUntil(check: () => Promise<boolean>, timeoutMs = 5000): Prom
 }
 
 describe('tmux runtime', () => {
-  beforeAll(async () => {
-    // Start from a clean dedicated server so the environment checks below see only what this process gives it.
-    await runTmux(['kill-server'])
-  })
-
   afterEach(async () => {
     for (const name of names.splice(0)) {
       await killSession(name)

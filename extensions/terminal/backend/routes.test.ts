@@ -22,6 +22,8 @@ describe('session routes', () => {
   let repo: SessionRepository
   let created: Array<{ name: string; cwd: string }>
   let killed: string[]
+  /** Sessions with a browser open on them. */
+  let attachedSids: Set<string>
   /** tmux session names whose shell has exited: `alive` reports them gone. */
   let dead: Set<string>
   let tmux: TmuxOps
@@ -41,6 +43,7 @@ describe('session routes', () => {
     created = []
     killed = []
     dead = new Set()
+    attachedSids = new Set()
     tmuxAvailable = true
     tmuxFailure = null
     next = 0
@@ -65,6 +68,7 @@ describe('session routes', () => {
       nameFor: sid => `ra-term-${sid}`,
       shell: '/bin/sh',
       home: dir,
+      isAttached: sid => attachedSids.has(sid),
     })
   })
 
@@ -129,6 +133,18 @@ describe('session routes', () => {
     cleanup()
   })
 
+  it('reports which sessions have a browser attached', async () => {
+    repo.create({ sid: 'shown', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-shown' })
+    repo.create({ sid: 'hidden', owner: OWNER, launchCwd: dir, chatId: null, tmuxName: 'ra-term-hidden' })
+    attachedSids.add('shown')
+
+    const body = (await (await routes.list()).json()) as { sessions: Array<{ sid: string; attached: boolean }> }
+
+    expect(body.sessions.find(session => session.sid === 'shown')?.attached).toBe(true)
+    expect(body.sessions.find(session => session.sid === 'hidden')?.attached).toBe(false)
+    cleanup()
+  })
+
   it('does not count a session whose shell has exited against the limit', async () => {
     for (let i = 0; i < MAX_OPEN_SESSIONS; i++) {
       repo.create({ sid: `open-${i}`, owner: OWNER, launchCwd: dir, chatId: null, tmuxName: `ra-term-open-${i}` })
@@ -180,7 +196,7 @@ describe('session routes', () => {
     const body = (await (await routes.list()).json()) as { sessions: Array<Record<string, unknown>> }
 
     expect(body.sessions.map(s => s.sid)).toEqual(['term-2', 'term-1'])
-    expect(Object.keys(body.sessions[0] ?? {}).sort()).toEqual(['chatId', 'createdAt', 'cwd', 'lastAttachedAt', 'project', 'sid'])
+    expect(Object.keys(body.sessions[0] ?? {}).sort()).toEqual(['attached', 'chatId', 'createdAt', 'cwd', 'lastAttachedAt', 'project', 'sid'])
     cleanup()
   })
 
