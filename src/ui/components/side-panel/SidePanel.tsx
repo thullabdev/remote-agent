@@ -1,12 +1,10 @@
 import { Plus, Settings } from 'lucide-react'
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import type { Chat } from '../../../channel/web/protocol.ts'
 import { filterChats, filterCounts, matchesOrigin, searchTerms, type ListFilter, type OriginFilter } from '../../chat-filters.ts'
 import { rowOpenTarget } from '../../presentation.ts'
-import { useResizableWidth } from '../../lib/use-resizable-width.ts'
 import type { ConnectionStatus } from '../../use-web-channel.ts'
 import { BrandMark } from '../brand-mark.tsx'
-import { ResizeHandle } from '../resize-handle.tsx'
 import { useNow } from '../usage-meters.tsx'
 import { Button } from '../ui/button.tsx'
 import { ChatFilterBar } from './ChatFilterBar.tsx'
@@ -17,18 +15,11 @@ import { NewSessionButton } from './NewSessionButton.tsx'
 import { SearchBar } from './SearchBar.tsx'
 import { SelectionBar } from './SelectionBar.tsx'
 import { SessionRow } from './SessionRow.tsx'
+import { SidePanelFrame } from './SidePanelFrame.tsx'
 import { useChatSelection } from './use-chat-selection.ts'
 import { useLongPress } from './use-long-press.ts'
 
-/** The side panel's width rules. The width is remembered on this device. */
-export const SIDE_PANEL_WIDTH = {
-  storageKey: 'remote-agent.chat-list-width.v1',
-  defaultWidth: 352, // 22rem, the previous fixed width
-  min: 260,
-  max: 560,
-  keyboardStep: 16,
-  edge: 'right' as const,
-}
+export { SIDE_PANEL_WIDTH } from './SidePanelFrame.tsx'
 
 export type SidePanelProps = {
   /** The tab the list opens on. All, unless a test or a link says otherwise. */
@@ -43,8 +34,6 @@ export type SidePanelProps = {
   /** `focus` asks the app to open at a Prompt: a tap on a session that needs you goes straight to what it waits for. */
   onOpen(chatId: string, focus?: { promptId: string }): void
   onNew(): void
-  /** Sections extensions add above the chats, rendered by the host without knowing what they show. */
-  sidebarSections?: ReactNode
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
   onSettings(): void
@@ -54,8 +43,8 @@ export type SidePanelProps = {
 }
 
 /**
- * The left-hand side panel: the list of sessions, with search, filters, selection, and a resize handle on its right edge.
- * It slides over the main area on the narrow layout.
+ * The chat tab of the side column: the list of sessions, with search, filters, selection, and a resize handle on its right edge.
+ * The column around it (`SideColumn`) handles sliding over the main area and the tab strip.
  */
 export function SidePanel({
   initialFilter = 'all',
@@ -66,7 +55,6 @@ export function SidePanel({
   status,
   onOpen,
   onNew,
-  sidebarSections,
   onRetry,
   onSettings,
   onArchiveSelected,
@@ -76,7 +64,6 @@ export function SidePanel({
   const [query, setQuery] = useState(initialQuery)
   const [filter, setFilter] = useState<ListFilter>(initialFilter)
   const [origin, setOrigin] = useState<OriginFilter>(initialOrigin)
-  const { width, handle, ariaValues } = useResizableWidth(SIDE_PANEL_WIDTH)
   const selection = useChatSelection({ chats, onArchiveSelected, onPinSelected, onActionError })
   const press = useLongPress(selection.begin)
   const terms = useMemo(() => searchTerms(query), [query])
@@ -108,13 +95,7 @@ export function SidePanel({
   }
 
   return (
-    <aside
-      className={`absolute inset-0 z-10 flex min-w-0 flex-col bg-background transition-[transform,visibility] duration-300 md:relative md:z-auto md:w-[var(--chat-list-width)] md:shrink-0 md:translate-x-0 ${
-        activeId === null ? 'translate-x-0' : '-translate-x-full max-md:invisible'
-      }`}
-      style={{ '--chat-list-width': `${width}px` } as CSSProperties}
-      aria-label="Sessions"
-    >
+    <SidePanelFrame label="Sessions">
       <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
         <BrandMark className="hidden size-11 shrink-0 text-foreground md:block" />
         {selection.selectionMode ? (
@@ -145,7 +126,6 @@ export function SidePanel({
           showArchiveHint={filter === 'ended' && filteredChats.length > 0 && !selection.selectionMode}
           resultCount={terms.length > 0 && filteredChats.length > 0 ? filteredChats.length : null}
         />
-        {sidebarSections}
         <div className="space-y-1">
           {filteredChats.map(chat => (
             <SessionRow
@@ -164,7 +144,6 @@ export function SidePanel({
         </div>
       </div>
       {!selection.selectionMode && <NewSessionButton onNew={onNew} />}
-      <ResizeHandle edge={SIDE_PANEL_WIDTH.edge} label="Resize chat list" handle={handle} ariaValues={ariaValues} />
-    </aside>
+    </SidePanelFrame>
   )
 }

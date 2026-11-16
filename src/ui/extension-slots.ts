@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode } from 'react'
+import { createElement, Fragment, type ComponentType, type ReactNode } from 'react'
 import type { Chat } from '../channel/web/protocol.ts'
 
 /**
@@ -23,19 +23,25 @@ export type PanelContext = {
   density: 'compact' | 'comfortable'
 }
 
-export type SidebarContext = { chats: Chat[]; activePanel: ActivePanel | null; openPanel: OpenPanel; notify: Notify }
+/** What a side tab's render gets. The side column, not the extension, decides when it is shown. */
+export type SideTabContext = { chats: Chat[]; activePanel: ActivePanel | null; openPanel: OpenPanel; notify: Notify }
+/** A tab's icon: any component that takes a class name, such as a lucide icon. */
+export type SideTabIcon = ComponentType<{ className?: string }>
+/** A tab in the side column's strip. Its render replaces the whole side panel while the tab is selected. */
+export type SideTab = { title: string; icon: SideTabIcon; render: (context: SideTabContext) => ReactNode }
+
 export type DashboardContext = { online: boolean; openPanel: OpenPanel; notify: Notify }
 export type ChatActionContext = { chat: Chat; openPanel: OpenPanel; notify: Notify }
 
 type Slot<C> = Map<string, (context: C) => ReactNode>
 
-const sidebar: Slot<SidebarContext> = new Map()
+const sideTabsById = new Map<string, SideTab>()
 const dashboard: Slot<DashboardContext> = new Map()
 const chatActions: Slot<ChatActionContext> = new Map()
 
-/** A section shown above the chat list in the sidebar. */
-export function registerSidebarSection(id: string, render: (context: SidebarContext) => ReactNode): void {
-  sidebar.set(id, render)
+/** A tab in the side column's strip. The same id replaces the tab registered before it. */
+export function registerSideTab(id: string, tab: SideTab): void {
+  sideTabsById.set(id, tab)
 }
 
 /** A card on the General dashboard. */
@@ -52,8 +58,15 @@ function rendered<C>(slot: Slot<C>, context: C): ReactNode[] {
   return [...slot].map(([id, render]) => createElement(Fragment, { key: id }, render(context)))
 }
 
-export function sidebarSections(context: SidebarContext): ReactNode[] {
-  return rendered(sidebar, context)
+/** The registered side tabs, in the order they were registered. Chats is not one of them: the host owns it. */
+export function sideTabs(): Array<SideTab & { id: string }> {
+  return [...sideTabsById].map(([id, tab]) => ({ id, ...tab }))
+}
+
+/** What a registered side tab renders now, or `null` when no tab has that id. */
+export function sideTabRender(id: string, context: SideTabContext): ReactNode {
+  const tab = sideTabsById.get(id)
+  return tab === undefined ? null : tab.render(context)
 }
 
 export function dashboardCards(context: DashboardContext): ReactNode[] {
@@ -66,7 +79,7 @@ export function chatActionsFor(context: ChatActionContext): ReactNode[] {
 
 /** For tests only. */
 export function clearSlotsForTesting(): void {
-  sidebar.clear()
+  sideTabsById.clear()
   dashboard.clear()
   chatActions.clear()
 }

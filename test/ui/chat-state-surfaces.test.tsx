@@ -5,6 +5,7 @@ import type { Chat } from '../../src/channel/web/protocol.ts'
 import { ChatHeader } from '../../src/ui/components/chat-header.tsx'
 import { ChatInfo } from '../../src/ui/components/chat-info.tsx'
 import { SidePanel } from '../../src/ui/components/side-panel/SidePanel.tsx'
+import { SideColumn } from '../../src/ui/components/side-panel/SideColumn.tsx'
 import { ChatRowContent } from '../../src/ui/components/chat-row.tsx'
 import { MessageFeed } from '../../src/ui/components/message-feed.tsx'
 
@@ -296,9 +297,12 @@ test('the footer is silent while connected, and plain-spoken when the connection
   expect(listWith([base], { status: 'error' })).toContain('role="status"')
 })
 
-test('the list is hidden from keyboard and screen readers while a chat covers it on a phone', () => {
-  expect(listWith([base], { activeId: 'c1' })).toContain('max-md:invisible')
-  expect(listWith([base], { activeId: null })).not.toContain('max-md:invisible')
+test('the side column is hidden from keyboard and screen readers while a chat covers it on a phone', () => {
+  // The slide and the hiding live on the column that holds the tab strip and the panel, not on the panel itself.
+  const column = (activeId: string | null) =>
+    renderToStaticMarkup(createElement(SideColumn, { shown: activeId === null, tabs: [], selected: 'chats', onSelect: () => {}, children: listWith([base], { activeId }) }))
+  expect(column('c1')).toContain('max-md:invisible')
+  expect(column(null)).not.toContain('max-md:invisible')
 })
 
 test('on a phone the new-session button sits at the bottom right, and the header keeps one for larger screens', () => {

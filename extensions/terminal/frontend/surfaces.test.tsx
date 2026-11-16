@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat } from '../../../src/channel/web/protocol.ts'
 import type { ActivePanel } from '../../../src/ui/extension-slots.ts'
-import { TerminalChatAction, TerminalsDashboardCard, TerminalsSidebarSection } from './surfaces.tsx'
+import { TerminalChatAction, TerminalsDashboardCard, TerminalsSideTab } from './surfaces.tsx'
 import { resetSessionsForTesting, type TerminalSession } from './store.ts'
 
 const noop = () => {}
@@ -15,16 +15,19 @@ function session(overrides: Partial<TerminalSession> = {}): TerminalSession {
 }
 
 function sidebar(activePanel: ActivePanel | null = null): string {
-  return renderToStaticMarkup(createElement(TerminalsSidebarSection, { chats: [chat], activePanel, openPanel: noop, notify: noop }))
+  return renderToStaticMarkup(createElement(TerminalsSideTab, { chats: [chat], activePanel, openPanel: noop, notify: noop }))
 }
 
-describe('terminal sidebar section', () => {
+describe('terminal side tab', () => {
   beforeEach(() => {
     resetSessionsForTesting()
   })
 
-  it('renders nothing when no shell is open', () => {
-    expect(sidebar()).toBe('')
+  it('shows an empty state when no shell is open', () => {
+    const html = sidebar()
+
+    expect(html).toContain('No terminals open')
+    expect(html).not.toContain('Shell · ')
   })
 
   it('names each shell by its start time and shows the chat it belongs to', () => {

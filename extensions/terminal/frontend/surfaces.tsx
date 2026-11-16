@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Plus, Terminal } from 'lucide-react'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
-import type { ActivePanel, ChatActionContext, DashboardContext, OpenPanel, SidebarContext } from '../../../src/ui/extension-slots.ts'
+import type { ActivePanel, ChatActionContext, DashboardContext, OpenPanel, SideTabContext } from '../../../src/ui/extension-slots.ts'
 import { startTerminal, openTerminalForChat, TERMINAL_PANEL } from './actions.ts'
 import { groupByFolder, projectName, terminalLabel } from './grouping.ts'
 import { refreshSessions, startSessionEvents, useTerminalSessions, type TerminalSession } from './store.ts'
@@ -19,37 +19,42 @@ function isActive(activePanel: ActivePanel | null, sid: string): boolean {
   return activePanel?.id === TERMINAL_PANEL && activePanel.params.sid === sid
 }
 
-/** Sidebar section: open shells grouped by folder, with a "+" per folder and the chat each one belongs to. */
-export function TerminalsSidebarSection({ chats, activePanel, openPanel, notify }: SidebarContext) {
+/** The terminal side tab: open shells grouped by folder, with a "+" per folder and the chat each one belongs to. */
+export function TerminalsSideTab({ chats, activePanel, openPanel, notify }: SideTabContext) {
   const terminals = useTerminalSessions()
   useEffect(() => {
     // The events socket keeps the list current; the one-off read fills it before the first frame arrives.
     startSessionEvents()
     void refreshSessions().catch(() => {
-      // The terminal extension may be unreachable; the rest of the sidebar does not depend on it.
+      // The terminal extension may be unreachable; the empty state still shows.
     })
   }, [])
-  if (terminals.length === 0) {
-    return null
-  }
+  const groups = groupByFolder(terminals)
   return (
-    <section aria-labelledby="list-terminals" className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-      <Heading id="list-terminals" title="Terminals" />
-      {groupByFolder(terminals).map(group => (
-        <div key={group.cwd} className="space-y-0.5">
-          <div className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground">
-            <span className="min-w-0 flex-1 truncate font-medium" title={group.cwd}>
-              {group.project}
-            </span>
-            <Button variant="ghost" size="icon-sm" aria-label={`New terminal in ${group.project}`} title={`New terminal in ${group.cwd}`} onClick={() => void startTerminal({ cwd: group.cwd }, openPanel, notify)}>
-              <Plus aria-hidden="true" />
-            </Button>
+    <section aria-labelledby="side-terminals" className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-[4.25rem] shrink-0 items-center px-4">
+        <Heading id="side-terminals" title="Terminals" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
+        {groups.length === 0 && (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">No terminals open. Use the terminal button in a session&apos;s header to open one.</p>
+        )}
+        {groups.map(group => (
+          <div key={group.cwd} className="mb-2 space-y-0.5">
+            <div className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate font-medium" title={group.cwd}>
+                {group.project}
+              </span>
+              <Button variant="ghost" size="icon-sm" aria-label={`New terminal in ${group.project}`} title={`New terminal in ${group.cwd}`} onClick={() => void startTerminal({ cwd: group.cwd }, openPanel, notify)}>
+                <Plus aria-hidden="true" />
+              </Button>
+            </div>
+            {group.sessions.map(term => (
+              <SidebarRow key={term.id} term={term} chatTitle={chatTitleOf(chats, term)} active={isActive(activePanel, term.id)} openPanel={openPanel} />
+            ))}
           </div>
-          {group.sessions.map(term => (
-            <SidebarRow key={term.id} term={term} chatTitle={chatTitleOf(chats, term)} active={isActive(activePanel, term.id)} openPanel={openPanel} />
-          ))}
-        </div>
-      ))}
+        ))}
+      </div>
     </section>
   )
 }
@@ -74,7 +79,7 @@ function SidebarRow({ term, chatTitle, active, openPanel }: { term: TerminalSess
   )
 }
 
-function chatTitleOf(chats: SidebarContext['chats'], term: TerminalSession): string | undefined {
+function chatTitleOf(chats: SideTabContext['chats'], term: TerminalSession): string | undefined {
   return term.chatId ? chats.find(chat => chat.id === term.chatId)?.title : undefined
 }
 

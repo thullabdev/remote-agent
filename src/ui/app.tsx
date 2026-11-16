@@ -1,5 +1,5 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
-import { AlertCircle, LoaderCircle, LockKeyhole, RefreshCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
@@ -9,6 +9,10 @@ import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { SidePanel } from './components/side-panel/SidePanel.tsx'
+import { SidePanelFrame } from './components/side-panel/SidePanelFrame.tsx'
+import { SideColumn } from './components/side-panel/SideColumn.tsx'
+import type { ActivityTab } from './components/side-panel/ActivityBar.tsx'
+import { CHATS_TAB, readSideTab, saveSideTab } from './components/side-panel/side-tab.ts'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
@@ -17,7 +21,7 @@ import { ChatView } from './shell/ChatView.tsx'
 import { EmptyChatState } from './shell/EmptyChatState.tsx'
 import { FullPageState } from './shell/FullPageState.tsx'
 import { MainArea } from './shell/MainArea.tsx'
-import { chatActionsFor, dashboardCards, sidebarSections, type ActivePanel } from './extension-slots.ts'
+import { chatActionsFor, dashboardCards, sideTabRender, sideTabs, type ActivePanel } from './extension-slots.ts'
 import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
@@ -64,6 +68,17 @@ export function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(() => deepLinkPanel(window.location.search))
   const activePanelRef = useRef(activePanel)
   activePanelRef.current = activePanel
+  // The tab the side column shows: Chats, or an extension's side tab. Remembered on this device.
+  const [sideTab, setSideTab] = useState(() => readSideTab(sideTabs().map(tab => tab.id)))
+  const selectSideTab = useCallback((id: string) => {
+    setSideTab(id)
+    try {
+      saveSideTab(id)
+    } catch {
+      // The tab still opens; it is just not remembered on the next visit.
+    }
+  }, [])
+  const sideTabList: ActivityTab[] = [{ id: CHATS_TAB, title: 'Chats', icon: MessageSquareText }, ...sideTabs()]
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -631,28 +646,35 @@ export function App() {
 
   return (
     <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font} code-${preferences.codeWrap}`}>
-      <SidePanel
-        chats={chats}
-        activeId={activeChatId}
-        status={status}
-        onOpen={openChat}
-        onRetry={retry}
-        onNew={() => setNewSessionOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
-        sidebarSections={sidebarSections({ chats, activePanel, openPanel, notify })}
-        onArchiveSelected={async chatIds => {
-          const result = await api.archiveChats(chatIds)
-          notify(result.toast)
-        }}
-        onPinSelected={async (chatIds, pinned) => {
-          let toast = ''
-          for (const chatId of chatIds) {
-            toast = (await api.pinChat(chatId, pinned)).toast
-          }
-          notify(toast)
-        }}
-        onActionError={handleError}
-      />
+      <SideColumn shown={activeChatId === null} tabs={sideTabList} selected={sideTab} onSelect={selectSideTab}>
+        {sideTab === CHATS_TAB ? (
+          <SidePanel
+            chats={chats}
+            activeId={activeChatId}
+            status={status}
+            onOpen={openChat}
+            onRetry={retry}
+            onNew={() => setNewSessionOpen(true)}
+            onSettings={() => setSettingsOpen(true)}
+            onArchiveSelected={async chatIds => {
+              const result = await api.archiveChats(chatIds)
+              notify(result.toast)
+            }}
+            onPinSelected={async (chatIds, pinned) => {
+              let toast = ''
+              for (const chatId of chatIds) {
+                toast = (await api.pinChat(chatId, pinned)).toast
+              }
+              notify(toast)
+            }}
+            onActionError={handleError}
+          />
+        ) : (
+          <SidePanelFrame label={sideTabList.find(tab => tab.id === sideTab)?.title ?? 'Side panel'}>
+            {sideTabRender(sideTab, { chats, activePanel, openPanel, notify })}
+          </SidePanelFrame>
+        )}
+      </SideColumn>
 
       <MainArea shown={activeChatId !== null || activePanel !== null} onSwipeBack={() => openChat(null)}>
         {activePanel !== null ? (
