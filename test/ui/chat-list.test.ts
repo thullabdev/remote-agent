@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Chat } from '../../src/channel/web/protocol.ts'
-import { isPinnableChat, isSelectableChat, selectionGroupOf } from '../../src/ui/components/chat-list.tsx'
+import { isPinnableChat, isSelectableChat, selectionGroupOf } from '../../src/ui/components/side-panel/selection.ts'
 
 const general: Chat = {
   id: 'general',

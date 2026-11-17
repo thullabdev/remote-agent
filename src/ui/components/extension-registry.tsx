@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
+import type { ActivePanel, PanelContext } from '../extension-slots.ts'
 
 /** A panel contributed by an extension. */
 export type ExtensionPanel = {
   id: string
-  component: React.ComponentType
+  component: React.ComponentType<PanelContext>
   title: string
 }
 
@@ -12,7 +12,7 @@ export type ExtensionPanel = {
 const panels = new Map<string, ExtensionPanel>()
 
 /** Registers a panel contributed by an extension. Called by an extension's frontend entry. */
-export function registerPanel(panelId: string, component: React.ComponentType<any>, title: string): void {
+export function registerPanel(panelId: string, component: React.ComponentType<PanelContext>, title: string): void {
   panels.set(panelId, { id: panelId, component, title })
 }
 
@@ -26,18 +26,17 @@ export function clearPanelsForTesting(): void {
   panels.clear()
 }
 
-/** Renders contributed extension panels as tabs in the main area. The host supplies the active panel
- * and an onClose callback; this component only renders the active panel's component inside a layout
- * container. The terminal panel provides its own header, tab bar, and status bar.
- */
-export function ExtensionRegistry({ activePanelId, onClose }: {
-  activePanelId: string | null
-  onClose(panelId: string): void
-}) {
-  const panel = activePanelId !== null ? panels.get(activePanelId) ?? null : null
+/** Renders the active extension panel in the main area. The panel gets its params and navigation from the host and
+ * draws its own header, tabs and status. Nothing is rendered when no panel is active or the panel is not registered. */
+export function ExtensionRegistry({ panel, context }: { panel: ActivePanel | null; context: PanelContext }) {
+  const registered = panel !== null ? panels.get(panel.id) ?? null : null
+  if (registered === null) {
+    return null
+  }
+  const Component = registered.component
   return (
-    <div className="min-w-0 flex-1 flex-col">
-      {panel !== null ? <panel.component /> : null}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <Component {...context} />
     </div>
   )
 }

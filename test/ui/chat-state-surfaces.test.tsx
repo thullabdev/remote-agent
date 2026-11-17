@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { Chat } from '../../src/channel/web/protocol.ts'
 import { ChatHeader } from '../../src/ui/components/chat-header.tsx'
 import { ChatInfo } from '../../src/ui/components/chat-info.tsx'
-import { ChatList } from '../../src/ui/components/chat-list.tsx'
+import { SidePanel } from '../../src/ui/components/side-panel/SidePanel.tsx'
+import { SideColumn } from '../../src/ui/components/side-panel/SideColumn.tsx'
 import { ChatRowContent } from '../../src/ui/components/chat-row.tsx'
 import { MessageFeed } from '../../src/ui/components/message-feed.tsx'
 
@@ -21,7 +22,7 @@ const asking: Chat = { ...blocked, pendingPrompt: { promptId: 'p2', kind: 'quest
 
 function list(chat: Chat): string {
   return renderToStaticMarkup(
-    createElement(ChatList, {
+    createElement(SidePanel, {
       chats: [chat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
@@ -99,7 +100,7 @@ test('the feed shows the working indicator only while the session is working', (
 
 function listOf(chats: Chat[]): string {
   return renderToStaticMarkup(
-    createElement(ChatList, {
+    createElement(SidePanel, {
       chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
@@ -213,7 +214,7 @@ test('the header offers a source filter that narrows the list and shows when it 
   const computerChat: Chat = { ...base, id: 'l1', title: 'Computer one', spawned: false }
   const render = (origin?: 'all' | 'computer' | 'spawned'): string =>
     renderToStaticMarkup(
-      createElement(ChatList, {
+      createElement(SidePanel, {
         chats: [spawnedChat, computerChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
       }),
@@ -235,7 +236,7 @@ test('the Ended tab says how to archive, since selection is a press and hold', (
   const ended = { ...base, status: 'ended' as const }
   const render = (filter: 'all' | 'ended', chats: Chat[]): string =>
     renderToStaticMarkup(
-      createElement(ChatList, {
+      createElement(SidePanel, {
         chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialFilter: filter,
       }),
@@ -273,7 +274,7 @@ test('the avatar takes its color from the project and carries a state badge', ()
 
 function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' | 'resyncing' | 'error' | 'loading'; activeId?: string | null } = {}): string {
   return renderToStaticMarkup(
-    createElement(ChatList, {
+    createElement(SidePanel, {
       chats, activeId: props.activeId ?? null, status: props.status ?? 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
@@ -296,9 +297,12 @@ test('the footer is silent while connected, and plain-spoken when the connection
   expect(listWith([base], { status: 'error' })).toContain('role="status"')
 })
 
-test('the list is hidden from keyboard and screen readers while a chat covers it on a phone', () => {
-  expect(listWith([base], { activeId: 'c1' })).toContain('max-md:invisible')
-  expect(listWith([base], { activeId: null })).not.toContain('max-md:invisible')
+test('the side column is hidden from keyboard and screen readers while a chat covers it on a phone', () => {
+  // The slide and the hiding live on the column that holds the tab strip and the panel, not on the panel itself.
+  const column = (activeId: string | null) =>
+    renderToStaticMarkup(createElement(SideColumn, { shown: activeId === null, tabs: [], selected: 'chats', onSelect: () => {}, children: listWith([base], { activeId }) }))
+  expect(column('c1')).toContain('max-md:invisible')
+  expect(column(null)).not.toContain('max-md:invisible')
 })
 
 test('on a phone the new-session button sits at the bottom right, and the header keeps one for larger screens', () => {
@@ -317,7 +321,7 @@ test('the list uses no text smaller than 12px', () => {
 test('the connection notice offers a retry only when the connection is not fine and the app can retry', () => {
   const render = (status: 'connected' | 'reconnecting' | 'error', onRetry?: () => void): string =>
     renderToStaticMarkup(
-      createElement(ChatList, {
+      createElement(SidePanel, {
         chats: [base], activeId: null, status, onOpen: () => {}, onNew: () => {}, onSettings: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(onRetry === undefined ? {} : { onRetry }),
       }),
@@ -366,7 +370,7 @@ test('without a search the row has no marks and no project line', () => {
 test('the list counts its results while a search is on', () => {
   const render = (chats: Chat[], query: string): string =>
     renderToStaticMarkup(
-      createElement(ChatList, {
+      createElement(SidePanel, {
         chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialQuery: query,
       }),

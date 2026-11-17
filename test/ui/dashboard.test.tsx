@@ -203,15 +203,7 @@ test('the resume dialog offers the model the Session last used first and as the 
   expect(defaultResumeChoice(null)).toBeNull()
 })
 
-test('the Terminals card lists active terminals with go-to links', () => {
-  let opened: string | null = null
-  const html = render([], {
-    terminals: [{ id: 'sid-1', cwd: '/tmp/api', login: 'user', connected: true }],
-    onOpenTerminal: sid => { opened = sid },
-  })
-  expect(html).toContain('Terminals')
-  expect(html).toContain('sid-1')
-  expect(html).toContain('/tmp/api')
-  expect(html).toContain('user')
-  expect(opened).toBeNull()
+test('extension cards are rendered where the host has none of its own', () => {
+  const html = render([], { cards: <section>Extension card</section> })
+  expect(html).toContain('Extension card')
 })

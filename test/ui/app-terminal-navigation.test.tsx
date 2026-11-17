@@ -1,17 +1,21 @@
 import { describe, it, expect } from 'bun:test'
-import { deepLinkTerminal } from '../../src/ui/presentation.ts'
+import { deepLinkPanel } from '../../src/ui/presentation.ts'
 
-describe('deepLinkTerminal', () => {
-  it('parses ?terminal=<sid> from the URL', () => {
-    expect(deepLinkTerminal('?terminal=sid-1')).toBe('sid-1')
+describe('deepLinkPanel', () => {
+  it('reads the panel id and its parameters from the URL', () => {
+    expect(deepLinkPanel('?panel=terminal&sid=sid-1')).toEqual({ id: 'terminal', params: { sid: 'sid-1' } })
   })
 
-  it('returns null when no terminal param', () => {
-    expect(deepLinkTerminal('?chat=abc')).toBe(null)
-    expect(deepLinkTerminal('')).toBe(null)
+  it('returns null when no panel is named', () => {
+    expect(deepLinkPanel('?chat=abc')).toBe(null)
+    expect(deepLinkPanel('')).toBe(null)
   })
 
-  it('returns null for an empty terminal value', () => {
-    expect(deepLinkTerminal('?terminal=')).toBe(null)
+  it('returns null for an empty panel value', () => {
+    expect(deepLinkPanel('?panel=')).toBe(null)
+  })
+
+  it('leaves chat parameters out of the panel parameters', () => {
+    expect(deepLinkPanel('?panel=terminal&sid=s&chat=c&prompt=p')).toEqual({ id: 'terminal', params: { sid: 's' } })
   })
 })

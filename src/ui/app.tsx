@@ -1,5 +1,5 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
-import { AlertCircle, ArrowRight, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
@@ -8,19 +8,27 @@ import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
-import { ChatList } from './components/chat-list.tsx'
+import { SidePanel } from './components/side-panel/SidePanel.tsx'
+import { SidePanelFrame } from './components/side-panel/SidePanelFrame.tsx'
+import { SideColumn } from './components/side-panel/SideColumn.tsx'
+import type { ActivityTab } from './components/side-panel/ActivityBar.tsx'
+import { CHATS_TAB, readSideTab, saveSideTab } from './components/side-panel/side-tab.ts'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
-import { TerminalPanel, type TerminalSession } from '../../extensions/terminal/frontend/TerminalPanel.tsx'
-// Import extension frontend entries so they call registerPanel. One import per extension.
-import '../../extensions/terminal/frontend/index.ts'
+import { ExtensionRegistry, getPanels } from './components/extension-registry.tsx'
+import { ChatView } from './shell/ChatView.tsx'
+import { EmptyChatState } from './shell/EmptyChatState.tsx'
+import { FullPageState } from './shell/FullPageState.tsx'
+import { MainArea } from './shell/MainArea.tsx'
+import { chatActionsFor, dashboardCards, sideTabRender, sideTabs, type ActivePanel } from './extension-slots.ts'
+import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsDialog } from './components/settings-dialog.tsx'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
-import { connectionNoticeText, deepLink, deepLinkTerminal, pendingPromptMessage } from './presentation.ts'
+import { connectionNoticeText, deepLink, deepLinkPanel, pendingPromptMessage } from './presentation.ts'
 import { revealMessage, type RevealTarget } from './reveal.ts'
 import { makeThumbnail, MAX_UPLOAD_BYTES, toBase64, toRef } from './uploads.ts'
 import { usePushSubscription } from './use-push-subscription.ts'
@@ -41,6 +49,27 @@ function nextTick(): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, 50))
 }
 
+/** Removes a panel's URL parameters: its id, and whatever parameters it set. */
+function clearPanelParams(url: URL, panel: ActivePanel | null): void {
+  url.searchParams.delete('panel')
+  for (const key of Object.keys(panel?.params ?? {})) {
+    url.searchParams.delete(key)
+  }
+}
+
+/** The panel a link names, if an extension registered one. A link to a panel nobody registered opens nothing. */
+function registeredPanelOf(search: string): ActivePanel | null {
+  const panel = deepLinkPanel(search)
+  return panel !== null && getPanels().some(item => item.id === panel.id) ? panel : null
+}
+
+/** The side tab a link names, if one is registered (`?panel=terminal` opens the Terminals tab); otherwise the remembered one. */
+function sideTabOf(search: string): string {
+  const named = new URLSearchParams(search).get('panel')
+  const ids = sideTabs().map(tab => tab.id)
+  return named !== null && ids.includes(named) ? named : readSideTab(ids)
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
@@ -48,8 +77,23 @@ function errorText(error: unknown): string {
 export function App() {
   const api = useMemo(() => createApiClient(), [])
   const [activeChatId, setActiveChatId] = useState<string | null>(() => deepLink(window.location.search).chatId)
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => deepLinkTerminal(window.location.search))
-  const [terminals, setTerminals] = useState<TerminalSession[]>([])
+  // The extension panel shown in the main area instead of a chat. The host does not read its parameters.
+  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() => registeredPanelOf(window.location.search))
+  const activePanelRef = useRef(activePanel)
+  activePanelRef.current = activePanel
+  // The tab the side column shows: Chats, or an extension's side tab. Remembered on this device.
+  const [sideTab, setSideTab] = useState(() => sideTabOf(window.location.search))
+  // The chat the person last had open. On a phone the side column covers the chat, so the side tab still needs its folder.
+  const [recentChatId, setRecentChatId] = useState<string | null>(null)
+  const selectSideTab = useCallback((id: string) => {
+    setSideTab(id)
+    try {
+      saveSideTab(id)
+    } catch {
+      // The tab still opens; it is just not remembered on the next visit.
+    }
+  }, [])
+  const sideTabList: ActivityTab[] = [{ id: CHATS_TAB, title: 'Chats', icon: MessageSquareText }, ...sideTabs()]
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -74,7 +118,6 @@ export function App() {
   const [busyChatIds, setBusyChatIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<ToastState | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const toastId = useRef(0)
   const { realtime, status, error, reload, retry, loadMessages, mergeMessage, markRead } = useWebChannel(api, activeChatId)
   // The reveal walk below runs after awaits, so it reads the latest chats and messages rather than the ones of the render that started it.
@@ -99,6 +142,7 @@ export function App() {
   const chats = realtime?.chats ?? []
   chatsRef.current = chats
   const activeChat = chats.find(chat => chat.id === activeChatId) ?? null
+  const sideChat = chats.find(chat => chat.id === (activeChatId ?? recentChatId)) ?? null
   const messages = activeChatId === null ? [] : realtime?.messages[activeChatId] ?? []
   const pendingForChat = activeChatId === null ? [] : pendingMessages[activeChatId] ?? []
   // The model the Session reported on its last switch wins. The transcript is asked only for sessions that have not reported one yet.
@@ -129,6 +173,12 @@ export function App() {
   }, [preferences, notify])
 
   useEffect(() => {
+    if (activeChatId !== null) {
+      setRecentChatId(activeChatId)
+    }
+  }, [activeChatId])
+
+  useEffect(() => {
     if (activeChatId !== null && realtime !== null && !chats.some(chat => chat.id === activeChatId)) {
       setActiveChatId(null)
     }
@@ -137,7 +187,7 @@ export function App() {
   useEffect(() => {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
-      setActiveTerminalId(deepLinkTerminal(window.location.search))
+      setActivePanel(registeredPanelOf(window.location.search))
       setFocusPrompt(null)
       setInfoOpen(false)
     }
@@ -165,13 +215,13 @@ export function App() {
     // Opening a chat by hand, or from the redirect itself, ends any wait for a new chat.
     newChatWatch.current = null
     setActiveChatId(chatId)
-    // A chat and a terminal are alternative main-area views: opening either one leaves the other.
-    setActiveTerminalId(null)
+    // A chat and a panel are alternative main-area views: opening either one leaves the other.
+    setActivePanel(null)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('prompt')
-    url.searchParams.delete('terminal')
+    clearPanelParams(url, activePanelRef.current)
     if (chatId === null) {
       url.searchParams.delete('chat')
     } else {
@@ -180,40 +230,47 @@ export function App() {
     window.history.pushState(null, '', url)
   }, [])
 
-  /** Opens (or reattaches to) a terminal section by session id, replacing the chat in the main area. */
-  const openTerminal = useCallback((sid: string) => {
+  /**
+   * Shows a side tab. On a phone the side column covers the chat, so showing it means leaving the chat; the chat stays the
+   * side tab's context. On desktop the chat stays where it is, beside the tab.
+   */
+  const openSideTab = useCallback((id: string) => {
+    selectSideTab(id)
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      openChat(null)
+    }
+  }, [openChat, selectSideTab])
+
+  /** Shows an extension panel in the main area, replacing the chat. The panel's parameters go into the URL. */
+  const openPanel = useCallback((id: string, params: Record<string, string> = {}) => {
     newChatWatch.current = null
     setActiveChatId(null)
-    setActiveTerminalId(sid)
+    setActivePanel({ id, params })
     setInfoOpen(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('chat')
     url.searchParams.delete('prompt')
-    url.searchParams.set('terminal', sid)
+    clearPanelParams(url, activePanelRef.current)
+    url.searchParams.set('panel', id)
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value)
+    }
     window.history.pushState(null, '', url)
   }, [])
 
   /**
-   * Opens a fresh terminal with a new session id, starting in `cwd` (a chat's project folder). Without one the shell starts in the
-   * home directory.
+   * Leaves the panel for the chat list. Replaces the history entry when asked, so going back does not reopen what was closed.
    */
-  const openNewTerminal = useCallback((cwd?: string) => {
-    const sid = `term-${crypto.randomUUID()}`
-    setTerminals(current => [...current, { id: sid, cwd: cwd ?? '', login: '', connected: false }])
-    openTerminal(sid)
-  }, [openTerminal])
-
-  /** Closes a terminal session and removes it from the list. */
-  const closeTerminal = useCallback((sid: string) => {
-    setTerminals(current => current.filter(t => t.id !== sid))
-    if (activeTerminalId === sid) {
-      setActiveTerminalId(null)
-      // Replace, not push: going back must not reopen a session that was just closed.
-      const url = new URL(window.location.href)
-      url.searchParams.delete('terminal')
+  const closePanel = useCallback((options?: { replace?: boolean }) => {
+    setActivePanel(null)
+    const url = new URL(window.location.href)
+    clearPanelParams(url, activePanelRef.current)
+    if (options?.replace === true) {
       window.history.replaceState(null, '', url)
+    } else {
+      window.history.pushState(null, '', url)
     }
-  }, [activeTerminalId])
+  }, [])
 
   /**
    * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use
@@ -622,134 +679,70 @@ export function App() {
 
   return (
     <div className={`grain relative flex h-full w-full overflow-hidden density-${preferences.density} font-${preferences.font} code-${preferences.codeWrap}`}>
-      <ChatList
-        chats={chats}
-        activeId={activeChatId}
-        status={status}
-        onOpen={openChat}
-        onRetry={retry}
-        onNew={() => setNewSessionOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
-        onOpenTerminal={openTerminal}
-        terminals={terminals}
-        onArchiveSelected={async chatIds => {
-          const result = await api.archiveChats(chatIds)
-          notify(result.toast)
-        }}
-        onPinSelected={async (chatIds, pinned) => {
-          let toast = ''
-          for (const chatId of chatIds) {
-            toast = (await api.pinChat(chatId, pinned)).toast
-          }
-          notify(toast)
-        }}
-        onActionError={handleError}
-      />
+      <SideColumn shown={activeChatId === null} tabs={sideTabList} selected={sideTab} onSelect={selectSideTab}>
+        {sideTab === CHATS_TAB ? (
+          <SidePanel
+            chats={chats}
+            activeId={activeChatId}
+            status={status}
+            onOpen={openChat}
+            onRetry={retry}
+            onNew={() => setNewSessionOpen(true)}
+            onSettings={() => setSettingsOpen(true)}
+            onArchiveSelected={async chatIds => {
+              const result = await api.archiveChats(chatIds)
+              notify(result.toast)
+            }}
+            onPinSelected={async (chatIds, pinned) => {
+              let toast = ''
+              for (const chatId of chatIds) {
+                toast = (await api.pinChat(chatId, pinned)).toast
+              }
+              notify(toast)
+            }}
+            onActionError={handleError}
+          />
+        ) : (
+          <SidePanelFrame label={sideTabList.find(tab => tab.id === sideTab)?.title ?? 'Side panel'}>
+            {sideTabRender(sideTab, { activeChat: sideChat, openPanel, notify, density: preferences.density })}
+          </SidePanelFrame>
+        )}
+      </SideColumn>
 
-      <main
-        onTouchStart={event => {
-          const touch = event.touches[0]
-          touchStart.current = touch && touch.clientX < 40 ? { x: touch.clientX, y: touch.clientY } : null
-        }}
-        onTouchEnd={event => {
-          const start = touchStart.current
-          const touch = event.changedTouches[0]
-          if (start && touch && touch.clientX - start.x > 80 && Math.abs(touch.clientY - start.y) < 60) {
-            openChat(null)
-          }
-          touchStart.current = null
-        }}
-        className={`absolute inset-0 z-20 flex min-w-0 bg-background shadow-2xl transition-transform duration-300 md:static md:z-auto md:flex-1 md:translate-x-0 md:shadow-none ${
-          activeChatId === null && activeTerminalId === null ? 'translate-x-full md:translate-x-0' : 'translate-x-0'
-        }`}
-      >
-        {activeTerminalId !== null ? (
-          <TerminalPanel
-            terminals={terminals}
-            activeTerminalId={activeTerminalId}
-            onBack={() => openChat(null)}
-            onNew={openNewTerminal}
-            onClose={closeTerminal}
-            density={preferences.density}
+      <MainArea shown={activeChatId !== null || activePanel !== null} onSwipeBack={() => openChat(null)}>
+        {activePanel !== null ? (
+          <ExtensionRegistry
+            panel={activePanel}
+            context={{ params: activePanel.params, openPanel, closePanel, notify, density: preferences.density }}
           />
         ) : activeChat ? (
           <>
-            <section className="flex min-w-0 flex-1 flex-col">
-              <ChatHeader
-                key={`header:${activeChat.id}`}
-                chat={activeChat}
-                status={status}
-                onBack={() => openChat(null)}
-                onInfo={() => {
-                  setSubagentView(null)
-                  setInfoOpen(value => !value)
-                }}
-                infoOpen={infoOpen}
-                usage={realtime.usage.chats[activeChat.id]}
-                accounts={realtime.usage.accounts}
-                onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
-                view={preferences.generalView}
-                onView={setGeneralView}
-                summary={summaryText(dashboardCounts(chats))}
-                needsYou={dashboardCounts(chats).needsYou}
-                model={activeChat?.model ?? sessionModel}
-                onOpenTerminal={() => openNewTerminal(activeChat.launchCwd ?? activeChat.cwd ?? undefined)}
-              />
-              {connectionNoticeText(status) !== undefined && (
-                <div className="flex shrink-0 items-center justify-center gap-3 border-b border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground" role="status">
-                  <span className={`size-2 shrink-0 rounded-full ${status === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} aria-hidden="true" />
-                  {connectionNoticeText(status)}
-                  {(status === 'reconnecting' || status === 'error') && (
-                    <button type="button" onClick={retry} className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground hover:bg-background/60">
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="chat-glow flex min-h-0 flex-1 flex-col">
-                {showingDashboard ? (
-                  <Dashboard
-                    loadActivity={loadActivity}
-                    chats={chats}
-                    usage={realtime.usage}
-                    away={realtime.away}
-                    online={status === 'connected'}
-                    onOpenChat={openChat}
-                    onPromptAction={handlePromptAction}
-                    onToggleAway={toggleAway}
-                    onNewSession={() => setNewSessionOpen(true)}
-                    onStartProject={cwd => {
-                      armNewChatWatch()
-                      return runChatAction(() => api.startProject({ cwd }))
-                    }}
-                    onResume={chatId => {
-                      armNewChatWatch()
-                      return runChatAction(() => api.resumeChat(chatId))
-                    }}
-                    terminals={terminals}
-                    onOpenTerminal={openTerminal}
-                  />
-                ) : (
-                <MessageFeed
-                  key={`feed:${activeChat.id}`}
+            <ChatView
+              status={status}
+              onRetry={retry}
+              header={
+                <ChatHeader
+                  key={`header:${activeChat.id}`}
                   chat={activeChat}
-                  messages={messages}
-                  pendingMessages={pendingItems}
-                  hasMore={realtime.hasMore[activeChat.id] ?? false}
-                  loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
-                  onLoadEarlier={loadEarlier}
-                  onPromptAction={handlePromptAction}
-                  onPromptReply={handlePromptReply}
-                  onPickerAction={handlePickerAction}
-                  onTogglePin={togglePin}
-                  onFork={message => void forkFromMessage(message)}
-                  onOpenChat={openChatAt}
-                  onOpenSubagent={(agentId, title) => {
-                    setSubagentView({ chatId: activeChat.id, agentId, title })
-                    setInfoOpen(true)
+                  status={status}
+                  onBack={() => openChat(null)}
+                  onInfo={() => {
+                    setSubagentView(null)
+                    setInfoOpen(value => !value)
                   }}
+                  infoOpen={infoOpen}
+                  usage={realtime.usage.chats[activeChat.id]}
+                  accounts={realtime.usage.accounts}
+                  onRename={title => runInfoAction(() => api.renameChat(activeChat.id, title))}
+                  view={preferences.generalView}
+                  onView={setGeneralView}
+                  summary={summaryText(dashboardCounts(chats))}
+                  needsYou={dashboardCounts(chats).needsYou}
+                  model={activeChat?.model ?? sessionModel}
+                  chatActions={chatActionsFor({ chat: activeChat, openPanel, openSideTab, notify })}
                 />
-                )}
+              }
+              composer={
                 <ChatComposer
                   key={`composer:${activeChat.id}`}
                   drafts={api}
@@ -764,8 +757,51 @@ export function App() {
                   onResume={resumeActive}
                   firstTask={awaitingFirstTask}
                 />
-              </div>
-            </section>
+              }
+            >
+              {showingDashboard ? (
+                    <Dashboard
+                      loadActivity={loadActivity}
+                      chats={chats}
+                      usage={realtime.usage}
+                      away={realtime.away}
+                      online={status === 'connected'}
+                      onOpenChat={openChat}
+                      onPromptAction={handlePromptAction}
+                      onToggleAway={toggleAway}
+                      onNewSession={() => setNewSessionOpen(true)}
+                      onStartProject={cwd => {
+                        armNewChatWatch()
+                        return runChatAction(() => api.startProject({ cwd }))
+                      }}
+                      onResume={chatId => {
+                        armNewChatWatch()
+                        return runChatAction(() => api.resumeChat(chatId))
+                      }}
+                      cards={dashboardCards({ online: status === 'connected', openPanel, openSideTab, notify })}
+                    />
+              ) : (
+                  <MessageFeed
+                    key={`feed:${activeChat.id}`}
+                    chat={activeChat}
+                    messages={messages}
+                    pendingMessages={pendingItems}
+                    hasMore={realtime.hasMore[activeChat.id] ?? false}
+                    loadingEarlier={busyChatIds.has(`history:${activeChat.id}`)}
+                    onLoadEarlier={loadEarlier}
+                    onPromptAction={handlePromptAction}
+                    onPromptReply={handlePromptReply}
+                    onPickerAction={handlePickerAction}
+                    onTogglePin={togglePin}
+                    onFork={message => void forkFromMessage(message)}
+                    onOpenChat={openChatAt}
+                    onOpenSubagent={(agentId, title) => {
+                      setSubagentView({ chatId: activeChat.id, agentId, title })
+                      setInfoOpen(true)
+                    }}
+                  />
+              )}
+            </ChatView>
             {infoOpen && activeChat.id !== 'general' && (
               <ChatInfo
                 chat={activeChat}
@@ -808,20 +844,9 @@ export function App() {
             )}
           </>
         ) : (
-          <div className="chat-glow hidden min-w-0 flex-1 flex-col items-center justify-center px-8 text-center md:flex">
-            <div className="grid size-16 place-items-center rounded-3xl bg-card shadow-sm">
-              <MessageSquareText className="size-6 text-muted-foreground" aria-hidden="true" />
-            </div>
-            <p className="mt-5 font-display text-xl font-semibold tracking-tight">Your Sessions, at a glance.</p>
-            <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              Choose a Chat to review its full conversation, reply to Prompts, or send an Instruction.
-            </p>
-            <Button className="mt-5" variant="outline" onClick={() => setNewSessionOpen(true)}>
-              Start a Session <ArrowRight />
-            </Button>
-          </div>
+          <EmptyChatState onStart={() => setNewSessionOpen(true)} />
         )}
-      </main>
+      </MainArea>
 
       {activeChat !== null && (
         <ResumeDialog
@@ -853,18 +878,5 @@ export function App() {
         onStarting={armNewChatWatch}
       />
     </div>
-  )
-}
-
-function FullPageState({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action?: React.ReactNode }) {
-  return (
-    <main className="grain flex h-full items-center justify-center bg-background px-6 text-foreground">
-      <div className="w-full max-w-md rounded-3xl bg-card p-7 text-center shadow-sm sm:p-9">
-        <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">{icon}</div>
-        <h1 className="mt-5 font-display text-xl font-semibold">{title}</h1>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">{detail}</p>
-        {action && <div className="mt-5">{action}</div>}
-      </div>
-    </main>
   )
 }
