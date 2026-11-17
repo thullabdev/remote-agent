@@ -28,13 +28,26 @@ function render(pins: PinView[] = [], shown: Chat = chat): string {
     pins,
     onUnpin: async () => {},
     onJump: () => {},
+    openPanel: () => {},
+    density: 'comfortable' as const,
   }))
+}
+
+/** Renders with the given accordions remembered as open, as a previous visit would leave them. */
+function withOpen(ids: string[], build: () => string): string {
+  const stored = JSON.stringify(Object.fromEntries(ids.map(id => [id, true])))
+  Object.assign(globalThis, { window: { localStorage: { getItem: () => stored, setItem: () => {} } } })
+  try {
+    return build()
+  } finally {
+    delete (globalThis as { window?: unknown }).window
+  }
 }
 
 const ended: Chat = { ...chat, status: 'ended' }
 
 test('bookmarks are called bookmarks, so they are not confused with pinning a session', () => {
-  const markup = render()
+  const markup = withOpen(['bookmarks'], () => render())
   expect(markup).toContain('Bookmarks · 0')
   expect(markup).toContain('Tap the bookmark on a message to keep it here.')
   expect(markup).not.toContain('Pinned messages')
@@ -106,7 +119,7 @@ test('the primary action is Resume for an ended session and Fork for a live one'
 })
 
 test('technical details hold the directory and a copyable tmux command, without the spawned-only note', () => {
-  const markup = render([], { ...chat, spawned: true, tmuxName: 'ra-1' })
+  const markup = withOpen(['technical'], () => render([], { ...chat, spawned: true, tmuxName: 'ra-1' }))
   expect(markup).toContain('tmux attach -t ra-1')
   expect(markup).toContain('aria-label="Copy attach command"')
   expect(markup).toContain('aria-label="Copy working directory"')

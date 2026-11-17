@@ -41,7 +41,7 @@ function info(model: string | null): string {
   return renderToStaticMarkup(createElement(ChatInfo, {
     chat, onClose: () => {}, onNotify: () => {}, onEnd: async () => {}, onArchive: async () => {}, onUnarchive: async () => {},
     onRename: async () => {}, onPin: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
-    pins: [] as PinView[], onUnpin: async () => {}, onJump: () => {}, model,
+    pins: [] as PinView[], onUnpin: async () => {}, onJump: () => {}, openPanel: () => {}, density: 'comfortable' as const, model,
     api: { subagentActivity: async () => ({ items: [], nextCursor: null }) }, subagent: null, onCloseSubagent: () => {},
   }))
 }

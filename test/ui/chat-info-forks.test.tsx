@@ -44,7 +44,20 @@ function render(forks: ForkView[]): string {
     onRefreshForks: () => {},
     onShowFork: () => {},
     onOpenFork: () => {},
+    openPanel: () => {},
+    density: 'comfortable' as const,
   }))
+}
+
+/** Renders with the given accordions remembered as open, as a previous visit would leave them. */
+function withOpen(ids: string[], build: () => string): string {
+  const stored = JSON.stringify(Object.fromEntries(ids.map(id => [id, true])))
+  Object.assign(globalThis, { window: { localStorage: { getItem: () => stored, setItem: () => {} } } })
+  try {
+    return build()
+  } finally {
+    delete (globalThis as { window?: unknown }).window
+  }
 }
 
 test('the details panel lists each fork with the reply it was made from, and a refresh button', () => {
@@ -58,7 +71,7 @@ test('the details panel lists each fork with the reply it was made from, and a r
 })
 
 test('an empty forks section says how to start a fork', () => {
-  const html = render([])
+  const html = withOpen(['forks'], () => render([]))
   expect(html).toContain('Forks · 0')
   expect(html).toContain('Fork from a reply to start one')
 })

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { Chat, ForkView, PinView } from '../../../channel/web/protocol.ts'
+import { chatInfoSections } from '../../extension-slots.ts'
+import { Accordion } from '../ui/accordion.tsx'
 import { RenameDialog } from '../rename-dialog.tsx'
 import { BookmarksSection } from './BookmarksSection.tsx'
 import { ConfirmActionDialog } from './ConfirmActionDialog.tsx'
@@ -12,7 +14,7 @@ import type { ChatInfoProps, ConfirmAction } from './types.ts'
 
 type SessionDetailsProps = Pick<
   ChatInfoProps,
-  'chat' | 'model' | 'onNotify' | 'onEnd' | 'onArchive' | 'onUnarchive' | 'onRename' | 'onPin' | 'onClear' | 'onFork' | 'onResume' | 'pins' | 'onUnpin' | 'onJump' | 'onRefreshForks' | 'onShowFork' | 'onOpenFork'
+  'chat' | 'model' | 'onNotify' | 'onEnd' | 'onArchive' | 'onUnarchive' | 'onRename' | 'onPin' | 'onClear' | 'onFork' | 'onResume' | 'pins' | 'onUnpin' | 'onJump' | 'onRefreshForks' | 'onShowFork' | 'onOpenFork' | 'openPanel' | 'density'
 > & { forks: ForkView[] }
 
 /**
@@ -38,6 +40,8 @@ export function SessionDetails({
   onRefreshForks,
   onShowFork,
   onOpenFork,
+  openPanel,
+  density,
 }: SessionDetailsProps) {
   const isGeneral = chat.id === 'general'
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null)
@@ -66,6 +70,11 @@ export function SessionDetails({
           onOpenFork={chatId => onOpenFork?.(chatId)}
         />
         <TechnicalSection chat={chat} onNotify={onNotify} />
+        {chatInfoSections().map(section => (
+          <Accordion key={section.id} id={`ext:${section.id}`} title={section.title}>
+            {section.render({ chat, openPanel, notify: onNotify, density })}
+          </Accordion>
+        ))}
         <ManageSection chat={chat} onRequestConfirm={setConfirm} onArchive={onArchive} onUnarchive={onUnarchive} />
       </div>
       <RenameDialog open={renaming} title={chat.title} onClose={() => setRenaming(false)} onRename={onRename} />

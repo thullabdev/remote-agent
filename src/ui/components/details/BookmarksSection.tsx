@@ -1,5 +1,6 @@
 import type { PinView } from '../../../channel/web/protocol.ts'
 import { formatTime } from '../../presentation.ts'
+import { Accordion } from '../ui/accordion.tsx'
 import { Button } from '../ui/button.tsx'
 import { SectionLabel } from './SectionLabel.tsx'
 
@@ -12,10 +13,7 @@ type BookmarksSectionProps = {
 /** The messages bookmarked in this chat, each one shown in the chat or removed. */
 export function BookmarksSection({ pins, onJump, onUnpin }: BookmarksSectionProps) {
   return (
-    <details open={pins.length > 0} className="group">
-      <summary className="flex cursor-pointer list-none items-center justify-between">
-        <SectionLabel>Bookmarks · {pins.length}</SectionLabel>
-      </summary>
+    <Accordion id="bookmarks" title={<SectionLabel>Bookmarks · {pins.length}</SectionLabel>} defaultOpen={pins.length > 0}>
       {pins.length === 0 ? (
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Tap the bookmark on a message to keep it here.</p>
       ) : (
@@ -35,6 +33,6 @@ export function BookmarksSection({ pins, onJump, onUnpin }: BookmarksSectionProp
           ))}
         </ul>
       )}
-    </details>
+    </Accordion>
   )
 }

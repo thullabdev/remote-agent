@@ -41,7 +41,7 @@ function info(chat: Chat): string {
       onCloseSubagent: () => {},
       chat, onNotify: () => {}, onClose: () => {}, onEnd: async () => {}, onArchive: async () => {},
       onUnarchive: async () => {}, onRename: async () => {}, onPin: async () => {}, onClear: async () => {}, onFork: async () => {}, onResume: async () => {},
-      pins: [], onUnpin: async () => {}, onJump: () => {}
+      pins: [], onUnpin: async () => {}, onJump: () => {}, openPanel: () => {}, density: 'comfortable' as const
     }),
   )
 }

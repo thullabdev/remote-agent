@@ -1,5 +1,6 @@
 import type { Chat, ForkView, PinView } from '../../../channel/web/protocol.ts'
 import type { ApiClient } from '../../api.ts'
+import type { OpenPanel } from '../../extension-slots.ts'
 
 /** What the details panel reads from the API for a sub-agent: its activity, one page at a time. */
 export type SubagentApi = Pick<ApiClient, 'subagentActivity'>
@@ -41,6 +42,10 @@ export type ChatInfoProps = {
   onOpenFork?(chatId: string): void
   /** The full model id the Session last ran on, or null when unknown. */
   model?: string | null
+  /** Opens an extension panel, for the chat-info sections that link to one. */
+  openPanel: OpenPanel
+  /** The UI density preference, passed to the chat-info sections. */
+  density: 'compact' | 'comfortable'
 }
 
 /** The two actions that still ask first: ending a process and hiding history. The rest are reversible and run at once. */

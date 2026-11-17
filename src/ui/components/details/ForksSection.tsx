@@ -1,6 +1,7 @@
 import { GitFork, RefreshCw } from 'lucide-react'
 import type { ForkView } from '../../../channel/web/protocol.ts'
 import { formatTime } from '../../presentation.ts'
+import { Accordion } from '../ui/accordion.tsx'
 import { Button } from '../ui/button.tsx'
 import { SectionLabel } from './SectionLabel.tsx'
 
@@ -14,10 +15,7 @@ type ForksSectionProps = {
 /** The chats forked from this one. Each fork can be shown at its fork point or opened. */
 export function ForksSection({ forks, onRefresh, onShowFork, onOpenFork }: ForksSectionProps) {
   return (
-    <details open={forks.length > 0} className="group">
-      <summary className="flex cursor-pointer list-none items-center justify-between">
-        <SectionLabel>Forks · {forks.length}</SectionLabel>
-      </summary>
+    <Accordion id="forks" title={<SectionLabel>Forks · {forks.length}</SectionLabel>} defaultOpen={forks.length > 0}>
       <div className="mt-1 flex justify-end">
         <Button variant="ghost" size="sm" aria-label="Refresh forks" onClick={() => void onRefresh()}>
           <RefreshCw aria-hidden="true" />
@@ -49,6 +47,6 @@ export function ForksSection({ forks, onRefresh, onShowFork, onOpenFork }: Forks
           ))}
         </ul>
       )}
-    </details>
+    </Accordion>
   )
 }

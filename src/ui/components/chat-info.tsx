@@ -9,7 +9,7 @@ export type { ChatInfoProps, SubagentApi } from './details/types.ts'
  * The right-hand panel for a chat. It shows the session's details, or a sub-agent's activity when one is open. The panel itself is
  * in `details/DetailsPanel.tsx`; the parts are in `details/`.
  */
-export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpenSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, forks = [], onRefreshForks, onShowFork, onOpenFork, model = null }: ChatInfoProps) {
+export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpenSubagent, onNotify, onEnd, onArchive, onUnarchive, onRename, onPin, onClear, onFork, onResume, pins, onUnpin, onJump, forks = [], onRefreshForks, onShowFork, onOpenFork, model = null, openPanel, density }: ChatInfoProps) {
   return (
     <DetailsPanel title={subagent?.title ?? 'Session details'} onBack={subagent !== null ? onCloseSubagent : undefined} onClose={onClose}>
       {subagent !== null ? (
@@ -36,6 +36,8 @@ export function ChatInfo({ chat, onClose, api, subagent, onCloseSubagent, onOpen
           onRefreshForks={onRefreshForks}
           onShowFork={onShowFork}
           onOpenFork={onOpenFork}
+          openPanel={openPanel}
+          density={density}
         />
       )}
     </DetailsPanel>

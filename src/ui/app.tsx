@@ -826,6 +826,8 @@ export function App() {
                 pins={pinsByChat[activeChat.id] ?? []}
                 forks={forksByChat[activeChat.id] ?? []}
                 onRefreshForks={() => setForksVersion(version => version + 1)}
+                openPanel={openPanel}
+                density={preferences.density}
                 onShowFork={fork => {
                   setInfoOpen(false)
                   void revealOrNotify({

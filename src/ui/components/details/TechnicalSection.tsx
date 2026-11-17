@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react'
 import type { Chat } from '../../../channel/web/protocol.ts'
+import { Accordion } from '../ui/accordion.tsx'
 import { Button } from '../ui/button.tsx'
 import { SectionLabel } from './SectionLabel.tsx'
 import { useCopy } from './use-copy.ts'
@@ -12,10 +13,7 @@ export function TechnicalSection({ chat, onNotify }: { chat: Chat; onNotify(mess
     return null
   }
   return (
-    <details>
-      <summary className="cursor-pointer list-none">
-        <SectionLabel>Technical</SectionLabel>
-      </summary>
+    <Accordion id="technical" title={<SectionLabel>Technical</SectionLabel>}>
       <div className="mt-2 space-y-3">
         {chat.cwd !== null && (
           <div>
@@ -40,6 +38,6 @@ export function TechnicalSection({ chat, onNotify }: { chat: Chat; onNotify(mess
           </div>
         )}
       </div>
-    </details>
+    </Accordion>
   )
 }
