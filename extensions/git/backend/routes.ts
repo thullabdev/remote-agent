@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import {
@@ -26,6 +27,8 @@ class HttpError extends Error {
 const DEFAULT_LOG_LIMIT = 50
 const MAX_LOG_LIMIT = 200
 const SHA_PATTERN = /^[0-9a-f]{4,64}$/i
+const MAX_EXPECTED_PATHS = 5000
+const STAGED_CHANGED_MESSAGE = 'The staged changes changed since you reviewed them. Review again.'
 
 function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
@@ -73,12 +76,28 @@ async function validCwd(value: unknown): Promise<string> {
     }
     throw new HttpError(400, 'cwd does not exist')
   }
-  return value
+  // Git runs in the resolved path, so a symlinked project folder resolves to its real location.
+  try {
+    return realpathSync(value)
+  } catch {
+    throw new HttpError(400, 'cwd does not exist')
+  }
 }
 
 function validPaths(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0 || !value.every(item => typeof item === 'string' && item !== '')) {
     throw new HttpError(400, 'paths must be a non-empty array of strings')
+  }
+  return value as string[]
+}
+
+function validExpectedPaths(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_EXPECTED_PATHS ||
+    !value.every(item => typeof item === 'string' && item !== '')
+  ) {
+    throw new HttpError(400, `expectedPaths must be an array of at most ${MAX_EXPECTED_PATHS} non-empty strings`)
   }
   return value as string[]
 }
@@ -213,10 +232,21 @@ export function createGitRoutes(deps: { run?: GitRun }): {
           throw new HttpError(400, 'message is required')
         }
         const message = body.message.trim()
+        // An omitted expectedPaths commits whatever is staged; a present one must match the staged set.
+        const expectedPaths = body.expectedPaths === undefined ? null : validExpectedPaths(body.expectedPaths)
         await requireRepo(cwd, run)
         const status = await statusOf(cwd, run)
         if (status.staged.length === 0) {
           throw new HttpError(400, 'nothing staged to commit')
+        }
+        const stagedPaths = [...new Set(status.staged.map(change => change.path))].sort()
+        if (expectedPaths !== null) {
+          const expectedSet = new Set(expectedPaths)
+          const stagedSet = new Set(stagedPaths)
+          const same = expectedSet.size === stagedSet.size && stagedPaths.every(path => expectedSet.has(path))
+          if (!same) {
+            return Response.json({ error: STAGED_CHANGED_MESSAGE, staged: stagedPaths }, { status: 409 })
+          }
         }
         await mustRun(run, cwd, ['commit', '-m', message])
         const sha = (await mustRun(run, cwd, ['rev-parse', 'HEAD'])).trim()

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseLog, parseNumstat, parseStatusV2, parseUnifiedDiff } from './parse.ts'
+import { parseAheadBehind, parseLog, parseNumstat, parseStatusV2, parseUnifiedDiff } from './parse.ts'
 
 describe('parseStatusV2', () => {
   test('paths with spaces and unicode survive -z parsing', () => {
@@ -55,5 +55,20 @@ describe('parseUnifiedDiff', () => {
 
   test('a binary diff has no hunks', () => {
     expect(parseUnifiedDiff('Binary files a/x.png and b/x.png differ\n')).toEqual({ binary: true, hunks: [] })
+  })
+})
+
+describe('parseAheadBehind', () => {
+  test('reads "behind<TAB>ahead" from rev-list --left-right --count', () => {
+    expect(parseAheadBehind('3\t5\n')).toEqual({ ahead: 5, behind: 3 })
+    expect(parseAheadBehind('0\t1\n')).toEqual({ ahead: 1, behind: 0 })
+    expect(parseAheadBehind('2\t0')).toEqual({ ahead: 0, behind: 2 })
+  })
+
+  test('empty or malformed output gives zeros', () => {
+    expect(parseAheadBehind('')).toEqual({ ahead: 0, behind: 0 })
+    expect(parseAheadBehind('fatal: no upstream')).toEqual({ ahead: 0, behind: 0 })
+    expect(parseAheadBehind('1 2 3')).toEqual({ ahead: 0, behind: 0 })
+    expect(parseAheadBehind('x\ty')).toEqual({ ahead: 0, behind: 0 })
   })
 })

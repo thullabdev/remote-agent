@@ -1,6 +1,7 @@
 import { lstat, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import {
+  parseAheadBehind,
   parseLog,
   parseNumstat,
   parseStatusV2,
@@ -19,7 +20,18 @@ export type GitRun = (
 
 export type RepoInfo =
   | { repo: false }
-  | { repo: true; root: string; branch: string | null; upstream: string | null; hasCommits: boolean }
+  | {
+      repo: true
+      /** The real path of the requested folder, the same value git ran in. */
+      cwd: string
+      root: string
+      branch: string | null
+      upstream: string | null
+      hasCommits: boolean
+      /** Commits on HEAD not on upstream. Both counts are 0 when there is no upstream. */
+      ahead: number
+      behind: number
+    }
 
 /** A git command failed; the message is git's stderr. */
 export class GitError extends Error {}
@@ -99,12 +111,23 @@ export async function repoInfo(cwd: string, run: GitRun = runGit): Promise<RepoI
   const branch = await run(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
   const upstream = await run(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
   const head = await run(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+  let ahead = 0
+  let behind = 0
+  if (upstream.exitCode === 0) {
+    const counts = await run(cwd, ['rev-list', '--left-right', '--count', '@{u}...HEAD'])
+    if (counts.exitCode === 0) {
+      ({ ahead, behind } = parseAheadBehind(counts.stdout))
+    }
+  }
   return {
     repo: true,
+    cwd,
     root,
     branch: branch.exitCode === 0 ? branch.stdout.trim() : null,
     upstream: upstream.exitCode === 0 ? upstream.stdout.trim() : null,
     hasCommits: head.exitCode === 0,
+    ahead,
+    behind,
   }
 }
 

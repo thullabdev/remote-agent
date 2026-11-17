@@ -124,6 +124,16 @@ function pushXY(
   }
 }
 
+/** Parses `git rev-list --left-right --count @{u}...HEAD`, which prints "behind<TAB>ahead". Bad input gives zeros. */
+export function parseAheadBehind(output: string): { ahead: number; behind: number } {
+  const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(output)
+  if (match === null) {
+    return { ahead: 0, behind: 0 }
+  }
+  const [, behind = '0', ahead = '0'] = match
+  return { ahead: Number(ahead), behind: Number(behind) }
+}
+
 export function parseNumstat(output: string): Map<string, NumstatEntry> {
   const map = new Map<string, NumstatEntry>()
   const tokens = output.split('\0')

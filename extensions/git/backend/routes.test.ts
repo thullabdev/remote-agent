@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runGit } from './git.ts'
@@ -129,5 +129,78 @@ describe('git routes', () => {
     const status = await (await routes.status(get('status', { cwd: repo }))).json()
     expect(status.staged.map((change: { path: string }) => change.path)).toEqual(['[id].tsx'])
     expect(status.unstaged.map((change: { path: string }) => change.path)).toEqual(['i.tsx'])
+  })
+
+  test('commit with expectedPaths equal to the staged set commits', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'x\n')
+    writeFileSync(join(repo, 'b.txt'), 'y\n')
+    await git(repo, 'add', '--', 'a.txt', 'b.txt')
+
+    const response = await routes.commit(post('commit', { cwd: repo, message: 'both', expectedPaths: ['b.txt', 'a.txt'] }))
+    expect(response.status).toBe(200)
+    expect((await git(repo, 'log', '-1', '--format=%s')).trim()).toBe('both')
+  })
+
+  test('commit with expectedPaths that differ from the staged set is a 409 and commits nothing', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'x\n')
+    writeFileSync(join(repo, 'b.txt'), 'y\n')
+    await git(repo, 'add', '--', 'a.txt', 'b.txt')
+
+    const response = await routes.commit(post('commit', { cwd: repo, message: 'too early', expectedPaths: ['a.txt'] }))
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'The staged changes changed since you reviewed them. Review again.',
+      staged: ['a.txt', 'b.txt'],
+    })
+    expect((await git(repo, 'status', '--porcelain')).trim().split('\n').sort()).toEqual(['A  a.txt', 'A  b.txt'])
+    await expect(git(repo, 'rev-parse', '--verify', 'HEAD')).rejects.toThrow()
+  })
+
+  test('commit rejects malformed expectedPaths with a 400', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'x\n')
+    await git(repo, 'add', '--', 'a.txt')
+
+    for (const expectedPaths of ['a.txt', [1], [''], ['a.txt', null], Array.from({ length: 5001 }, (_, i) => `f${i}`)]) {
+      const response = await routes.commit(post('commit', { cwd: repo, message: 'bad', expectedPaths }))
+      expect(response.status).toBe(400)
+    }
+  })
+
+  test('repo info reports ahead 1 and behind 0 with one local commit on a pushed upstream', async () => {
+    const remote = tempDir()
+    await git(remote, 'init', '-q', '--bare')
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    await git(repo, 'add', '--', 'a.txt')
+    await git(repo, 'commit', '-q', '-m', 'pushed')
+    await git(repo, 'remote', 'add', 'origin', remote)
+    await git(repo, 'push', '-q', '-u', 'origin', 'HEAD')
+    writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n')
+    await git(repo, 'commit', '-q', '-am', 'local')
+
+    const info = await (await routes.repo(get('repo', { cwd: repo }))).json()
+    expect(info).toMatchObject({ repo: true, ahead: 1, behind: 0 })
+  })
+
+  test('repo info reports zero ahead and behind when there is no upstream', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    await git(repo, 'add', '--', 'a.txt')
+    await git(repo, 'commit', '-q', '-m', 'init')
+
+    const info = await (await routes.repo(get('repo', { cwd: repo }))).json()
+    expect(info).toMatchObject({ repo: true, upstream: null, ahead: 0, behind: 0 })
+  })
+
+  test('repo info cwd is the real path of a symlinked folder', async () => {
+    const repo = await makeRepo()
+    const link = join(tempDir(), 'project-link')
+    symlinkSync(repo, link)
+
+    const info = await (await routes.repo(get('repo', { cwd: link }))).json()
+    expect(info).toMatchObject({ repo: true, cwd: realpathSync(repo) })
   })
 })
