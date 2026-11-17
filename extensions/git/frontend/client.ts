@@ -67,7 +67,8 @@ export const gitApi = {
     await call<{ ok: true }>('POST', '/unstage', {}, { cwd, paths })
   },
 
-  commit(cwd: string, message: string): Promise<{ sha: string }> {
-    return call<{ sha: string }>('POST', '/commit', {}, { cwd, message })
+  /** Commits what is staged. With `expectedPaths`, the server refuses (409, with the error text) unless the staged set matches. */
+  commit(cwd: string, message: string, expectedPaths?: string[]): Promise<{ sha: string }> {
+    return call<{ sha: string }>('POST', '/commit', {}, { cwd, message, expectedPaths })
   },
 }

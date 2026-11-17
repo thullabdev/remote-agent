@@ -4,7 +4,7 @@ import { Badge } from '../../../src/ui/components/ui/badge.tsx'
 import { gitApi } from './client.ts'
 import { TREE_ROW_HEIGHT, TreeFileRow, TreeFolderRow } from './StatusTree.tsx'
 import { VirtualRows } from './VirtualRows.tsx'
-import { buildTree, flattenTree, toggled, type VisibleTreeRow } from './tree.ts'
+import { buildTree, toggled, visibleRows, type VisibleTreeRow } from './tree.ts'
 
 /** The height of a commit row, in pixels. */
 export const COMMIT_ROW_HEIGHT = 40
@@ -59,7 +59,7 @@ export function commitLogRows(
       } else if (files.status === 'error') {
         rows.push({ kind: 'note', key: `${commit.sha}:error`, text: 'Could not load the files of this commit', tone: 'error' })
       } else {
-        for (const row of flattenTree(buildTree(files.files), collapsed, `${commit.sha}/`)) {
+        for (const row of visibleRows(buildTree(files.files), collapsed, `${commit.sha}/`)) {
           rows.push({ kind: 'tree', key: row.key, sha: commit.sha, row })
         }
       }

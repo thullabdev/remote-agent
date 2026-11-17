@@ -5,7 +5,7 @@ import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
 import { FileIcon } from './FileIcon.tsx'
 import { VirtualRows } from './VirtualRows.tsx'
-import { buildTree, flattenTree, pathsUnder, sumCounts, toggled, type VisibleTreeRow } from './tree.ts'
+import { buildTree, collapsedFolders, pathsUnder, startsCollapsed, sumCounts, toggled, type VisibleTreeRow, visibleRows } from './tree.ts'
 
 /** The height of a file or folder row in a tree list, in pixels. */
 export const TREE_ROW_HEIGHT = 28
@@ -109,21 +109,23 @@ export function StatusTree({
   onStage(paths: string[]): void
   onUnstage(paths: string[]): void
 }) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
-  const rows = flattenTree(buildTree(files), collapsed)
+  /** The folders the person has flipped from their default: collapsed when the tree is large, expanded otherwise. */
+  const [toggles, setToggles] = useState<ReadonlySet<string>>(() => new Set())
+  const tree = buildTree(files)
+  const rows = visibleRows(tree, collapsedFolders(tree, startsCollapsed(files.length), toggles))
 
   function renderRow(row: VisibleTreeRow): ReactNode {
     if (row.kind === 'folder') {
       const folderTrailing =
         mode === 'unstaged' ? (
-          <Button variant="ghost" size="icon-sm" aria-label={`Stage folder ${row.path}`} title="Stage folder" onClick={() => onStage(pathsUnder(files, row.path))}>
+          <Button variant="ghost" size="icon-sm" aria-label={`Stage ${row.path}/`} title="Stage folder" onClick={() => onStage(pathsUnder(files, row.path))}>
             <Plus className="size-3.5" />
           </Button>
         ) : (
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`Unstage folder ${row.path}`}
+            aria-label={`Unstage ${row.path}/`}
             title="Unstage folder"
             onClick={() => onUnstage(pathsUnder(files, row.path))}
           >
@@ -137,7 +139,7 @@ export function StatusTree({
           open={row.open}
           added={row.added}
           removed={row.removed}
-          onToggle={() => setCollapsed((current) => toggled(current, row.key))}
+          onToggle={() => setToggles((current) => toggled(current, row.key))}
           trailing={folderTrailing}
         />
       )

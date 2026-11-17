@@ -132,6 +132,13 @@ describe('DiffView tabs, footer and background', () => {
     expect(html).toContain('aria-label="Close b.ts"')
   })
 
+  test('the tab strip is a tablist whose tabs are role tab with aria-selected', () => {
+    const html = view({ path: 'b.ts', scope: 'unstaged', tabs: [{ path: 'a.ts', scope: 'unstaged' }, { path: 'b.ts', scope: 'unstaged' }] })
+    expect(html).toContain('role="tablist"')
+    expect(html.match(/role="tab"/g)).toHaveLength(2)
+    expect(html.match(/aria-selected="/g)).toHaveLength(2)
+  })
+
   test('the panel uses the main background, not the card background', () => {
     const html = view({ path: 'a.ts' })
     expect(html).toContain('bg-background')

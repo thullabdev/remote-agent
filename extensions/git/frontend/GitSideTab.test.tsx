@@ -4,10 +4,16 @@ import type { Commit, FileChange } from '../backend/parse.ts'
 import type { RepoInfo } from '../backend/git.ts'
 import type { OpenDiff } from './open-files.ts'
 import {
+  applyCommitType,
   canCommit,
+  COMMIT_TYPES,
+  CommitTypeSelect,
   commitHint,
   commitReviewAfterReload,
   commitStaged,
+  commitTypeFromOption,
+  commitTypeOf,
+  ConflictGroup,
   draftFor,
   GitPanel,
   type GitView,
@@ -15,6 +21,8 @@ import {
   isCurrentCwd,
   loadGitState,
   openDiffPanel,
+  shouldRefreshOnIdle,
+  splitConflicts,
   StagedEmptyState,
 } from './GitSideTab.tsx'
 
@@ -137,6 +145,119 @@ describe('commitStaged', () => {
 
     await expect(commitStaged(api, '/repo', 'msg')).rejects.toThrow('nothing to commit')
     expect(calls).toEqual(['commit'])
+  })
+})
+
+describe('commitStaged with expectedPaths', () => {
+  test('passes the reviewed paths to commit', async () => {
+    const received: Array<[string, string, string[] | undefined]> = []
+    const api = {
+      commit: async (cwd: string, message: string, expectedPaths?: string[]) => {
+        received.push([cwd, message, expectedPaths])
+        return { sha: 'abc1234' }
+      },
+      status: async () => ({ staged: [], unstaged: [] }),
+    }
+
+    await commitStaged(api, '/repo', 'Fix the thing', ['a.ts', 'src/b.ts'])
+
+    expect(received).toEqual([['/repo', 'Fix the thing', ['a.ts', 'src/b.ts']]])
+  })
+})
+
+describe('shouldRefreshOnIdle', () => {
+  test('is true only for the busy to idle transition', () => {
+    expect(shouldRefreshOnIdle(true, false)).toBe(true)
+  })
+
+  test('is false for idle to busy, and for staying busy or idle', () => {
+    expect(shouldRefreshOnIdle(false, true)).toBe(false)
+    expect(shouldRefreshOnIdle(true, true)).toBe(false)
+    expect(shouldRefreshOnIdle(false, false)).toBe(false)
+  })
+})
+
+describe('applyCommitType', () => {
+  test('adds a type prefix to a message that has none, keeping the text', () => {
+    expect(applyCommitType('add the thing', 'feat')).toBe('feat: add the thing')
+  })
+
+  test('replaces a known prefix with the chosen type', () => {
+    expect(applyCommitType('fix: add the thing', 'docs')).toBe('docs: add the thing')
+  })
+
+  test('removes a known prefix when the choice is none', () => {
+    expect(applyCommitType('chore: tidy', null)).toBe('tidy')
+  })
+
+  test('leaves a message without a known prefix unchanged when the choice is none', () => {
+    expect(applyCommitType('Fix: not a known type prefix', null)).toBe('Fix: not a known type prefix')
+    expect(applyCommitType('add the thing', null)).toBe('add the thing')
+  })
+
+  test('keeps a colon in the body as part of the text', () => {
+    expect(applyCommitType('fix: handle a: b', 'fix')).toBe('fix: handle a: b')
+  })
+})
+
+describe('commitTypeOf and commitTypeFromOption', () => {
+  test('reads the known type a message starts with', () => {
+    expect(commitTypeOf('refactor: split it')).toBe('refactor')
+    expect(commitTypeOf('split it')).toBeNull()
+    expect(commitTypeOf('refactor split it')).toBeNull()
+  })
+
+  test('the empty option is none, and an unknown option is none too', () => {
+    expect(commitTypeFromOption('')).toBeNull()
+    expect(commitTypeFromOption('bogus')).toBeNull()
+    expect(commitTypeFromOption('test')).toBe('test')
+    expect(COMMIT_TYPES).toEqual(['feat', 'fix', 'docs', 'refactor', 'test', 'chore'])
+  })
+})
+
+describe('CommitTypeSelect', () => {
+  test('is a labelled native select offering none and every type', () => {
+    const markup = renderToStaticMarkup(<CommitTypeSelect message="" onChange={() => {}} />)
+    expect(markup).toContain('<span class="shrink-0">Commit type</span>')
+    expect(markup).toContain('<select')
+    expect(markup).toContain('<option value="" selected="">none</option>')
+    for (const type of COMMIT_TYPES) {
+      expect(markup).toContain(`<option value="${type}">${type}</option>`)
+    }
+  })
+
+  test('selects the type the message already starts with', () => {
+    expect(renderToStaticMarkup(<CommitTypeSelect message="fix: x" onChange={() => {}} />)).toContain('<option value="fix" selected="">fix</option>')
+    expect(renderToStaticMarkup(<CommitTypeSelect message="x" onChange={() => {}} />)).toContain('<option value="" selected="">none</option>')
+  })
+})
+
+describe('splitConflicts', () => {
+  function withStatus(path: string, status: FileChange['status']): FileChange {
+    return { path, oldPath: null, status, added: null, removed: null, binary: false }
+  }
+
+  test('separates conflicted files from the rest, keeping each in order', () => {
+    const files = [withStatus('a.ts', 'modified'), withStatus('b.ts', 'conflicted'), withStatus('c.ts', 'untracked'), withStatus('d.ts', 'conflicted')]
+    const result = splitConflicts(files)
+    expect(result.conflicted.map((file) => file.path)).toEqual(['b.ts', 'd.ts'])
+    expect(result.other.map((file) => file.path)).toEqual(['a.ts', 'c.ts'])
+  })
+
+  test('no conflicts gives an empty conflicted list', () => {
+    expect(splitConflicts([withStatus('a.ts', 'modified')]).conflicted).toEqual([])
+  })
+})
+
+describe('ConflictGroup', () => {
+  const conflict: FileChange = { path: 'src/merge.ts', oldPath: null, status: 'conflicted', added: null, removed: null, binary: false }
+
+  test('titles the group with its count and gives the resolve hint', () => {
+    const markup = renderToStaticMarkup(<ConflictGroup files={[conflict]} onOpen={() => {}} onStage={() => {}} />)
+    expect(markup).toContain('Conflicts · 1')
+    expect(markup).toContain('Resolve these in your editor, then stage them.')
+    expect(markup).toContain('aria-label="Stage src/merge.ts"')
+    expect(markup).toContain('src/merge.ts')
   })
 })
 

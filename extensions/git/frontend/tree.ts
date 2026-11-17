@@ -109,7 +109,7 @@ export type VisibleTreeRow =
  * Flattens the tree into the rows shown in a list. A folder whose key is in `collapsed` hides its children.
  * `keyPrefix` keeps keys unique when several trees share one list.
  */
-export function flattenTree(nodes: TreeNode[], collapsed: ReadonlySet<string>, keyPrefix = '', depth = 0): VisibleTreeRow[] {
+export function visibleRows(nodes: TreeNode[], collapsed: ReadonlySet<string>, keyPrefix = '', depth = 0): VisibleTreeRow[] {
   const rows: VisibleTreeRow[] = []
   for (const node of nodes) {
     if (node.kind === 'folder') {
@@ -117,13 +117,46 @@ export function flattenTree(nodes: TreeNode[], collapsed: ReadonlySet<string>, k
       const open = !collapsed.has(key)
       rows.push({ kind: 'folder', key, name: node.name, path: node.path, depth, open, added: node.added, removed: node.removed })
       if (open) {
-        rows.push(...flattenTree(node.children, collapsed, keyPrefix, depth + 1))
+        rows.push(...visibleRows(node.children, collapsed, keyPrefix, depth + 1))
       }
     } else {
       rows.push({ kind: 'file', key: `${keyPrefix}file:${node.path}`, name: node.name, path: node.path, depth, file: node.file })
     }
   }
   return rows
+}
+
+/** Trees with more files than this start with every folder collapsed. */
+export const AUTO_COLLAPSE_FILE_COUNT = 20
+
+/** Whether a tree of `fileCount` files starts with its folders collapsed. */
+export function startsCollapsed(fileCount: number): boolean {
+  return fileCount > AUTO_COLLAPSE_FILE_COUNT
+}
+
+/** The key of every folder in the tree, in the form `visibleRows` uses with no key prefix. */
+export function folderKeys(nodes: TreeNode[]): string[] {
+  const keys: string[] = []
+  for (const node of nodes) {
+    if (node.kind === 'folder') {
+      keys.push(`folder:${node.path}`, ...folderKeys(node.children))
+    }
+  }
+  return keys
+}
+
+/**
+ * The folders that are collapsed now. A folder starts collapsed when `collapsedByDefault` is true; a folder whose key is in
+ * `toggledKeys` has been flipped by the person from that default.
+ */
+export function collapsedFolders(nodes: TreeNode[], collapsedByDefault: boolean, toggledKeys: ReadonlySet<string>): Set<string> {
+  const collapsed = new Set<string>()
+  for (const key of folderKeys(nodes)) {
+    if (collapsedByDefault !== toggledKeys.has(key)) {
+      collapsed.add(key)
+    }
+  }
+  return collapsed
 }
 
 /** A copy of a key set with `key` added when absent, and removed when present. */

@@ -41,9 +41,9 @@ describe('StatusTree folder actions', () => {
     const markup = renderToStaticMarkup(
       <StatusTree files={files} mode="unstaged" onOpen={() => {}} onStage={() => {}} onUnstage={() => {}} />,
     )
-    expect(markup).toContain('aria-label="Stage folder src"')
-    expect(markup).toContain('aria-label="Stage folder src/feature"')
-    expect(markup).not.toContain('Unstage folder')
+    expect(markup).toContain('aria-label="Stage src/"')
+    expect(markup).toContain('aria-label="Stage src/feature/"')
+    expect(markup).not.toContain('aria-label="Unstage ')
     expect(markup).toContain('aria-label="Stage src/a.ts"')
   })
 
@@ -51,9 +51,39 @@ describe('StatusTree folder actions', () => {
     const markup = renderToStaticMarkup(
       <StatusTree files={files} mode="staged" onOpen={() => {}} onStage={() => {}} onUnstage={() => {}} />,
     )
-    expect(markup).toContain('aria-label="Unstage folder src"')
-    expect(markup).toContain('aria-label="Unstage folder src/feature"')
-    expect(markup).not.toContain('aria-label="Stage folder')
+    expect(markup).toContain('aria-label="Unstage src/"')
+    expect(markup).toContain('aria-label="Unstage src/feature/"')
+    expect(markup).not.toContain('aria-label="Stage ')
     expect(markup).toContain('aria-label="Unstage src/a.ts"')
+  })
+})
+
+describe('StatusTree folder collapse', () => {
+  function many(count: number): FileChange[] {
+    return Array.from({ length: count }, (_, index) => file(`src/a${index}.ts`, 1, 0))
+  }
+
+  test('a tree of more than 20 files starts with its folders collapsed', () => {
+    const markup = renderToStaticMarkup(
+      <StatusTree files={many(21)} mode="unstaged" onOpen={() => {}} onStage={() => {}} onUnstage={() => {}} />,
+    )
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).not.toContain('aria-label="Stage src/a0.ts"')
+  })
+
+  test('a tree of 20 files or fewer starts expanded', () => {
+    const markup = renderToStaticMarkup(
+      <StatusTree files={many(2)} mode="unstaged" onOpen={() => {}} onStage={() => {}} onUnstage={() => {}} />,
+    )
+    expect(markup).toContain('aria-expanded="true"')
+    expect(markup).toContain('aria-label="Stage src/a0.ts"')
+  })
+
+  test('a folder row labels its toggle with aria-expanded and keeps the folder action labelled with its path', () => {
+    const markup = renderToStaticMarkup(
+      <StatusTree files={many(2)} mode="staged" onOpen={() => {}} onStage={() => {}} onUnstage={() => {}} />,
+    )
+    expect(markup).toContain('aria-expanded="true"')
+    expect(markup).toContain('aria-label="Unstage src/"')
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { FileChange } from '../backend/parse.ts'
-import { buildTree, displayPath, flattenTree, pathsUnder, sumCounts, toggled } from './tree.ts'
+import { AUTO_COLLAPSE_FILE_COUNT, buildTree, collapsedFolders, displayPath, folderKeys, pathsUnder, startsCollapsed, sumCounts, toggled, visibleRows } from './tree.ts'
 
 function change(path: string, added: number | null, removed: number | null, binary = false): FileChange {
   return { path, oldPath: null, status: 'modified', added, removed, binary }
@@ -62,29 +62,66 @@ describe('sumCounts', () => {
   })
 })
 
-describe('flattenTree', () => {
+describe('visibleRows', () => {
   test('lists folders before their children, indented by depth', () => {
-    const rows = flattenTree(buildTree([change('src/a/x.ts', 1, 0), change('z.md', 1, 0)]), new Set())
+    const rows = visibleRows(buildTree([change('src/a/x.ts', 1, 0), change('z.md', 1, 0)]), new Set())
     expect(rows.map((row) => `${row.kind}:${row.name}:${row.depth}`)).toEqual(['folder:src:0', 'folder:a:1', 'file:x.ts:2', 'file:z.md:0'])
   })
 
   test('a collapsed folder hides its children and keeps its own row', () => {
     const tree = buildTree([change('src/a/x.ts', 1, 0), change('src/y.ts', 1, 0)])
-    const rows = flattenTree(tree, new Set(['folder:src']))
+    const rows = visibleRows(tree, new Set(['folder:src']))
     expect(rows.map((row) => row.key)).toEqual(['folder:src'])
     const folder = rows[0]
     expect(folder?.kind === 'folder' && folder.open).toBe(false)
   })
 
   test('a key prefix keeps the keys of two trees apart', () => {
-    const keys = flattenTree(buildTree([change('a.ts', 1, 0)]), new Set(), 'sha1/').map((row) => row.key)
+    const keys = visibleRows(buildTree([change('a.ts', 1, 0)]), new Set(), 'sha1/').map((row) => row.key)
     expect(keys).toEqual(['sha1/file:a.ts'])
   })
 
   test('folder totals sum the descendants', () => {
-    const rows = flattenTree(buildTree([change('src/a.ts', 2, 1), change('src/b.ts', 3, 0)]), new Set())
+    const rows = visibleRows(buildTree([change('src/a.ts', 2, 1), change('src/b.ts', 3, 0)]), new Set())
     const folder = rows[0]
     expect(folder?.kind === 'folder' && folder.added).toBe(5)
+  })
+})
+
+describe('startsCollapsed', () => {
+  test('is false up to the threshold and true above it', () => {
+    expect(AUTO_COLLAPSE_FILE_COUNT).toBe(20)
+    expect(startsCollapsed(20)).toBe(false)
+    expect(startsCollapsed(21)).toBe(true)
+    expect(startsCollapsed(0)).toBe(false)
+  })
+})
+
+describe('folderKeys and collapsedFolders', () => {
+  const tree = buildTree([change('src/a/x.ts', 1, 0), change('src/y.ts', 1, 0), change('z.md', 1, 0)])
+
+  test('lists every folder key, parents first', () => {
+    expect(folderKeys(tree)).toEqual(['folder:src', 'folder:src/a'])
+  })
+
+  test('collapses every folder by default when the default is collapsed', () => {
+    expect([...collapsedFolders(tree, true, new Set())].sort()).toEqual(['folder:src', 'folder:src/a'])
+  })
+
+  test('collapses no folder by default when the default is expanded', () => {
+    expect(collapsedFolders(tree, false, new Set()).size).toBe(0)
+  })
+
+  test('a toggled folder flips from the default', () => {
+    expect([...collapsedFolders(tree, true, new Set(['folder:src']))]).toEqual(['folder:src/a'])
+    expect([...collapsedFolders(tree, false, new Set(['folder:src/a']))]).toEqual(['folder:src/a'])
+  })
+
+  test('a collapsed-by-default tree shows only its top-level rows until a folder is opened', () => {
+    const rows = visibleRows(tree, collapsedFolders(tree, true, new Set()))
+    expect(rows.map((row) => row.key)).toEqual(['folder:src', 'file:z.md'])
+    const opened = visibleRows(tree, collapsedFolders(tree, true, new Set(['folder:src'])))
+    expect(opened.map((row) => row.key)).toEqual(['folder:src', 'folder:src/a', 'file:src/y.ts', 'file:z.md'])
   })
 })
 
