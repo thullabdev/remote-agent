@@ -16,4 +16,16 @@ describe('highlight', () => {
     expect(html).toContain('&lt;b&gt;')
     expect(html).not.toContain('<b>')
   })
+
+  test('highlightLine escapes output when the shiki language is unknown', async () => {
+    const html = await highlightLine('<b>', 'nope-lang')
+    expect(html).toBe('&lt;b&gt;')
+  })
+
+  test('highlightLine returns an inline fragment from the real shiki path', async () => {
+    const html = await highlightLine('const a = 1', 'typescript')
+    expect(html).toContain('<span')
+    expect(html.startsWith('<pre')).toBe(false)
+    expect(html.includes('<code')).toBe(false)
+  })
 })

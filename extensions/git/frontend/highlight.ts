@@ -18,7 +18,10 @@ let shikiPromise: Promise<ShikiModule | null> | null = null
 
 function loadShiki(): Promise<ShikiModule | null> {
   if (shikiPromise === null) {
-    shikiPromise = import('shiki').catch(() => null)
+    shikiPromise = import('shiki').catch(() => {
+      shikiPromise = null
+      return null
+    })
   }
   return shikiPromise
 }
@@ -50,7 +53,11 @@ export async function highlightLine(code: string, lang: string): Promise<string>
     if (shiki === null) {
       return escapeHtml(code)
     }
-    return await shiki.codeToHtml(code, { lang, themes: { light: 'github-light', dark: 'github-dark' } })
+    return await shiki.codeToHtml(code, {
+      lang,
+      themes: { light: 'github-light', dark: 'github-dark' },
+      structure: 'inline',
+    })
   } catch {
     return escapeHtml(code)
   }
