@@ -17,8 +17,11 @@ export type Notify = (message: string, kind?: 'success' | 'error') => void
 export type PanelContext = {
   params: Record<string, string>
   openPanel: OpenPanel
-  /** Leaves the panel for the chat list. `replace` swaps the history entry instead of adding one. */
-  closePanel(options?: { replace?: boolean }): void
+  /**
+   * Leaves the panel. With `chatId`, opens that chat; without it, leaves the panel for the chat list. `replace` swaps the history entry
+   * instead of adding one (only when no chat is opened).
+   */
+  closePanel(options?: { replace?: boolean; chatId?: string }): void
   notify: Notify
   density: 'compact' | 'comfortable'
 }

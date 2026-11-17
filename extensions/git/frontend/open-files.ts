@@ -52,3 +52,12 @@ export function writeOpenDiffs(storage: OpenStateStorage | null, chatId: string,
     // Storage unavailable or full: the open diffs still work for this session.
   }
 }
+
+/** The browser's local storage, or null when it is unavailable (no window, or access is blocked). */
+export function browserStorage(): OpenStateStorage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}

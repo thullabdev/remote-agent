@@ -56,6 +56,8 @@ export async function highlightLine(code: string, lang: string): Promise<string>
     return await shiki.codeToHtml(code, {
       lang,
       themes: { light: 'github-light', dark: 'github-dark' },
+      // No inline colour: each span carries --shiki-light and --shiki-dark, and the diff's CSS picks one per theme.
+      defaultColor: false,
       structure: 'inline',
     })
   } catch {

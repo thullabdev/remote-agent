@@ -29,3 +29,12 @@ describe('highlight', () => {
     expect(html.includes('<code')).toBe(false)
   })
 })
+
+describe('highlight theme output', () => {
+  test('highlighted spans carry both theme colours as CSS variables and no background', async () => {
+    const html = await highlightLine('const a = 1', 'typescript')
+    expect(html).toContain('--shiki-light:')
+    expect(html).toContain('--shiki-dark:')
+    expect(html).not.toContain('background')
+  })
+})

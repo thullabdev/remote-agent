@@ -259,18 +259,26 @@ export function App() {
   }, [])
 
   /**
-   * Leaves the panel for the chat list. Replaces the history entry when asked, so going back does not reopen what was closed.
+   * Leaves the panel for the chat list, or for `chatId` when given. Replaces the history entry when asked, so going back does not
+   * reopen what was closed. Opening a chat adds its own history entry.
    */
-  const closePanel = useCallback((options?: { replace?: boolean }) => {
-    setActivePanel(null)
-    const url = new URL(window.location.href)
-    clearPanelParams(url, activePanelRef.current)
-    if (options?.replace === true) {
-      window.history.replaceState(null, '', url)
-    } else {
-      window.history.pushState(null, '', url)
-    }
-  }, [])
+  const closePanel = useCallback(
+    (options?: { replace?: boolean; chatId?: string }) => {
+      if (options?.chatId !== undefined) {
+        openChat(options.chatId)
+        return
+      }
+      setActivePanel(null)
+      const url = new URL(window.location.href)
+      clearPanelParams(url, activePanelRef.current)
+      if (options?.replace === true) {
+        window.history.replaceState(null, '', url)
+      } else {
+        window.history.pushState(null, '', url)
+      }
+    },
+    [openChat],
+  )
 
   /**
    * Opens a chat and reveals one of its messages, loading older pages until it is there. Bookmarks, fork points and Prompts all use

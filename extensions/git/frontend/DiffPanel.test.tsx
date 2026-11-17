@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { DiffHunk, DiffLine } from '../backend/parse.ts'
-import { DiffView, loadDiff, type DiffViewProps, type FetchDiff } from './DiffPanel.tsx'
+import { DiffView, loadDiff, panelParamsFor, scopeLabel, type DiffViewProps, type FetchDiff } from './DiffPanel.tsx'
 
 function line(kind: DiffLine['kind'], text: string, oldLine: number | null, newLine: number | null): DiffLine {
   return { kind, oldLine, newLine, text }
@@ -10,6 +10,7 @@ function line(kind: DiffLine['kind'], text: string, oldLine: number | null, newL
 function view(overrides: Partial<DiffViewProps>): string {
   const props: DiffViewProps = {
     path: 'src/a.txt',
+    scope: 'unstaged',
     added: 0,
     removed: 0,
     binary: false,
@@ -98,5 +99,72 @@ describe('DiffView', () => {
     const html = view({ added: 1, hunks })
     expect(html).toContain('&lt;b&gt;&quot;x&quot; &amp; y&lt;/b&gt;')
     expect(html).not.toContain('<b>')
+  })
+})
+
+describe('DiffView tabs, footer and background', () => {
+  test('a tab shows only the file name, and the footer shows the full path and scope', () => {
+    const html = view({ path: 'src/deep/a.ts', scope: 'staged', tabs: [{ path: 'src/deep/a.ts', scope: 'staged' }] })
+    expect(html).toContain('>a.ts</button>')
+    expect(html.match(/src\/deep\/a\.ts/g)).toHaveLength(1)
+    expect(html).toContain('font-mono')
+    expect(html).toContain('>staged</span>')
+  })
+
+  test('the shown diff is added as a tab when it is not in the list', () => {
+    const html = view({ path: 'src/new.ts', scope: 'unstaged', tabs: [{ path: 'src/old.ts', scope: 'unstaged' }] })
+    expect(html).toContain('>old.ts</button>')
+    expect(html).toContain('>new.ts</button>')
+  })
+
+  test('the active tab is marked selected and each tab has a close control', () => {
+    const html = view({
+      path: 'b.ts',
+      scope: 'unstaged',
+      tabs: [
+        { path: 'a.ts', scope: 'unstaged' },
+        { path: 'b.ts', scope: 'unstaged' },
+      ],
+    })
+    expect(html).toMatch(/aria-selected="true"[^>]*>b\.ts<\/button>/)
+    expect(html).toMatch(/aria-selected="false"[^>]*>a\.ts<\/button>/)
+    expect(html).toContain('aria-label="Close a.ts"')
+    expect(html).toContain('aria-label="Close b.ts"')
+  })
+
+  test('the panel uses the main background, not the card background', () => {
+    const html = view({ path: 'a.ts' })
+    expect(html).toContain('bg-background')
+    expect(html).not.toContain('bg-card')
+  })
+
+  test('the diff code container carries the theme class', () => {
+    const hunks: DiffHunk[] = [{ header: '@@', lines: [line('added', 'x', null, 1)] }]
+    expect(view({ added: 1, hunks })).toContain('git-diff-code')
+  })
+})
+
+describe('scopeLabel and panelParamsFor', () => {
+  test('scopeLabel shows the short sha for a commit and the scope otherwise', () => {
+    expect(scopeLabel('commit', 'abcdef1234567')).toBe('abcdef1')
+    expect(scopeLabel('staged')).toBe('staged')
+    expect(scopeLabel('unstaged')).toBe('unstaged')
+  })
+
+  test('panelParamsFor keeps the chat, the origin and the commit sha', () => {
+    expect(panelParamsFor({ path: 'a.ts', scope: 'unstaged' }, { cwd: '/r', chatId: 'c1', from: 'c1' })).toEqual({
+      cwd: '/r',
+      chatId: 'c1',
+      path: 'a.ts',
+      scope: 'unstaged',
+      from: 'c1',
+    })
+    expect(panelParamsFor({ path: 'a.ts', scope: 'commit', sha: 'abc' }, { cwd: '/r', chatId: 'c1' })).toEqual({
+      cwd: '/r',
+      chatId: 'c1',
+      path: 'a.ts',
+      scope: 'commit',
+      sha: 'abc',
+    })
   })
 })

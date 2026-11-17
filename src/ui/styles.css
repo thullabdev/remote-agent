@@ -233,3 +233,12 @@ button { -webkit-tap-highlight-color: transparent; }
   *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
   .chat-glow::before, .chat-glow::after { animation: none; }
 }
+
+/* Diff code: shiki writes each token's light colour as --shiki-light and dark colour as --shiki-dark; the app's theme picks one. */
+.git-diff-code span[style*="--shiki-"] {
+  color: var(--shiki-light);
+}
+
+.dark .git-diff-code span[style*="--shiki-"] {
+  color: var(--shiki-dark);
+}
