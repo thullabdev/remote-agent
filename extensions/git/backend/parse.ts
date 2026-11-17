@@ -13,6 +13,7 @@ export type Commit = {
   sha: string
   shortSha: string
   author: string
+  // raw seconds since epoch from %at (not milliseconds)
   at: number
   subject: string
   pushed: boolean
