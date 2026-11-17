@@ -4,6 +4,8 @@ import type { ITheme, Terminal as XtermTerminal } from '@xterm/xterm'
 import { Maximize2, Minimize2, Plus, Terminal as TerminalIcon, X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
+import { SidePanelEmptyState } from '../../../src/ui/components/side-panel/SidePanelEmptyState.tsx'
+import { SidePanelHeader } from '../../../src/ui/components/side-panel/SidePanelHeader.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
 import type { SideTabContext } from '../../../src/ui/extension-slots.ts'
 import { chatFolder, startTerminal } from './actions.ts'
@@ -328,25 +330,29 @@ export function TerminalsSideTab({ activeChat, notify, density }: SideTabContext
 
   const panel = (
     <section aria-labelledby="side-terminal-title" className="relative flex min-h-0 flex-1 flex-col">
-      <header className={cn('flex h-14 shrink-0 items-center gap-2', padX)}>
-        <h2 id="side-terminal-title" className="min-w-0 flex-1 truncate font-display text-xl font-semibold tracking-tight">
-          Terminal
-        </h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hidden md:inline-flex"
-          aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-          aria-pressed={fullscreen}
-          title={fullscreen ? 'Exit full screen' : 'Full screen'}
-          onClick={() => setFullscreen(value => !value)}
-        >
-          {fullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-        </Button>
-        <Button size="icon" className="hidden md:inline-flex" aria-label="New terminal" title={folder === undefined ? 'Start a terminal in a project' : 'Start a terminal in this session\'s folder'} onClick={addTerminal}>
-          <Plus aria-hidden="true" />
-        </Button>
-      </header>
+      <SidePanelHeader
+        title="Terminal"
+        titleId="side-terminal-title"
+        padX={padX}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden md:inline-flex"
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              aria-pressed={fullscreen}
+              title={fullscreen ? 'Exit full screen' : 'Full screen'}
+              onClick={() => setFullscreen(value => !value)}
+            >
+              {fullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+            </Button>
+            <Button size="icon" className="hidden md:inline-flex" aria-label="New terminal" title={folder === undefined ? 'Start a terminal in a project' : 'Start a terminal in this session\'s folder'} onClick={addTerminal}>
+              <Plus aria-hidden="true" />
+            </Button>
+          </>
+        }
+      />
 
 
       {terminals.length > 1 ? (
@@ -399,17 +405,12 @@ export function TerminalsSideTab({ activeChat, notify, density }: SideTabContext
           ) : null}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-8 text-center">
-          <div className="grid size-16 place-items-center rounded-3xl bg-card shadow-sm">
-            <TerminalIcon className="size-6 text-muted-foreground" aria-hidden="true" />
-          </div>
-          <p className="mt-5 font-display text-xl font-semibold tracking-tight">No terminal sessions</p>
-          <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Start a shell in this session's folder, or pick a project.</p>
-          <Button className="mt-5" variant="outline" onClick={addTerminal}>
-            <Plus className="mr-2 size-4" aria-hidden="true" />
-            Start terminal
-          </Button>
-        </div>
+        <SidePanelEmptyState
+          icon={TerminalIcon}
+          title="No terminal sessions"
+          description="Start a shell in this session's folder, or pick a project."
+          action={{ label: 'Start terminal', onClick: addTerminal, icon: Plus }}
+        />
       )}
 
 
