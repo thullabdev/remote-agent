@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileDiff, logOf, repoInfo, runGit, statusOf } from './git.ts'
@@ -80,5 +80,24 @@ describe('git runner', () => {
   test('folder that is not a repo reports repo false', async () => {
     const outside = tempDir()
     expect(await repoInfo(outside)).toEqual({ repo: false })
+  })
+
+  test('untracked file over 1 MB is not read and reports null counts', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'big.txt'), Buffer.alloc(1_048_577, 97))
+    const status = await statusOf(repo)
+    expect(status.unstaged).toMatchObject([{ path: 'big.txt', status: 'untracked', added: null, removed: null }])
+  })
+
+  test('untracked symlink is not counted as a regular file and reports null counts', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'target.txt'), 'one\ntwo\n')
+    symlinkSync(join(repo, 'target.txt'), join(repo, 'link.txt'))
+    const status = await statusOf(repo)
+    expect(status.unstaged.find(change => change.path === 'link.txt')).toMatchObject({
+      status: 'untracked',
+      added: null,
+      removed: null,
+    })
   })
 })

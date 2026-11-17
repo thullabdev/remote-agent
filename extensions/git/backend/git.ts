@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises'
+import { lstat, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import {
   parseLog,
@@ -31,7 +31,7 @@ export const runGit: GitRun = async (cwd, args, options) => {
     stdin: input === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' },
   })
   if (input !== undefined && typeof proc.stdin !== 'number' && proc.stdin !== undefined) {
     proc.stdin.write(input)
@@ -96,10 +96,18 @@ function withCounts(changes: FileChange[], numstat: Map<string, NumstatEntry>): 
   })
 }
 
+/** Untracked files above this size are not read; their counts are reported as null. */
+const UNTRACKED_COUNT_CAP_BYTES = 1_048_576
+
 /** Counts an untracked file's lines; git's own heuristic treats a NUL byte in the first 8000 bytes as binary. */
 async function untrackedCounts(root: string, path: string): Promise<Pick<FileChange, 'added' | 'removed' | 'binary'>> {
+  const full = join(root, path)
   try {
-    const bytes = new Uint8Array(await Bun.file(join(root, path)).arrayBuffer())
+    const info = await lstat(full)
+    if (!info.isFile() || info.size > UNTRACKED_COUNT_CAP_BYTES) {
+      return { added: null, removed: null, binary: false }
+    }
+    const bytes = new Uint8Array(await Bun.file(full).arrayBuffer())
     if (bytes.subarray(0, 8000).includes(0)) {
       return { added: null, removed: null, binary: true }
     }

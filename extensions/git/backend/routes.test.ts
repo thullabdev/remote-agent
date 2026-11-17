@@ -101,4 +101,20 @@ describe('git routes', () => {
     const response = await routes.status(get('status', { cwd: '/no/such/dir' }))
     expect(response.status).toBe(400)
   })
+
+  test('stage treats bracket names as literal paths, not globs', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, '[id].tsx'), 'a\n')
+    writeFileSync(join(repo, 'i.tsx'), 'a\n')
+    await git(repo, 'add', '--', '[id].tsx', 'i.tsx')
+    await git(repo, 'commit', '-q', '-m', 'init')
+    writeFileSync(join(repo, '[id].tsx'), 'a\nb\n')
+    writeFileSync(join(repo, 'i.tsx'), 'a\nb\n')
+
+    const response = await routes.stage(post('stage', { cwd: repo, paths: ['[id].tsx'] }))
+    expect(response.status).toBe(200)
+    const status = await (await routes.status(get('status', { cwd: repo }))).json()
+    expect(status.staged.map((change: { path: string }) => change.path)).toEqual(['[id].tsx'])
+    expect(status.unstaged.map((change: { path: string }) => change.path)).toEqual(['i.tsx'])
+  })
 })
