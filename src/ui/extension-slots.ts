@@ -39,11 +39,16 @@ export type SideTab = { title: string; icon: SideTabIcon; render: (context: Side
 export type DashboardContext = { online: boolean; openPanel: OpenPanel; openSideTab: OpenSideTab; notify: Notify }
 export type ChatActionContext = { chat: Chat; openPanel: OpenPanel; openSideTab: OpenSideTab; notify: Notify }
 
+/** What a chat-info section's render gets. */
+export type ChatInfoSectionContext = { chat: Chat; openPanel: OpenPanel; notify: Notify; density: 'compact' | 'comfortable' }
+type ChatInfoSection = { title: string; render: (context: ChatInfoSectionContext) => ReactNode }
+
 type Slot<C> = Map<string, (context: C) => ReactNode>
 
 const sideTabsById = new Map<string, SideTab>()
 const dashboard: Slot<DashboardContext> = new Map()
 const chatActions: Slot<ChatActionContext> = new Map()
+const chatInfoById = new Map<string, ChatInfoSection>()
 
 /** A tab in the side column's strip. The same id replaces the tab registered before it. */
 export function registerSideTab(id: string, tab: SideTab): void {
@@ -58,6 +63,11 @@ export function registerDashboardCard(id: string, render: (context: DashboardCon
 /** A control in a chat's header. */
 export function registerChatAction(id: string, render: (context: ChatActionContext) => ReactNode): void {
   chatActions.set(id, render)
+}
+
+/** An accordion section in a chat's info. The same id replaces the section registered before it, keeping its place. */
+export function registerChatInfoSection(id: string, title: string, render: (context: ChatInfoSectionContext) => ReactNode): void {
+  chatInfoById.set(id, { title, render })
 }
 
 function rendered<C>(slot: Slot<C>, context: C): ReactNode[] {
@@ -83,9 +93,15 @@ export function chatActionsFor(context: ChatActionContext): ReactNode[] {
   return rendered(chatActions, context)
 }
 
+/** The registered chat-info sections, in the order they were registered. */
+export function chatInfoSections(): Array<{ id: string; title: string; render: (context: ChatInfoSectionContext) => ReactNode }> {
+  return [...chatInfoById].map(([id, section]) => ({ id, ...section }))
+}
+
 /** For tests only. */
 export function clearSlotsForTesting(): void {
   sideTabsById.clear()
   dashboard.clear()
   chatActions.clear()
+  chatInfoById.clear()
 }
