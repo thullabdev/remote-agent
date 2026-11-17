@@ -2,7 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Commit, FileChange } from '../backend/parse.ts'
 import type { OpenDiff } from './open-files.ts'
-import { canCommit, commitStaged, GitHeader, loadGitState, NoChatState, NoRepositoryState, openDiffPanel } from './GitSideTab.tsx'
+import {
+  canCommit,
+  commitStaged,
+  draftFor,
+  GitHeader,
+  isCurrentCwd,
+  loadGitState,
+  NoChatState,
+  NoRepositoryState,
+  openDiffPanel,
+} from './GitSideTab.tsx'
 
 function file(path: string): FileChange {
   return { path, oldPath: null, status: 'modified', added: 1, removed: 0, binary: false }
@@ -28,6 +38,32 @@ describe('canCommit', () => {
 
   test('is true when something is staged and a message is typed', () => {
     expect(canCommit([file('a.ts')], 'Fix the thing')).toBe(true)
+  })
+})
+
+describe('draftFor', () => {
+  test('keeps the draft while the folder is unchanged', () => {
+    expect(draftFor('/repo-a', '/repo-a', 'Fix the thing')).toBe('Fix the thing')
+  })
+
+  test('clears the draft when the folder changes', () => {
+    expect(draftFor('/repo-a', '/repo-b', 'Fix the thing')).toBe('')
+  })
+
+  test('clears the draft when the folder goes away or appears', () => {
+    expect(draftFor('/repo-a', null, 'Fix the thing')).toBe('')
+    expect(draftFor(null, '/repo-a', 'Fix the thing')).toBe('')
+  })
+})
+
+describe('isCurrentCwd', () => {
+  test('accepts a response for the folder shown now', () => {
+    expect(isCurrentCwd('/repo-a', '/repo-a')).toBe(true)
+  })
+
+  test('drops a response for a folder that is no longer shown', () => {
+    expect(isCurrentCwd('/repo-b', '/repo-a')).toBe(false)
+    expect(isCurrentCwd(null, '/repo-a')).toBe(false)
   })
 })
 

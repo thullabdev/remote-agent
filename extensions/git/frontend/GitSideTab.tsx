@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { Commit, FileChange } from '../backend/parse.ts'
 import type { RepoInfo } from '../backend/git.ts'
@@ -21,6 +21,16 @@ export type WriteOpen = (chatId: string, diff: OpenDiff) => void
 type RepoApi = Pick<typeof gitApi, 'repo' | 'status' | 'log'>
 type StatusLogApi = Pick<typeof gitApi, 'status' | 'log'>
 type CommitApi = Pick<typeof gitApi, 'commit' | 'status'>
+
+/** The commit draft carries over only within one folder: a different folder starts with an empty draft. */
+export function draftFor(previousCwd: string | null, nextCwd: string | null, draft: string): string {
+  return previousCwd === nextCwd ? draft : ''
+}
+
+/** Whether a response requested for `requestedCwd` still belongs to the folder shown now. */
+export function isCurrentCwd(latestCwd: string | null, requestedCwd: string): boolean {
+  return latestCwd === requestedCwd
+}
 
 /** Commit is allowed only when something is staged and the message is not blank. */
 export function canCommit(staged: FileChange[], message: string): boolean {
@@ -107,8 +117,15 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
   const [message, setMessage] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
+  const latestCwd = useRef<string | null>(cwd)
 
   useEffect(() => {
+    const previousCwd = latestCwd.current
+    latestCwd.current = cwd
+    setMessage((draft) => draftFor(previousCwd, cwd, draft))
+    if (previousCwd !== cwd) {
+      setConfirming(false)
+    }
     if (cwd === null) {
       return undefined
     }
@@ -136,6 +153,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
 
   async function reload(target: string): Promise<void> {
     const result = await readRepository(api, target)
+    if (!isCurrentCwd(latestCwd.current, target)) {
+      return
+    }
     setRepo(result.repo)
     if (result.state !== null) {
       setState(result.state)
@@ -178,8 +198,10 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     try {
       const result = await commitStaged(api, cwd, message)
       const commits = await api.log(cwd)
-      setMessage('')
-      setState({ status: result.status, commits })
+      if (isCurrentCwd(latestCwd.current, cwd)) {
+        setMessage('')
+        setState({ status: result.status, commits })
+      }
       notify('Committed', 'success')
     } catch (error) {
       notify(messageOf(error), 'error')
