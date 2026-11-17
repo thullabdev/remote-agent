@@ -54,3 +54,21 @@ export function buildTree(files: FileChange[]): TreeNode[] {
   sortRecursively(top)
   return top
 }
+
+function segmentsOf(path: string): string[] {
+  return path.split('/').filter((segment) => segment !== '')
+}
+
+/**
+ * The path of a repo-relative file as seen from the launch folder: relative to it, with `../` segments for a file outside it.
+ */
+export function displayPath(filePath: string, repoRoot: string, launchCwd: string): string {
+  const from = segmentsOf(launchCwd)
+  const to = [...segmentsOf(repoRoot), ...segmentsOf(filePath)]
+  let shared = 0
+  while (shared < from.length && shared < to.length && from[shared] === to[shared]) {
+    shared += 1
+  }
+  const ups = from.slice(shared).map(() => '..')
+  return [...ups, ...to.slice(shared)].join('/')
+}

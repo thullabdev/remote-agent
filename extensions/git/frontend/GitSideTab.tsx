@@ -69,7 +69,8 @@ function browserStorage(): OpenStateStorage | null {
   }
 }
 
-function writeOpen(chatId: string, diff: OpenDiff): void {
+/** Records a diff as open for a chat in the browser's storage. */
+export function writeOpen(chatId: string, diff: OpenDiff): void {
   const storage = browserStorage()
   const kept = readOpenDiffs(storage, chatId).filter((open) => !(open.path === diff.path && open.scope === diff.scope && open.sha === diff.sha))
   writeOpenDiffs(storage, chatId, [...kept, diff])

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { FileChange } from '../backend/parse.ts'
-import { buildTree } from './tree.ts'
+import { buildTree, displayPath } from './tree.ts'
 
 function change(path: string, added: number | null, removed: number | null, binary = false): FileChange {
   return { path, oldPath: null, status: 'modified', added, removed, binary }
@@ -33,5 +33,17 @@ describe('buildTree', () => {
     }
     expect(folder.added).toBe(4)
     expect(folder.removed).toBe(2)
+  })
+})
+
+describe('displayPath', () => {
+  test('a file in a subfolder of the launch folder shows without ../', () => {
+    expect(displayPath('src/feature/a.ts', '/repo', '/repo/src')).toBe('feature/a.ts')
+    expect(displayPath('src/a.ts', '/repo', '/repo')).toBe('src/a.ts')
+  })
+
+  test('a file outside the launch folder shows with ../', () => {
+    expect(displayPath('docs/guide.md', '/repo', '/repo/src')).toBe('../docs/guide.md')
+    expect(displayPath('README.md', '/repo', '/repo/src/feature')).toBe('../../README.md')
   })
 })

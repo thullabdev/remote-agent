@@ -4,3 +4,4 @@
  * Add an extension here, one import line each.
  */
 import '../../extensions/terminal/frontend/index.tsx'
+import '../../extensions/git/frontend/index.tsx'
