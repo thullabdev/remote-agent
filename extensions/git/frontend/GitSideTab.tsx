@@ -17,6 +17,8 @@ export type Scope = 'staged' | 'unstaged' | 'commit'
 export type GitState = { status: { staged: FileChange[]; unstaged: FileChange[] }; commits: Commit[] }
 export type DiffParams = { cwd: string; chatId: string; path: string; scope: Scope; sha?: string }
 export type WriteOpen = (chatId: string, diff: OpenDiff) => void
+/** The snapshot the commit dialog shows and approves: the staged files as reloaded, and the message. */
+export type CommitReview = { staged: FileChange[]; message: string }
 
 type RepoApi = Pick<typeof gitApi, 'repo' | 'status' | 'log'>
 type StatusLogApi = Pick<typeof gitApi, 'status' | 'log'>
@@ -35,6 +37,14 @@ export function isCurrentCwd(latestCwd: string | null, requestedCwd: string): bo
 /** Commit is allowed only when something is staged and the message is not blank. */
 export function canCommit(staged: FileChange[], message: string): boolean {
   return staged.length > 0 && message.trim() !== ''
+}
+
+/** The commit dialog opens only when the reloaded state still has something to commit; it lists exactly that reload. */
+export function commitReviewAfterReload(staged: FileChange[], message: string): CommitReview | null {
+  if (!canCommit(staged, message)) {
+    return null
+  }
+  return { staged, message }
 }
 
 /** Commits the staged changes once, then reads status back. Errors propagate and status is not read. */
@@ -103,6 +113,16 @@ export function NoRepositoryState() {
   return <p className="p-3 text-sm text-muted-foreground">{"No git repository in this chat's folder"}</p>
 }
 
+/** The tab's view when the repository could not be loaded: the header stays so the user can retry. */
+export function RepoErrorState({ message, onRefresh }: { message: string; onRefresh(): void }) {
+  return (
+    <div className="flex flex-col gap-3 p-3">
+      <GitHeader onRefresh={onRefresh} />
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  )
+}
+
 export function NoChatState() {
   return <p className="p-3 text-sm text-muted-foreground">Open a chat to see its repository</p>
 }
@@ -116,8 +136,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
   const [repo, setRepo] = useState<RepoInfo | null>(null)
   const [state, setState] = useState<GitState>({ status: { staged: [], unstaged: [] }, commits: [] })
   const [message, setMessage] = useState('')
-  const [confirming, setConfirming] = useState(false)
+  const [review, setReview] = useState<CommitReview | null>(null)
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const latestCwd = useRef<string | null>(cwd)
 
   useEffect(() => {
@@ -125,13 +146,14 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     latestCwd.current = cwd
     setMessage((draft) => draftFor(previousCwd, cwd, draft))
     if (previousCwd !== cwd) {
-      setConfirming(false)
+      setReview(null)
     }
     if (cwd === null) {
       return undefined
     }
     let stale = false
     setRepo(null)
+    setLoadError(null)
     readRepository(api, cwd).then(
       (result) => {
         if (!stale) {
@@ -143,6 +165,7 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
       },
       (error: unknown) => {
         if (!stale) {
+          setLoadError(messageOf(error))
           notify(messageOf(error), 'error')
         }
       },
@@ -152,15 +175,18 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     }
   }, [cwd])
 
-  async function reload(target: string): Promise<void> {
+  /** Reads the repository for a folder into the tab. Returns the fresh state, or null when nothing was applied. */
+  async function reload(target: string): Promise<GitState | null> {
     const result = await readRepository(api, target)
     if (!isCurrentCwd(latestCwd.current, target)) {
-      return
+      return null
     }
     setRepo(result.repo)
+    setLoadError(null)
     if (result.state !== null) {
       setState(result.state)
     }
+    return result.state
   }
 
   async function reloadSafely(): Promise<void> {
@@ -170,6 +196,7 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     try {
       await reload(cwd)
     } catch (error) {
+      setLoadError(messageOf(error))
       notify(messageOf(error), 'error')
     }
   }
@@ -190,14 +217,34 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     }
   }
 
-  async function confirmCommit(): Promise<void> {
-    setConfirming(false)
+  /** Reloads status and the log first, so the dialog lists what is staged now. The dialog opens only after that succeeds. */
+  async function openCommitReview(): Promise<void> {
     if (cwd === null) {
       return
     }
     setBusy(true)
     try {
-      const result = await commitStaged(api, cwd, message)
+      const fresh = await reload(cwd)
+      if (fresh === null) {
+        return
+      }
+      setReview(commitReviewAfterReload(fresh.status.staged, message))
+    } catch (error) {
+      notify(messageOf(error), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmCommit(): Promise<void> {
+    const approved = review
+    setReview(null)
+    if (cwd === null || approved === null) {
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await commitStaged(api, cwd, approved.message)
       const commits = await api.log(cwd)
       if (isCurrentCwd(latestCwd.current, cwd)) {
         setMessage('')
@@ -224,6 +271,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
   if (cwd === null) {
     return <NoRepositoryState />
   }
+  if (repo === null && loadError !== null) {
+    return <RepoErrorState message={loadError} onRefresh={() => void reloadSafely()} />
+  }
   if (repo === null) {
     return <p className="p-3 text-sm text-muted-foreground">Loading repository…</p>
   }
@@ -246,7 +296,7 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
           />
           <div className="flex flex-col gap-2">
             <Textarea aria-label="Commit message" placeholder="Commit message" value={message} onChange={(event) => setMessage(event.target.value)} />
-            <Button className="self-end" disabled={busy || !canCommit(staged, message)} onClick={() => setConfirming(true)}>
+            <Button className="self-end" disabled={busy || !canCommit(staged, message)} onClick={() => void openCommitReview()}>
               Commit
             </Button>
           </div>
@@ -265,10 +315,10 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
         <CommitLog commits={state.commits} cwd={cwd} onOpen={(file, sha) => openFile('commit', file.path, sha)} />
       </Accordion>
       <CommitDialog
-        open={confirming}
-        message={message}
-        staged={staged}
-        onCancel={() => setConfirming(false)}
+        open={review !== null}
+        message={review?.message ?? ''}
+        staged={review?.staged ?? []}
+        onCancel={() => setReview(null)}
         onConfirm={() => void confirmCommit()}
       />
     </div>

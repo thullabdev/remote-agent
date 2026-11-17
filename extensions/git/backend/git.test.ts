@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileDiff, logOf, repoInfo, runGit, statusOf } from './git.ts'
+import { fileDiff, gitEnv, logOf, repoInfo, runGit, statusOf } from './git.ts'
 
 const dirs: string[] = []
 
@@ -68,6 +68,38 @@ describe('git runner', () => {
     expect(status.unstaged).toMatchObject([{ path: 'image.bin', binary: true, added: null }])
     const diff = await fileDiff(repo, 'image.bin', 'unstaged', null)
     expect(diff).toEqual({ binary: true, hunks: [] })
+  })
+
+  test('pushed split: with one local commit ahead of upstream, the older commit is pushed and the new one is local', async () => {
+    const remote = tempDir()
+    await git(remote, 'init', '-q', '--bare')
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    await git(repo, 'add', '--', 'a.txt')
+    await git(repo, 'commit', '-q', '-m', 'pushed one')
+    await git(repo, 'remote', 'add', 'origin', remote)
+    await git(repo, 'push', '-q', '-u', 'origin', 'HEAD')
+    writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n')
+    await git(repo, 'commit', '-q', '-am', 'local two')
+
+    const commits = await logOf(repo, 10)
+    expect(commits.map(commit => [commit.subject, commit.pushed])).toEqual([
+      ['local two', false],
+      ['pushed one', true],
+    ])
+  })
+
+  test('gitEnv sets GIT_LITERAL_PATHSPECS only for commands that take pathspecs', () => {
+    expect(gitEnv(['commit', '-m', 'x'], {}).GIT_LITERAL_PATHSPECS).toBeUndefined()
+    expect(gitEnv(['log', '-n', '1'], {}).GIT_LITERAL_PATHSPECS).toBeUndefined()
+    expect(gitEnv(['rev-parse', 'HEAD'], {}).GIT_LITERAL_PATHSPECS).toBeUndefined()
+    expect(gitEnv(['add', '--', 'a.txt'], {}).GIT_LITERAL_PATHSPECS).toBe('1')
+    expect(gitEnv(['show', '--format=', '--', 'a.txt'], {}).GIT_LITERAL_PATHSPECS).toBe('1')
+    expect(gitEnv(['show', '--format=', 'abc123'], {}).GIT_LITERAL_PATHSPECS).toBeUndefined()
+  })
+
+  test('gitEnv drops an inherited GIT_LITERAL_PATHSPECS for commands that take none', () => {
+    expect(gitEnv(['commit', '-m', 'x'], { GIT_LITERAL_PATHSPECS: '1', PATH: '/bin' })).toEqual({ PATH: '/bin', GIT_TERMINAL_PROMPT: '0' })
   })
 
   test('subfolder launch reports repo true with the repository root', async () => {

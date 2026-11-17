@@ -24,6 +24,32 @@ export type RepoInfo =
 /** A git command failed; the message is git's stderr. */
 export class GitError extends Error {}
 
+/** Commands whose arguments are pathspecs; only these get literal pathspec matching. */
+const PATHSPEC_COMMANDS = new Set(['add', 'restore', 'rm', 'diff', 'ls-files'])
+
+function takesPathspecs(args: string[]): boolean {
+  const command = args[0] ?? ''
+  return PATHSPEC_COMMANDS.has(command) || (command === 'show' && args.includes('--'))
+}
+
+/**
+ * The environment for one git call. GIT_LITERAL_PATHSPECS is set only for commands that take pathspecs,
+ * so commit hooks and other commands never see it. Any inherited value is dropped first.
+ */
+export function gitEnv(args: string[], base: Record<string, string | undefined> = process.env): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined && key !== 'GIT_LITERAL_PATHSPECS') {
+      env[key] = value
+    }
+  }
+  env.GIT_TERMINAL_PROMPT = '0'
+  if (takesPathspecs(args)) {
+    env.GIT_LITERAL_PATHSPECS = '1'
+  }
+  return env
+}
+
 /** Runs git with an argument array, never a shell string. `cwd` becomes `git -C <cwd>`. */
 export const runGit: GitRun = async (cwd, args, options) => {
   const input = options?.input
@@ -31,7 +57,7 @@ export const runGit: GitRun = async (cwd, args, options) => {
     stdin: input === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' },
+    env: gitEnv(args),
   })
   if (input !== undefined && typeof proc.stdin !== 'number' && proc.stdin !== undefined) {
     proc.stdin.write(input)
@@ -154,8 +180,18 @@ export async function logOf(cwd: string, limit: number, run: GitRun = runGit): P
   }
   const format = '%H%x1f%h%x1f%an%x1f%at%x1f%s%x1e'
   const output = await mustRun(run, cwd, ['log', '-n', String(limit), `--format=${format}`])
-  const pushed = await run(cwd, ['rev-list', '@{u}'])
-  const pushedShas = new Set(pushed.exitCode === 0 ? pushed.stdout.split('\n').map(line => line.trim()) : [])
+  // Only the commits ahead of upstream are listed. A logged commit is pushed when it is not one of them.
+  // With no upstream the command fails, every commit stays local, and no pushed set is built.
+  const ahead = await run(cwd, ['rev-list', '@{u}..HEAD'])
+  if (ahead.exitCode !== 0) {
+    return parseLog(output, new Set())
+  }
+  const localOnly = new Set(ahead.stdout.split('\n').map(line => line.trim()))
+  const loggedShas = output
+    .split('\x1e')
+    .map(record => record.replace(/^\n+/, '').split('\x1f')[0]?.trim() ?? '')
+    .filter(sha => sha !== '')
+  const pushedShas = new Set(loggedShas.filter(sha => !localOnly.has(sha)))
   return parseLog(output, pushedShas)
 }
 

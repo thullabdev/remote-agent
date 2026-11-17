@@ -4,6 +4,7 @@ import type { Commit, FileChange } from '../backend/parse.ts'
 import type { OpenDiff } from './open-files.ts'
 import {
   canCommit,
+  commitReviewAfterReload,
   commitStaged,
   draftFor,
   GitHeader,
@@ -12,6 +13,7 @@ import {
   NoChatState,
   NoRepositoryState,
   openDiffPanel,
+  RepoErrorState,
 } from './GitSideTab.tsx'
 
 function file(path: string): FileChange {
@@ -64,6 +66,21 @@ describe('isCurrentCwd', () => {
   test('drops a response for a folder that is no longer shown', () => {
     expect(isCurrentCwd('/repo-b', '/repo-a')).toBe(false)
     expect(isCurrentCwd(null, '/repo-a')).toBe(false)
+  })
+})
+
+describe('commitReviewAfterReload', () => {
+  test('opens the review with exactly the staged files that were just reloaded and the message', () => {
+    const reloaded = [file('a.ts'), file('src/b.ts')]
+    expect(commitReviewAfterReload(reloaded, 'Fix the thing')).toEqual({ staged: reloaded, message: 'Fix the thing' })
+  })
+
+  test('does not open the review when nothing is staged after the reload', () => {
+    expect(commitReviewAfterReload([], 'Fix the thing')).toBeNull()
+  })
+
+  test('does not open the review when the message is blank', () => {
+    expect(commitReviewAfterReload([file('a.ts')], '  ')).toBeNull()
   })
 })
 
@@ -171,6 +188,14 @@ describe('GitSideTab markup', () => {
 
   test('shows the prompt to open a chat when there is no active chat', () => {
     expect(text(renderToStaticMarkup(<NoChatState />))).toContain('Open a chat to see its repository')
+  })
+
+  test('a repository load error keeps the header and refresh button and drops the loading text', () => {
+    const markup = renderToStaticMarkup(<RepoErrorState message="cwd does not exist" onRefresh={() => {}} />)
+    expect(markup).toContain('aria-label="Refresh"')
+    expect(text(markup)).toContain('Git')
+    expect(text(markup)).toContain('cwd does not exist')
+    expect(text(markup)).not.toContain('Loading repository')
   })
 
   test('renders a refresh button in the header', () => {

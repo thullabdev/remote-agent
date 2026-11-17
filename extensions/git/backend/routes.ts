@@ -136,7 +136,8 @@ export function createGitRoutes(deps: { run?: GitRun }): {
     } else if (repo.hasCommits) {
       await mustRun(run, repo.root, ['restore', '--staged', '--', ...paths])
     } else {
-      await mustRun(run, repo.root, ['rm', '--cached', '-q', '--', ...paths])
+      // -f lets rm --cached drop a file whose index copy differs from the work tree; --cached never touches the work tree.
+      await mustRun(run, repo.root, ['rm', '--cached', '-q', '-f', '--', ...paths])
     }
     return Response.json({ ok: true })
   }

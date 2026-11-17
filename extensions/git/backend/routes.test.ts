@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runGit } from './git.ts'
@@ -95,6 +95,19 @@ describe('git routes', () => {
     expect(response.status).toBe(200)
     const status = await (await routes.status(get('status', { cwd: repo }))).json()
     expect(status).toMatchObject({ staged: [], unstaged: [{ path: 'a.txt', status: 'untracked' }] })
+  })
+
+  test('unstage in a repository without commits works when the staged file was edited again', async () => {
+    const repo = await makeRepo()
+    writeFileSync(join(repo, 'a.txt'), 'x\n')
+    await git(repo, 'add', '--', 'a.txt')
+    writeFileSync(join(repo, 'a.txt'), 'x\ny\n')
+
+    const response = await routes.unstage(post('unstage', { cwd: repo, paths: ['a.txt'] }))
+    expect(response.status).toBe(200)
+    const status = await (await routes.status(get('status', { cwd: repo }))).json()
+    expect(status).toMatchObject({ staged: [], unstaged: [{ path: 'a.txt', status: 'untracked' }] })
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('x\ny\n')
   })
 
   test('a missing cwd is a 400', async () => {
