@@ -1,21 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, FolderGit2, GitBranch, MessageSquareText, RefreshCw } from 'lucide-react'
 import type { Commit, FileChange } from '../backend/parse.ts'
 import type { RepoInfo } from '../backend/git.ts'
 import type { OpenPanel, SideTabContext } from '../../../src/ui/extension-slots.ts'
 import { Accordion } from '../../../src/ui/components/ui/accordion.tsx'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { Textarea } from '../../../src/ui/components/ui/textarea.tsx'
-import type { OpenStateStorage } from '../../../src/ui/components/ui/accordion-state.ts'
+import { SidePanelEmptyState } from '../../../src/ui/components/side-panel/SidePanelEmptyState.tsx'
+import { SidePanelHeader } from '../../../src/ui/components/side-panel/SidePanelHeader.tsx'
 import { gitApi } from './client.ts'
 import { CommitDialog } from './CommitDialog.tsx'
 import { CommitLog } from './CommitLog.tsx'
-import { type OpenDiff, readOpenDiffs, writeOpenDiffs } from './open-files.ts'
-import { StatusTree } from './StatusTree.tsx'
+import { addOrActivate } from './diff-tabs.ts'
+import { browserStorage, type OpenDiff, readOpenDiffs, writeOpenDiffs } from './open-files.ts'
+import { SectionTotals, StatusTree } from './StatusTree.tsx'
 
 export type Scope = 'staged' | 'unstaged' | 'commit'
 export type GitState = { status: { staged: FileChange[]; unstaged: FileChange[] }; commits: Commit[] }
-export type DiffParams = { cwd: string; chatId: string; path: string; scope: Scope; sha?: string }
+/** `from` is the chat the diff was opened from: closing the diff panel goes back there. */
+export type DiffParams = { cwd: string; chatId: string; path: string; scope: Scope; sha?: string; from?: string }
 export type WriteOpen = (chatId: string, diff: OpenDiff) => void
 /** The snapshot the commit dialog shows and approves: the staged files as reloaded, and the message. */
 export type CommitReview = { staged: FileChange[]; message: string }
@@ -37,6 +40,17 @@ export function isCurrentCwd(latestCwd: string | null, requestedCwd: string): bo
 /** Commit is allowed only when something is staged and the message is not blank. */
 export function canCommit(staged: FileChange[], message: string): boolean {
   return staged.length > 0 && message.trim() !== ''
+}
+
+/** The line under the Commit button that says what is missing. Null when a commit can go ahead. */
+export function commitHint(stagedCount: number, message: string): string | null {
+  if (stagedCount === 0) {
+    return 'Stage files to commit'
+  }
+  if (message.trim() === '') {
+    return 'Write a commit message'
+  }
+  return null
 }
 
 /** The commit dialog opens only when the reloaded state still has something to commit; it lists exactly that reload. */
@@ -67,23 +81,17 @@ export function openDiffPanel(openPanel: OpenPanel, writeOpen: WriteOpen, params
   if (params.sha !== undefined) {
     panelParams.sha = params.sha
   }
+  if (params.from !== undefined) {
+    panelParams.from = params.from
+  }
   openPanel('git.diff', panelParams)
   writeOpen(params.chatId, diff)
 }
 
-function browserStorage(): OpenStateStorage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
-
-/** Records a diff as open for a chat in the browser's storage. */
+/** Records a diff as open for a chat in the browser's storage. An already-open diff keeps its tab position. */
 export function writeOpen(chatId: string, diff: OpenDiff): void {
   const storage = browserStorage()
-  const kept = readOpenDiffs(storage, chatId).filter((open) => !(open.path === diff.path && open.scope === diff.scope && open.sha === diff.sha))
-  writeOpenDiffs(storage, chatId, [...kept, diff])
+  writeOpenDiffs(storage, chatId, addOrActivate(readOpenDiffs(storage, chatId), diff).list)
 }
 
 function messageOf(error: unknown): string {
@@ -98,33 +106,109 @@ async function readRepository(api: RepoApi, cwd: string): Promise<{ repo: RepoIn
   return { repo, state: await loadGitState(api, cwd) }
 }
 
-export function GitHeader({ onRefresh }: { onRefresh(): void }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <h2 className="font-display text-base font-semibold">Git</h2>
+export type GitView = 'no-chat' | 'no-folder' | 'error' | 'loading' | 'not-repo' | 'repo'
+
+/** Which view the tab shows. Checked in order: no chat, no folder, a failed load, a load in flight, not a repository, a repository. */
+export function gitView(input: { hasChat: boolean; cwd: string | null; repo: RepoInfo | null; loadError: string | null }): GitView {
+  if (!input.hasChat) {
+    return 'no-chat'
+  }
+  if (input.cwd === null) {
+    return 'no-folder'
+  }
+  if (input.repo === null && input.loadError !== null) {
+    return 'error'
+  }
+  if (input.repo === null) {
+    return 'loading'
+  }
+  if (!input.repo.repo) {
+    return 'not-repo'
+  }
+  return 'repo'
+}
+
+/**
+ * The one layout every Git state renders: the Git header first, then the body for the current view. The Refresh button
+ * is in the header only for the repository view.
+ */
+export function GitPanel({
+  view,
+  errorMessage,
+  onRefresh,
+  repoBody,
+}: {
+  view: GitView
+  errorMessage?: string | null
+  onRefresh: () => void
+  repoBody?: ReactNode
+}) {
+  const actions =
+    view === 'repo' ? (
       <Button variant="ghost" size="icon-sm" aria-label="Refresh" onClick={onRefresh}>
         <RefreshCw className="size-4" />
       </Button>
-    </div>
-  )
-}
-
-export function NoRepositoryState() {
-  return <p className="p-3 text-sm text-muted-foreground">{"No git repository in this chat's folder"}</p>
-}
-
-/** The tab's view when the repository could not be loaded: the header stays so the user can retry. */
-export function RepoErrorState({ message, onRefresh }: { message: string; onRefresh(): void }) {
+    ) : undefined
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <GitHeader onRefresh={onRefresh} />
-      <p className="text-sm text-muted-foreground">{message}</p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <SidePanelHeader title="Git" titleId="side-git-title" actions={actions} />
+      <GitBody view={view} errorMessage={errorMessage ?? null} onRefresh={onRefresh} repoBody={repoBody ?? null} />
     </div>
   )
 }
 
-export function NoChatState() {
-  return <p className="p-3 text-sm text-muted-foreground">Open a chat to see its repository</p>
+function GitBody({ view, errorMessage, onRefresh, repoBody }: { view: GitView; errorMessage: string | null; onRefresh: () => void; repoBody: ReactNode }) {
+  if (view === 'no-chat') {
+    return (
+      <SidePanelEmptyState
+        icon={MessageSquareText}
+        title="No chat selected"
+        description="Open a chat to see its repository and file changes here."
+      />
+    )
+  }
+  if (view === 'no-folder') {
+    return (
+      <SidePanelEmptyState
+        icon={FolderGit2}
+        title="No project folder"
+        description="This chat has no project folder. The Git tab works once the chat has a folder inside a git repository."
+      />
+    )
+  }
+  if (view === 'error') {
+    return (
+      <SidePanelEmptyState
+        icon={AlertTriangle}
+        title="Could not read this repository"
+        description={errorMessage ?? 'Git request failed'}
+        action={{ label: 'Try again', onClick: onRefresh, icon: RefreshCw }}
+      />
+    )
+  }
+  if (view === 'loading') {
+    return <p className="p-3 text-sm text-muted-foreground">Loading repository…</p>
+  }
+  if (view === 'not-repo') {
+    return (
+      <SidePanelEmptyState
+        icon={GitBranch}
+        title="Not a git repository"
+        description="This folder is not a git repository. The Git tab works once this chat's folder is inside one."
+      />
+    )
+  }
+  return repoBody
+}
+
+/** The Staged section's body when nothing is staged: says where files come from, and nothing more. */
+export function StagedEmptyState() {
+  return (
+    <div className="flex flex-col gap-0.5 py-1">
+      <p className="text-sm font-medium">Nothing staged</p>
+      <p className="text-xs text-muted-foreground">Stage files from Changes to commit them.</p>
+    </div>
+  )
 }
 
 export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi }) {
@@ -262,47 +346,41 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     if (cwd === null || chatId === null) {
       return
     }
-    openDiffPanel(openPanel, writeOpen, { cwd, chatId, path, scope, sha })
+    openDiffPanel(openPanel, writeOpen, { cwd, chatId, path, scope, sha, from: chatId })
   }
 
-  if (activeChat === null) {
-    return <NoChatState />
-  }
-  if (cwd === null) {
-    return <NoRepositoryState />
-  }
-  if (repo === null && loadError !== null) {
-    return <RepoErrorState message={loadError} onRefresh={() => void reloadSafely()} />
-  }
-  if (repo === null) {
-    return <p className="p-3 text-sm text-muted-foreground">Loading repository…</p>
-  }
-  if (!repo.repo) {
-    return <NoRepositoryState />
-  }
-
+  const view = gitView({ hasChat: activeChat !== null, cwd, repo, loadError })
   const { staged, unstaged } = state.status
-  return (
-    <div className="flex flex-col gap-3 p-3">
-      <GitHeader onRefresh={() => void reloadSafely()} />
-      <Accordion id="git.staged" title={`Staged changes · ${staged.length}`} defaultOpen>
-        <div className="flex flex-col gap-3">
-          <StatusTree
-            files={staged}
-            mode="staged"
-            onOpen={(file) => openFile('staged', file.path)}
-            onStage={(paths) => void changeStaging(true, paths)}
-            onUnstage={(paths) => void changeStaging(false, paths)}
-          />
-          <div className="flex flex-col gap-2">
+  const hint = commitHint(staged.length, message)
+  const repoBody = view === 'repo' && cwd !== null ? (
+    <div className="flex min-h-0 flex-1 flex-col p-3">
+      <Accordion id="git.staged" title={`Staged changes · ${staged.length}`} aside={<SectionTotals files={staged} />} defaultOpen fill>
+        <div className="flex h-full min-h-0 flex-col gap-3">
+          {staged.length === 0 ? (
+            <StagedEmptyState />
+          ) : (
+            <div className="min-h-0 flex-1">
+              <StatusTree
+                files={staged}
+                mode="staged"
+                onOpen={(file) => openFile('staged', file.path)}
+                onStage={(paths) => void changeStaging(true, paths)}
+                onUnstage={(paths) => void changeStaging(false, paths)}
+              />
+            </div>
+          )}
+          <div className="flex shrink-0 flex-col gap-2">
             <Textarea aria-label="Commit message" placeholder="Commit message" value={message} onChange={(event) => setMessage(event.target.value)} />
-            <Button className="self-end" disabled={busy || !canCommit(staged, message)} onClick={() => void openCommitReview()}>
-              Commit
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button disabled={busy || !canCommit(staged, message)} onClick={() => void openCommitReview()}>
+                Commit
+              </Button>
+              {hint === null ? null : <p className="text-xs text-muted-foreground">{hint}</p>}
+            </div>
           </div>
         </div>
       </Accordion>
-      <Accordion id="git.changes" title={`Changes · ${unstaged.length}`} defaultOpen>
+      <Accordion id="git.changes" title={`Changes · ${unstaged.length}`} aside={<SectionTotals files={unstaged} />} defaultOpen fill>
         <StatusTree
           files={unstaged}
           mode="unstaged"
@@ -311,8 +389,14 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
           onUnstage={(paths) => void changeStaging(false, paths)}
         />
       </Accordion>
-      <Accordion id="git.log" title="Git log" defaultOpen>
-        <CommitLog commits={state.commits} cwd={cwd} onOpen={(file, sha) => openFile('commit', file.path, sha)} />
+      <Accordion
+        id="git.log"
+        title="Git log"
+        aside={<span className="font-mono text-xs text-muted-foreground">{state.commits.length}</span>}
+        defaultOpen
+        fill
+      >
+        <CommitLog key={cwd} commits={state.commits} cwd={cwd} onOpen={(file, sha) => openFile('commit', file.path, sha)} />
       </Accordion>
       <CommitDialog
         open={review !== null}
@@ -322,5 +406,6 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
         onConfirm={() => void confirmCommit()}
       />
     </div>
-  )
+  ) : null
+  return <GitPanel view={view} errorMessage={loadError} onRefresh={() => void reloadSafely()} repoBody={repoBody} />
 }

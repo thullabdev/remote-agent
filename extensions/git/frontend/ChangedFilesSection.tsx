@@ -4,6 +4,7 @@ import type { ChatInfoSectionContext } from '../../../src/ui/extension-slots.ts'
 import { gitApi } from './client.ts'
 import { type DiffParams, openDiffPanel, type Scope, writeOpen } from './GitSideTab.tsx'
 import { ChangeCounts } from './StatusTree.tsx'
+import { FileIcon } from './FileIcon.tsx'
 import { displayPath } from './tree.ts'
 
 export type ChangedRow = { file: FileChange; section: 'staged' | 'unstaged' }
@@ -30,7 +31,7 @@ function fileName(path: string): string {
 /** The diff panel's params for a row: the scope follows the section the file is listed in. */
 export function diffParamsFor(row: ChangedRow, cwd: string, chatId: string): DiffParams {
   const scope: Scope = row.section
-  return { cwd, chatId, path: row.file.path, scope }
+  return { cwd, chatId, path: row.file.path, scope, from: chatId }
 }
 
 export function ChangedFilesView({
@@ -57,11 +58,12 @@ export function ChangedFilesView({
           <button
             type="button"
             onClick={() => onOpen(row)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-muted"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted"
           >
+            <FileIcon path={row.file.path} className="size-3.5 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">
-              <span className="font-semibold">{fileName(row.file.path)}</span>{' '}
-              <span className="text-xs text-muted-foreground">{displayPath(row.file.path, repoRoot, launchCwd)}</span>
+              <span className="text-xs font-semibold">{fileName(row.file.path)}</span>{' '}
+              <span className="text-[10px] text-muted-foreground">{displayPath(row.file.path, repoRoot, launchCwd)}</span>
             </span>
             <ChangeCounts added={row.file.added ?? 0} removed={row.file.removed ?? 0} binary={row.file.binary} />
           </button>

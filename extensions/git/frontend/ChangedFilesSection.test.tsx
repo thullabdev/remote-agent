@@ -46,8 +46,8 @@ describe('ChangedFilesView', () => {
 
 describe('clicking a row opens the diff panel with the right scope', () => {
   test('diffParamsFor uses scope unstaged for unstaged files and staged for staged files', () => {
-    expect(diffParamsFor(unstaged, '/repo', 'chat-1')).toEqual({ cwd: '/repo', chatId: 'chat-1', path: 'README.md', scope: 'unstaged' })
-    expect(diffParamsFor(staged, '/repo', 'chat-1')).toEqual({ cwd: '/repo', chatId: 'chat-1', path: 'src/a.ts', scope: 'staged' })
+    expect(diffParamsFor(unstaged, '/repo', 'chat-1')).toEqual({ cwd: '/repo', chatId: 'chat-1', path: 'README.md', scope: 'unstaged', from: 'chat-1' })
+    expect(diffParamsFor(staged, '/repo', 'chat-1')).toEqual({ cwd: '/repo', chatId: 'chat-1', path: 'src/a.ts', scope: 'staged', from: 'chat-1' })
   })
 
   test('the params open the git.diff panel with that scope', () => {
@@ -59,7 +59,7 @@ describe('clicking a row opens the diff panel with the right scope', () => {
       () => {},
       diffParamsFor(staged, '/repo', 'chat-1'),
     )
-    expect(opened).toEqual([{ id: 'git.diff', params: { cwd: '/repo', chatId: 'chat-1', path: 'src/a.ts', scope: 'staged' } }])
+    expect(opened).toEqual([{ id: 'git.diff', params: { cwd: '/repo', chatId: 'chat-1', path: 'src/a.ts', scope: 'staged', from: 'chat-1' } }])
   })
 })
 

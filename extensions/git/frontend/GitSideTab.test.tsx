@@ -1,19 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Commit, FileChange } from '../backend/parse.ts'
+import type { RepoInfo } from '../backend/git.ts'
 import type { OpenDiff } from './open-files.ts'
 import {
   canCommit,
+  commitHint,
   commitReviewAfterReload,
   commitStaged,
   draftFor,
-  GitHeader,
+  GitPanel,
+  type GitView,
+  gitView,
   isCurrentCwd,
   loadGitState,
-  NoChatState,
-  NoRepositoryState,
   openDiffPanel,
-  RepoErrorState,
+  StagedEmptyState,
 } from './GitSideTab.tsx'
 
 function file(path: string): FileChange {
@@ -40,6 +42,22 @@ describe('canCommit', () => {
 
   test('is true when something is staged and a message is typed', () => {
     expect(canCommit([file('a.ts')], 'Fix the thing')).toBe(true)
+  })
+})
+
+describe('commitHint', () => {
+  test('asks for files to be staged when nothing is staged, whatever the message', () => {
+    expect(commitHint(0, '')).toBe('Stage files to commit')
+    expect(commitHint(0, 'Fix the thing')).toBe('Stage files to commit')
+  })
+
+  test('asks for a message when files are staged but the message is blank', () => {
+    expect(commitHint(2, '')).toBe('Write a commit message')
+    expect(commitHint(2, '   \n')).toBe('Write a commit message')
+  })
+
+  test('has no hint when files are staged and a message is typed', () => {
+    expect(commitHint(1, 'Fix the thing')).toBeNull()
   })
 })
 
@@ -181,26 +199,90 @@ describe('loadGitState', () => {
   })
 })
 
-describe('GitSideTab markup', () => {
-  test('shows the empty state when the chat folder is not a repository', () => {
-    expect(text(renderToStaticMarkup(<NoRepositoryState />))).toContain("No git repository in this chat's folder")
+describe('gitView', () => {
+  const repo = { repo: true } as RepoInfo
+  const notRepo = { repo: false } as RepoInfo
+
+  test('shows the no-chat view before anything else', () => {
+    expect(gitView({ hasChat: false, cwd: '/repo', repo, loadError: 'boom' })).toBe('no-chat')
   })
 
-  test('shows the prompt to open a chat when there is no active chat', () => {
-    expect(text(renderToStaticMarkup(<NoChatState />))).toContain('Open a chat to see its repository')
+  test('shows the no-folder view when the chat has no folder', () => {
+    expect(gitView({ hasChat: true, cwd: null, repo: null, loadError: null })).toBe('no-folder')
   })
 
-  test('a repository load error keeps the header and refresh button and drops the loading text', () => {
-    const markup = renderToStaticMarkup(<RepoErrorState message="cwd does not exist" onRefresh={() => {}} />)
+  test('shows the error view when the load failed and no repository is loaded', () => {
+    expect(gitView({ hasChat: true, cwd: '/repo', repo: null, loadError: 'cwd does not exist' })).toBe('error')
+  })
+
+  test('shows the loading view while the first load is in flight', () => {
+    expect(gitView({ hasChat: true, cwd: '/repo', repo: null, loadError: null })).toBe('loading')
+  })
+
+  test('shows the not-repo view when the folder is not a repository', () => {
+    expect(gitView({ hasChat: true, cwd: '/repo', repo: notRepo, loadError: null })).toBe('not-repo')
+  })
+
+  test('shows the repo view when a repository is loaded', () => {
+    expect(gitView({ hasChat: true, cwd: '/repo', repo, loadError: null })).toBe('repo')
+  })
+})
+
+describe('GitPanel layout', () => {
+  const views: GitView[] = ['no-chat', 'no-folder', 'error', 'loading', 'not-repo', 'repo']
+
+  function render(view: GitView): string {
+    return text(
+      renderToStaticMarkup(
+        <GitPanel view={view} errorMessage="cwd does not exist" onRefresh={() => {}} repoBody={<p>Repository body</p>} />,
+      ),
+    )
+  }
+
+  test.each(views)('the %s view renders exactly one Git header with the shared title classes', (view) => {
+    const markup = render(view)
+    expect(markup.split('<header').length - 1).toBe(1)
+    expect(markup).toContain('<h2 id="side-git-title" class="min-w-0 flex-1 truncate font-display text-xl font-semibold tracking-tight">Git</h2>')
+  })
+
+  test('the repo view puts the Refresh button in the header and shows the repository body', () => {
+    const markup = render('repo')
     expect(markup).toContain('aria-label="Refresh"')
-    expect(text(markup)).toContain('Git')
-    expect(text(markup)).toContain('cwd does not exist')
-    expect(text(markup)).not.toContain('Loading repository')
+    expect(markup).toContain('Repository body')
   })
 
-  test('renders a refresh button in the header', () => {
-    const markup = renderToStaticMarkup(<GitHeader onRefresh={() => {}} />)
-    expect(markup).toContain('aria-label="Refresh"')
-    expect(text(markup)).toContain('Git')
+  test.each(['no-chat', 'no-folder', 'error', 'loading', 'not-repo'] as GitView[])('the %s view has no Refresh button in the header', (view) => {
+    expect(render(view)).not.toContain('aria-label="Refresh"')
+  })
+
+  test('the no-chat view says to open a chat', () => {
+    const markup = render('no-chat')
+    expect(markup).toContain('No chat selected')
+    expect(markup).toContain('Open a chat to see its repository and file changes here.')
+  })
+
+  test('the no-folder view names the missing project folder, distinct from the non-repository line', () => {
+    const markup = render('no-folder')
+    expect(markup).toContain('No project folder')
+    expect(markup).toContain('This chat has no project folder')
+    expect(markup).not.toContain('not a git repository')
+  })
+
+  test('the not-repo view says the folder is not a git repository', () => {
+    const markup = render('not-repo')
+    expect(markup).toContain('Not a git repository')
+    expect(markup).toContain('This folder is not a git repository')
+  })
+
+  test('the error view shows the message and a Try again action, and drops the loading text', () => {
+    const markup = render('error')
+    expect(markup).toContain('Could not read this repository')
+    expect(markup).toContain('cwd does not exist')
+    expect(markup).toContain('Try again')
+    expect(markup).not.toContain('Loading repository')
+  })
+
+  test('the loading view shows the loading line under the header', () => {
+    expect(render('loading')).toContain('Loading repository')
   })
 })

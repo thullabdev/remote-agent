@@ -1,11 +1,21 @@
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { Commit, FileChange } from '../backend/parse.ts'
 import { Badge } from '../../../src/ui/components/ui/badge.tsx'
 import { gitApi } from './client.ts'
-import { ChangeCounts, TreeRows } from './StatusTree.tsx'
-import { buildTree } from './tree.ts'
+import { TREE_ROW_HEIGHT, TreeFileRow, TreeFolderRow } from './StatusTree.tsx'
+import { VirtualRows } from './VirtualRows.tsx'
+import { buildTree, flattenTree, toggled, type VisibleTreeRow } from './tree.ts'
+
+/** The height of a commit row, in pixels. */
+export const COMMIT_ROW_HEIGHT = 40
 
 type FilesState = { status: 'loading' } | { status: 'ready'; files: FileChange[] } | { status: 'error' }
+
+/** A row of the log: a commit, a line of text under a commit (loading or failure), or a row of an expanded commit's file tree. */
+export type LogRow =
+  | { kind: 'commit'; key: string; commit: Commit; open: boolean }
+  | { kind: 'note'; key: string; text: string; tone: 'muted' | 'error' }
+  | { kind: 'tree'; key: string; sha: string; row: VisibleTreeRow }
 
 const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['year', 365 * 24 * 60 * 60],
@@ -28,72 +38,117 @@ export function relativeTime(atSeconds: number, now: number = Date.now()): strin
   return formatter.format(Math.round(deltaSeconds), 'second')
 }
 
-function CommitRow({ commit, cwd, onOpen }: { commit: Commit; cwd: string; onOpen(file: FileChange, sha: string): void }) {
-  const [open, setOpen] = useState(false)
-  const [files, setFiles] = useState<FilesState>({ status: 'loading' })
-
-  async function toggle() {
-    const next = !open
-    setOpen(next)
-    if (next && files.status !== 'ready') {
-      setFiles({ status: 'loading' })
-      try {
-        const loaded = await gitApi.commitFiles(cwd, commit.sha)
-        setFiles({ status: 'ready', files: loaded })
-      } catch {
-        setFiles({ status: 'error' })
+/**
+ * The flat rows of the log: each commit, followed by its file rows when it is open.
+ * A commit that is open but has no loaded files yet shows a note in place of its files.
+ */
+export function commitLogRows(
+  commits: Commit[],
+  openShas: ReadonlySet<string>,
+  filesBySha: ReadonlyMap<string, FilesState>,
+  collapsed: ReadonlySet<string>,
+): LogRow[] {
+  const rows: LogRow[] = []
+  for (const commit of commits) {
+    const open = openShas.has(commit.sha)
+    rows.push({ kind: 'commit', key: `commit:${commit.sha}`, commit, open })
+    if (open) {
+      const files = filesBySha.get(commit.sha) ?? { status: 'loading' }
+      if (files.status === 'loading') {
+        rows.push({ kind: 'note', key: `${commit.sha}:loading`, text: 'Loading files…', tone: 'muted' })
+      } else if (files.status === 'error') {
+        rows.push({ kind: 'note', key: `${commit.sha}:error`, text: 'Could not load the files of this commit', tone: 'error' })
+      } else {
+        for (const row of flattenTree(buildTree(files.files), collapsed, `${commit.sha}/`)) {
+          rows.push({ kind: 'tree', key: row.key, sha: commit.sha, row })
+        }
       }
     }
   }
+  return rows
+}
 
+function CommitButton({ commit, open, onToggle }: { commit: Commit; open: boolean; onToggle(): void }) {
   return (
-    <li className="flex flex-col">
-      <button type="button" aria-expanded={open} onClick={toggle} className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-muted">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">{commit.shortSha}</span>
-          <span className="min-w-0 flex-1 truncate text-sm">{commit.subject}</span>
-          <Badge>{commit.pushed ? 'Pushed' : 'Local'}</Badge>
-        </span>
-        <span className="text-xs text-muted-foreground">{`${commit.author} · ${relativeTime(commit.at)}`}</span>
-      </button>
-      {open ? (
-        <div className="pl-3">
-          {files.status === 'loading' ? <p className="py-1 text-xs text-muted-foreground">Loading files…</p> : null}
-          {files.status === 'error' ? <p className="py-1 text-xs text-red-600 dark:text-red-400">Could not load the files of this commit</p> : null}
-          {files.status === 'ready' ? (
-            <ul className="flex flex-col gap-0.5">
-              <TreeRows
-                nodes={buildTree(files.files)}
-                depth={0}
-                renderFile={(file) => (
-                  <button
-                    type="button"
-                    title={file.path}
-                    onClick={() => onOpen(file, commit.sha)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left text-sm"
-                  >
-                    <span className="min-w-0 flex-1 truncate">{file.path.split('/').pop() ?? file.path}</span>
-                    <ChangeCounts added={file.added ?? 0} removed={file.removed ?? 0} binary={file.binary} />
-                  </button>
-                )}
-              />
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
-    </li>
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="flex h-full w-full flex-col justify-center gap-0.5 rounded-md px-2 text-left hover:bg-muted"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">{commit.shortSha}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">{commit.subject}</span>
+        <Badge>{commit.pushed ? 'Pushed' : 'Local'}</Badge>
+      </span>
+      <span className="text-xs text-muted-foreground">{`${commit.author} · ${relativeTime(commit.at)}`}</span>
+    </button>
   )
 }
 
+/** The commit list, virtualized. A commit's files appear inline under it when it is open. */
 export function CommitLog({ commits, cwd, onOpen }: { commits: Commit[]; cwd: string; onOpen(file: FileChange, sha: string): void }) {
+  const [openShas, setOpenShas] = useState<ReadonlySet<string>>(() => new Set())
+  const [filesBySha, setFilesBySha] = useState<ReadonlyMap<string, FilesState>>(() => new Map())
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+
   if (commits.length === 0) {
     return <p className="py-2 text-sm text-muted-foreground">No commits yet</p>
   }
+
+  async function toggleCommit(sha: string): Promise<void> {
+    if (openShas.has(sha)) {
+      setOpenShas(toggled(openShas, sha))
+      return
+    }
+    setOpenShas(toggled(openShas, sha))
+    if (filesBySha.get(sha)?.status === 'ready') {
+      return
+    }
+    setFilesBySha((current) => new Map(current).set(sha, { status: 'loading' }))
+    try {
+      const loaded = await gitApi.commitFiles(cwd, sha)
+      setFilesBySha((current) => new Map(current).set(sha, { status: 'ready', files: loaded }))
+    } catch {
+      setFilesBySha((current) => new Map(current).set(sha, { status: 'error' }))
+    }
+  }
+
+  const rows = commitLogRows(commits, openShas, filesBySha, collapsed)
+
+  function renderRow(row: LogRow): ReactNode {
+    if (row.kind === 'commit') {
+      return <CommitButton commit={row.commit} open={row.open} onToggle={() => void toggleCommit(row.commit.sha)} />
+    }
+    if (row.kind === 'note') {
+      return (
+        <p className={`flex h-full items-center text-xs ${row.tone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`} style={{ paddingLeft: '12px' }}>
+          {row.text}
+        </p>
+      )
+    }
+    const { row: tree } = row
+    if (tree.kind === 'folder') {
+      return (
+        <TreeFolderRow
+          name={tree.name}
+          depth={tree.depth + 1}
+          open={tree.open}
+          added={tree.added}
+          removed={tree.removed}
+          onToggle={() => setCollapsed((current) => toggled(current, tree.key))}
+        />
+      )
+    }
+    return <TreeFileRow file={tree.file} name={tree.name} depth={tree.depth + 1} onOpen={() => onOpen(tree.file, row.sha)} />
+  }
+
   return (
-    <ul className="flex flex-col gap-0.5">
-      {commits.map((commit) => (
-        <CommitRow key={commit.sha} commit={commit} cwd={cwd} onOpen={onOpen} />
-      ))}
-    </ul>
+    <VirtualRows
+      rows={rows}
+      rowHeight={(row) => (row.kind === 'commit' ? COMMIT_ROW_HEIGHT : TREE_ROW_HEIGHT)}
+      getKey={(row) => row.key}
+      renderRow={renderRow}
+    />
   )
 }

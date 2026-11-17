@@ -1,9 +1,14 @@
 import { type ReactNode, useState } from 'react'
-import { ChevronRight, Minus, Plus } from 'lucide-react'
+import { ChevronRight, Folder, Minus, Plus } from 'lucide-react'
 import type { FileChange } from '../backend/parse.ts'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
-import { buildTree, type TreeNode } from './tree.ts'
+import { FileIcon } from './FileIcon.tsx'
+import { VirtualRows } from './VirtualRows.tsx'
+import { buildTree, flattenTree, pathsUnder, sumCounts, toggled, type VisibleTreeRow } from './tree.ts'
+
+/** The height of a file or folder row in a tree list, in pixels. */
+export const TREE_ROW_HEIGHT = 28
 
 /** The counts shown beside a file or folder: `+added −removed`, or `binary` for a binary file. */
 export function ChangeCounts({ added, removed, binary }: { added: number; removed: number; binary?: boolean }) {
@@ -18,51 +23,76 @@ export function ChangeCounts({ added, removed, binary }: { added: number; remove
   )
 }
 
-type TreeRowsProps = {
-  nodes: TreeNode[]
-  depth: number
-  /** Renders the file's name button and trailing controls. */
-  renderFile(file: FileChange): ReactNode
-}
-
-function FolderRow({ node, depth, renderFile }: { node: Extract<TreeNode, { kind: 'folder' }>; depth: number; renderFile: TreeRowsProps['renderFile'] }) {
-  const [open, setOpen] = useState(true)
+/** A section's total as `+added −removed`. Each part is muted when it is zero. */
+export function SectionTotals({ files }: { files: FileChange[] }) {
+  const { added, removed } = sumCounts(files)
   return (
-    <li>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        style={{ paddingLeft: `${depth * 12}px` }}
-        className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm hover:bg-muted"
-      >
-        <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
-        <ChangeCounts added={node.added} removed={node.removed} />
-      </button>
-      {open ? (
-        <ul>
-          <TreeRows nodes={node.children} depth={depth + 1} renderFile={renderFile} />
-        </ul>
-      ) : null}
-    </li>
+    <span className="shrink-0 font-mono text-xs">
+      <span className={added === 0 ? 'text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}>{`+${added}`}</span>{' '}
+      <span className={removed === 0 ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}>{`−${removed}`}</span>
+    </span>
   )
 }
 
-/** Renders tree nodes recursively: folders are collapsible rows, files come from `renderFile`. */
-export function TreeRows({ nodes, depth, renderFile }: TreeRowsProps) {
+/** A folder row: the name toggles its children, and `trailing` holds its controls beside the toggle. */
+export function TreeFolderRow({
+  name,
+  depth,
+  open,
+  added,
+  removed,
+  onToggle,
+  trailing,
+}: {
+  name: string
+  depth: number
+  open: boolean
+  added: number
+  removed: number
+  onToggle(): void
+  trailing?: ReactNode
+}) {
   return (
-    <>
-      {nodes.map((node) =>
-        node.kind === 'folder' ? (
-          <FolderRow key={`folder:${node.path}`} node={node} depth={depth} renderFile={renderFile} />
-        ) : (
-          <li key={`file:${node.path}`} style={{ paddingLeft: `${depth * 12}px` }} className="flex items-center gap-1 rounded-md pr-1 hover:bg-muted">
-            {renderFile(node.file)}
-          </li>
-        ),
-      )}
-    </>
+    <div style={{ paddingLeft: `${depth * 12}px` }} className="flex h-full items-center gap-1 rounded-md pr-1 hover:bg-muted">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-xs"
+      >
+        <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden="true" />
+        <Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+        <ChangeCounts added={added} removed={removed} />
+      </button>
+      {trailing}
+    </div>
+  )
+}
+
+/** A file row: the name opens the file, and `trailing` holds its controls. */
+export function TreeFileRow({
+  file,
+  name,
+  depth,
+  onOpen,
+  trailing,
+}: {
+  file: FileChange
+  name: string
+  depth: number
+  onOpen(): void
+  trailing?: ReactNode
+}) {
+  return (
+    <div style={{ paddingLeft: `${depth * 12}px` }} className="flex h-full items-center gap-1 rounded-md pr-1 hover:bg-muted">
+      <button type="button" title={file.path} onClick={onOpen} className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-xs">
+        <FileIcon path={file.path} className="size-3.5 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <ChangeCounts added={file.added ?? 0} removed={file.removed ?? 0} binary={file.binary} />
+      </button>
+      {trailing}
+    </div>
   )
 }
 
@@ -79,38 +109,52 @@ export function StatusTree({
   onStage(paths: string[]): void
   onUnstage(paths: string[]): void
 }) {
-  const nodes = buildTree(files)
-  return (
-    <ul className="flex flex-col gap-0.5">
-      <TreeRows
-        nodes={nodes}
-        depth={0}
-        renderFile={(file) => {
-          const name = file.path.split('/').pop() ?? file.path
-          return (
-            <>
-              <button
-                type="button"
-                title={file.path}
-                onClick={() => onOpen(file)}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-                <ChangeCounts added={file.added ?? 0} removed={file.removed ?? 0} binary={file.binary} />
-              </button>
-              {mode === 'unstaged' ? (
-                <Button variant="ghost" size="icon-sm" aria-label={`Stage ${file.path}`} onClick={() => onStage([file.path])}>
-                  <Plus className="size-3.5" />
-                </Button>
-              ) : (
-                <Button variant="ghost" size="icon-sm" aria-label={`Unstage ${file.path}`} onClick={() => onUnstage([file.path])}>
-                  <Minus className="size-3.5" />
-                </Button>
-              )}
-            </>
-          )
-        }}
-      />
-    </ul>
-  )
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const rows = flattenTree(buildTree(files), collapsed)
+
+  function renderRow(row: VisibleTreeRow): ReactNode {
+    if (row.kind === 'folder') {
+      const folderTrailing =
+        mode === 'unstaged' ? (
+          <Button variant="ghost" size="icon-sm" aria-label={`Stage folder ${row.path}`} title="Stage folder" onClick={() => onStage(pathsUnder(files, row.path))}>
+            <Plus className="size-3.5" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Unstage folder ${row.path}`}
+            title="Unstage folder"
+            onClick={() => onUnstage(pathsUnder(files, row.path))}
+          >
+            <Minus className="size-3.5" />
+          </Button>
+        )
+      return (
+        <TreeFolderRow
+          name={row.name}
+          depth={row.depth}
+          open={row.open}
+          added={row.added}
+          removed={row.removed}
+          onToggle={() => setCollapsed((current) => toggled(current, row.key))}
+          trailing={folderTrailing}
+        />
+      )
+    }
+    const { file } = row
+    const trailing =
+      mode === 'unstaged' ? (
+        <Button variant="ghost" size="icon-sm" aria-label={`Stage ${file.path}`} onClick={() => onStage([file.path])}>
+          <Plus className="size-3.5" />
+        </Button>
+      ) : (
+        <Button variant="ghost" size="icon-sm" aria-label={`Unstage ${file.path}`} onClick={() => onUnstage([file.path])}>
+          <Minus className="size-3.5" />
+        </Button>
+      )
+    return <TreeFileRow file={file} name={row.name} depth={row.depth} onOpen={() => onOpen(file)} trailing={trailing} />
+  }
+
+  return <VirtualRows rows={rows} rowHeight={TREE_ROW_HEIGHT} getKey={(row) => row.key} renderRow={renderRow} />
 }

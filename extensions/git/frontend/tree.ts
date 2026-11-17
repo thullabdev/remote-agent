@@ -72,3 +72,67 @@ export function displayPath(filePath: string, repoRoot: string, launchCwd: strin
   const ups = from.slice(shared).map(() => '..')
   return [...ups, ...to.slice(shared)].join('/')
 }
+
+/**
+ * The paths of the files under a folder, for a folder-level stage or unstage. A folder path of '' means the whole repository.
+ * A file is under a folder only when its path starts with the folder path followed by '/'.
+ */
+export function pathsUnder(files: FileChange[], folderPath: string): string[] {
+  const paths: string[] = []
+  for (const file of files) {
+    if (folderPath === '' || file.path.startsWith(`${folderPath}/`)) {
+      paths.push(file.path)
+    }
+  }
+  return paths
+}
+
+/** The total added and removed lines of a list of files. Binary files and files without counts add zero. */
+export function sumCounts(files: FileChange[]): { added: number; removed: number } {
+  let added = 0
+  let removed = 0
+  for (const file of files) {
+    if (!file.binary) {
+      added += file.added ?? 0
+      removed += file.removed ?? 0
+    }
+  }
+  return { added, removed }
+}
+
+/** A row of the tree as it is drawn: folders and files in order, indented by depth. */
+export type VisibleTreeRow =
+  | { kind: 'folder'; key: string; name: string; path: string; depth: number; open: boolean; added: number; removed: number }
+  | { kind: 'file'; key: string; name: string; path: string; depth: number; file: FileChange }
+
+/**
+ * Flattens the tree into the rows shown in a list. A folder whose key is in `collapsed` hides its children.
+ * `keyPrefix` keeps keys unique when several trees share one list.
+ */
+export function flattenTree(nodes: TreeNode[], collapsed: ReadonlySet<string>, keyPrefix = '', depth = 0): VisibleTreeRow[] {
+  const rows: VisibleTreeRow[] = []
+  for (const node of nodes) {
+    if (node.kind === 'folder') {
+      const key = `${keyPrefix}folder:${node.path}`
+      const open = !collapsed.has(key)
+      rows.push({ kind: 'folder', key, name: node.name, path: node.path, depth, open, added: node.added, removed: node.removed })
+      if (open) {
+        rows.push(...flattenTree(node.children, collapsed, keyPrefix, depth + 1))
+      }
+    } else {
+      rows.push({ kind: 'file', key: `${keyPrefix}file:${node.path}`, name: node.name, path: node.path, depth, file: node.file })
+    }
+  }
+  return rows
+}
+
+/** A copy of a key set with `key` added when absent, and removed when present. */
+export function toggled(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(keys)
+  if (next.has(key)) {
+    next.delete(key)
+  } else {
+    next.add(key)
+  }
+  return next
+}
