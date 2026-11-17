@@ -1,0 +1,8 @@
+{
+  "id": "remote-agent.git",
+  "name": "Git",
+  "version": "0.1.0",
+  "frontend": { "entry": "./frontend/index.tsx" },
+  "backend": { "entry": "./backend/index.ts" },
+  "permissions": ["http-routes"]
+}
