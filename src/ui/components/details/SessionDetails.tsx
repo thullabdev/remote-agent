@@ -8,6 +8,7 @@ import { ConfirmActionDialog } from './ConfirmActionDialog.tsx'
 import { ForksSection } from './ForksSection.tsx'
 import { ManageSection } from './ManageSection.tsx'
 import { SessionActions } from './SessionActions.tsx'
+import { SectionLabel } from './SectionLabel.tsx'
 import { SessionSummary } from './SessionSummary.tsx'
 import { TechnicalSection } from './TechnicalSection.tsx'
 import type { ChatInfoProps, ConfirmAction } from './types.ts'
@@ -71,7 +72,7 @@ export function SessionDetails({
         />
         <TechnicalSection chat={chat} onNotify={onNotify} />
         {chatInfoSections().map(section => (
-          <Accordion key={section.id} id={`ext:${section.id}`} title={section.title}>
+          <Accordion key={section.id} id={`ext:${section.id}`} title={<SectionLabel>{section.title}</SectionLabel>}>
             {section.render({ chat, openPanel, notify: onNotify, density })}
           </Accordion>
         ))}

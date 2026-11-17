@@ -15,13 +15,17 @@ type ForksSectionProps = {
 /** The chats forked from this one. Each fork can be shown at its fork point or opened. */
 export function ForksSection({ forks, onRefresh, onShowFork, onOpenFork }: ForksSectionProps) {
   return (
-    <Accordion id="forks" title={<SectionLabel>Forks · {forks.length}</SectionLabel>} defaultOpen={forks.length > 0}>
-      <div className="mt-1 flex justify-end">
+    <Accordion
+      id="forks"
+      title={<SectionLabel>Forks · {forks.length}</SectionLabel>}
+      defaultOpen={forks.length > 0}
+      aside={
         <Button variant="ghost" size="sm" aria-label="Refresh forks" onClick={() => void onRefresh()}>
           <RefreshCw aria-hidden="true" />
           Refresh
         </Button>
-      </div>
+      }
+    >
       {forks.length === 0 ? (
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Fork from a reply to start one.</p>
       ) : (
