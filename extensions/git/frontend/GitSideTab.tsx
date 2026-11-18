@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FolderGit2, GitBranch, MessageSquareText, Plus, RefreshCw } from 'lucide-react'
 import type { Commit, FileChange } from '../backend/parse.ts'
 import type { RepoInfo } from '../backend/git.ts'
@@ -15,6 +15,8 @@ import { addOrActivate } from './diff-tabs.ts'
 import { browserStorage, type OpenDiff, readOpenDiffs, writeOpenDiffs } from './open-files.ts'
 import { SectionTotals, StatusTree, TreeFileRow } from './StatusTree.tsx'
 import { draftKey, readDraft, writeDraft } from './commit-draft.ts'
+import { readComments, subscribeCommentsChanged } from './comments.ts'
+import { AttachCommentsControl, runAttachComments } from './CommentEditor.tsx'
 
 export type Scope = 'staged' | 'unstaged' | 'commit'
 export type GitState = { status: { staged: FileChange[]; unstaged: FileChange[] }; commits: Commit[] }
@@ -354,6 +356,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
   const [review, setReview] = useState<CommitReview | null>(null)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [attaching, setAttaching] = useState(false)
+  /** Bumped when the stored comments change, so the count reads them again. */
+  const [commentsVersion, setCommentsVersion] = useState(0)
   const latestCwd = useRef<string | null>(cwd)
   const previousAgentBusy = useRef(agentBusy)
   /** The per-branch draft key for the repository shown, or null until its branch is known. */
@@ -401,6 +406,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
       void reloadSafely()
     }
   }, [agentBusy])
+
+  useEffect(() => subscribeCommentsChanged(() => setCommentsVersion((version) => version + 1)), [])
+  const comments = useMemo(() => (chatId === null ? [] : readComments(browserStorage(), chatId)), [chatId, commentsVersion])
 
   // Each branch keeps its own unsent commit message. Load it when the branch is known and the field is empty.
   useEffect(() => {
@@ -511,6 +519,26 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
     }
   }
 
+  /** Attaches the active chat's comments to its composer and reports the outcome. */
+  async function attachAll(): Promise<void> {
+    if (chatId === null) {
+      return
+    }
+    setAttaching(true)
+    try {
+      const outcome = await runAttachComments({ chatId, comments, branch: repo !== null && repo.repo ? repo.branch : null })
+      if (outcome.status === 'attached') {
+        notify('Attached to the chat', 'success')
+      } else {
+        notify(outcome.message, 'error')
+      }
+    } catch (error) {
+      notify(messageOf(error), 'error')
+    } finally {
+      setAttaching(false)
+    }
+  }
+
   function openFile(scope: Scope, path: string, sha?: string): void {
     if (cwd === null || chatId === null) {
       return
@@ -593,6 +621,9 @@ export function GitSideTab(context: SideTabContext & { fetchers?: typeof gitApi 
         onCancel={() => setReview(null)}
         onConfirm={() => void confirmCommit()}
       />
+      <div className="flex shrink-0 justify-center border-t border-border pt-2 md:hidden">
+        <AttachCommentsControl count={comments.length} busy={attaching} onAttach={() => void attachAll()} />
+      </div>
     </div>
   ) : null
   return <GitPanel view={view} errorMessage={loadError} onRefresh={() => void reloadSafely()} repoBody={repoBody} />
