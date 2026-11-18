@@ -6,6 +6,7 @@ import { createApiClient, RequestError } from './api.ts'
 import { newChatToOpen } from './new-chat.ts'
 import { Button } from './components/ui/button.tsx'
 import { ChatComposer } from './components/chat-composer.tsx'
+import { setChatOpener } from './composer-bus.ts'
 import { ChatHeader } from './components/chat-header.tsx'
 import { ChatInfo } from './components/chat-info.tsx'
 import { SidePanel } from './components/side-panel/SidePanel.tsx'
@@ -229,6 +230,9 @@ export function App() {
     }
     window.history.pushState(null, '', url)
   }, [])
+
+  // Extensions bring this chat into view when they attach to it from another main-area view (such as a diff).
+  useEffect(() => setChatOpener(chatId => openChat(chatId)), [openChat])
 
   /**
    * Shows a side tab. On a phone the side column covers the chat, so showing it means leaving the chat; the chat stays the

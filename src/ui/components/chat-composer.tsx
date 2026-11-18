@@ -1,7 +1,8 @@
-import { FileText, Image as ImageIcon, Paperclip, RotateCcw, Send, X } from 'lucide-react'
-import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { FileText, Image as ImageIcon, Maximize2, Minimize2, Paperclip, RotateCcw, Send, X } from 'lucide-react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
+import { subscribeComposer } from '../composer-bus.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
 import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
 import { Button } from './ui/button.tsx'
@@ -57,6 +58,24 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Full screen: the composer fills the main area and its buttons move to the bottom row. Offered when the text overflows.
+  const [expanded, setExpanded] = useState(false)
+  const [overflowing, setOverflowing] = useState(false)
+  // Measured before paint, and again when the field resizes, so the button never flickers in after the first frame.
+  useLayoutEffect(() => {
+    const element = inputRef.current
+    if (element === null) {
+      return
+    }
+    const check = () => setOverflowing(element.scrollHeight > element.clientHeight + 1)
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [text, expanded, overflowing])
+  useEffect(() => {
+    setExpanded(false)
+  }, [chat.id])
   const [attachOpen, setAttachOpen] = useState(false)
   const dockRef = useRef<HTMLDivElement>(null)
   const disabled = chat.status === 'ended'
@@ -76,13 +95,20 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
     setSuggestionsDismissed(false)
   }, [query, text])
 
+  // Sizes the field to its text in the normal layout. In full screen the layout owns the height, so the inline height is cleared.
+  // Runs again when leaving full screen, so the field returns to its normal height even when the text is empty.
   useEffect(() => {
     const input = inputRef.current
-    if (input !== null) {
-      input.style.height = 'auto'
-      input.style.height = `${Math.min(input.scrollHeight, 140)}px`
+    if (input === null) {
+      return
     }
-  }, [text])
+    if (expanded) {
+      input.style.height = ''
+      return
+    }
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`
+  }, [text, expanded])
 
   useEffect(() => {
     const dock = dockRef.current
@@ -136,6 +162,11 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
       return current.length >= MAX_ATTACHMENTS_PER_MESSAGE ? current : [...current, ref]
     })
   }
+
+  // An attachment sent to this chat from outside the composer (for example, a git comment bundle) becomes a normal chip.
+  useEffect(() => {
+    return subscribeComposer(chat.id, ref => addAttachment(ref))
+  }, [chat.id])
 
   /** Attaches the file and writes `@name` into the text, so it can be referred to again. */
   const attachReference = (ref: UploadRef) => {
@@ -261,7 +292,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   }
 
   return (
-    <div ref={dockRef} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
+    <div ref={dockRef} className={`chat-composer-dock absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 ${expanded ? 'top-0 flex flex-col' : ''}`}>
       {disabled && (
         <div className="mx-auto mb-2 flex max-w-4xl flex-wrap items-center justify-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
           <span>This Session has ended. Resume its existing Claude session ID and transcript; this starts a new process, not a fork.</span>
@@ -352,8 +383,8 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
           {uploading && <span className="px-2 py-1 text-xs text-muted-foreground">Uploading…</span>}
         </div>
       )}
-      <form onSubmit={submit} className="mx-auto max-w-4xl">
-        <div className={`flex items-end gap-2 rounded-3xl bg-card pl-4 pr-1.5 py-1.5 shadow-[0_-4px_18px_-6px_rgb(0_0_0/.22),0_10px_28px_-12px_rgb(0_0_0/.35)] ${disabled ? 'opacity-65' : ''}`}>
+      <form onSubmit={submit} className={`mx-auto w-full max-w-4xl ${expanded ? 'min-h-0 flex-1' : ''}`}>
+        <div className={`relative flex rounded-3xl bg-card pl-4 pr-1.5 py-1.5 shadow-[0_-4px_18px_-6px_rgb(0_0_0/.22),0_10px_28px_-12px_rgb(0_0_0/.35)] ${expanded ? 'h-full flex-col pb-2' : 'items-end gap-2'} ${disabled ? 'opacity-65' : ''}`}>
           <label className="sr-only" htmlFor="chat-composer">{chat.id === 'general' ? 'Send a command' : 'Send an instruction'}</label>
           <textarea
             ref={inputRef}
@@ -371,8 +402,22 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
             aria-activedescendant={suggestionsOpen ? `chat-command-${suggestions[activeSuggestionIndex]?.name}` : undefined}
             placeholder={disabled ? 'This Session has ended' : chat.id === 'general' ? 'Type /status, /new, /away, /back…' : firstTask ? 'What should Claude work on?' : `Message ${chat.title}…`}
             disabled={disabled}
-            className="chat-composer-input max-h-[140px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground"
+            className={`chat-composer-input flex-1 resize-none bg-transparent py-2 text-[length:var(--message-font,1rem)] leading-relaxed placeholder:text-muted-foreground ${expanded ? 'min-h-0 pr-9' : `max-h-[140px] min-h-10 ${overflowing ? 'pr-9' : ''}`}`}
           />
+          {(overflowing || expanded) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={expanded ? 'Exit full screen' : 'Full screen'}
+              title={expanded ? 'Exit full screen' : 'Full screen'}
+              onClick={() => setExpanded(value => !value)}
+              className="absolute right-2 top-2 size-7 text-muted-foreground"
+            >
+              {expanded ? <Minimize2 aria-hidden="true" className="size-3.5" /> : <Maximize2 aria-hidden="true" className="size-3.5" />}
+            </Button>
+          )}
+          <span className={expanded ? 'flex shrink-0 items-center justify-end gap-2' : 'contents'}>
           {attachable && (
             <Button
               type="button"
@@ -395,6 +440,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
           <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>
+          </span>
         </div>
       </form>
     </div>
