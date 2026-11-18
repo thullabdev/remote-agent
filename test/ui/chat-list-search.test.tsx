@@ -10,7 +10,6 @@ const props = {
   status: 'connected' as const,
   onOpen: noop,
   onNew: noop,
-  onSettings: noop,
   onArchiveSelected: async () => {},
   onPinSelected: async () => {},
   onActionError: noop,
@@ -23,4 +22,8 @@ function render(initialQuery: string): string {
 test('the search field shows a clear button only while it has text', () => {
   expect(render('billing')).toContain('aria-label="Clear search"')
   expect(render('')).not.toContain('aria-label="Clear search"')
+})
+
+test('the chat header has no gear button; settings live in their own tab', () => {
+  expect(render('')).not.toContain('aria-label="Settings"')
 })

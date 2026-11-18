@@ -1,5 +1,5 @@
 import { Toast, type ToastKind, type ToastState } from './components/toast.tsx'
-import { AlertCircle, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LockKeyhole, MessageSquareText, RefreshCw, Settings } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Chat, ForkView, Message, PinView, UploadRecord, UploadRef } from '../channel/web/protocol.ts'
 import { createApiClient, RequestError } from './api.ts'
@@ -13,7 +13,7 @@ import { SidePanel } from './components/side-panel/SidePanel.tsx'
 import { SidePanelFrame } from './components/side-panel/SidePanelFrame.tsx'
 import { SideColumn } from './components/side-panel/SideColumn.tsx'
 import type { ActivityTab } from './components/side-panel/ActivityBar.tsx'
-import { CHATS_TAB, readSideTab, saveSideTab } from './components/side-panel/side-tab.ts'
+import { CHATS_TAB, readSideTab, saveSideTab, SETTINGS_TAB } from './components/side-panel/side-tab.ts'
 import { Dashboard } from './components/dashboard.tsx'
 import { dashboardCounts, summaryText } from './dashboard-model.ts'
 import { MessageFeed, scrollToMessage } from './components/message-feed.tsx'
@@ -26,7 +26,9 @@ import { chatActionsFor, dashboardCards, sideTabRender, sideTabs, type ActivePan
 import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
-import { SettingsDialog } from './components/settings-dialog.tsx'
+import { SettingsSidePanel } from './components/settings/SettingsSidePanel.tsx'
+import { SettingsView } from './components/settings/SettingsView.tsx'
+import type { SettingGroupId, SettingId } from './settings/settings-registry.ts'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
 import { connectionNoticeText, deepLink, deepLinkPanel, pendingPromptMessage } from './presentation.ts'
@@ -94,7 +96,12 @@ export function App() {
       // The tab still opens; it is just not remembered on the next visit.
     }
   }, [])
-  const sideTabList: ActivityTab[] = [{ id: CHATS_TAB, title: 'Chats', icon: MessageSquareText }, ...sideTabs()]
+  // Settings is host-owned and always last, after the extension tabs.
+  const sideTabList: ActivityTab[] = [
+    { id: CHATS_TAB, title: 'Chats', icon: MessageSquareText },
+    ...sideTabs(),
+    { id: SETTINGS_TAB, title: 'Settings', icon: Settings },
+  ]
   // The Prompt to scroll to once its chat is open: set by a tap on a blocked row, or by a notification's link.
   const [focusPrompt, setFocusPrompt] = useState<{ chatId: string; promptId: string } | null>(() => {
     const link = deepLink(window.location.search)
@@ -112,7 +119,8 @@ export function App() {
   const [forksByChat, setForksByChat] = useState<Record<string, ForkView[]>>({})
   const [forksVersion, setForksVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // The settings group shown in the main area, and the setting a search result picked inside it. Only one main-area view shows.
+  const [settingsView, setSettingsView] = useState<{ group: SettingGroupId; focus?: SettingId } | null>(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
   const [pendingMessages, setPendingMessages] = useState<Record<string, PendingMessage[]>>({})
@@ -218,6 +226,7 @@ export function App() {
     setActiveChatId(chatId)
     // A chat and a panel are alternative main-area views: opening either one leaves the other.
     setActivePanel(null)
+    setSettingsView(null)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
@@ -249,6 +258,7 @@ export function App() {
   const openPanel = useCallback((id: string, params: Record<string, string> = {}) => {
     newChatWatch.current = null
     setActiveChatId(null)
+    setSettingsView(null)
     setActivePanel({ id, params })
     setInfoOpen(false)
     const url = new URL(window.location.href)
@@ -700,7 +710,6 @@ export function App() {
             onOpen={openChat}
             onRetry={retry}
             onNew={() => setNewSessionOpen(true)}
-            onSettings={() => setSettingsOpen(true)}
             onArchiveSelected={async chatIds => {
               const result = await api.archiveChats(chatIds)
               notify(result.toast)
@@ -714,6 +723,8 @@ export function App() {
             }}
             onActionError={handleError}
           />
+        ) : sideTab === SETTINGS_TAB ? (
+          <SettingsSidePanel onOpen={(group, focus) => setSettingsView({ group, focus })} />
         ) : (
           <SidePanelFrame label={sideTabList.find(tab => tab.id === sideTab)?.title ?? 'Side panel'}>
             {sideTabRender(sideTab, { activeChat: sideChat, openPanel, notify, density: preferences.density })}
@@ -721,8 +732,21 @@ export function App() {
         )}
       </SideColumn>
 
-      <MainArea shown={activeChatId !== null || activePanel !== null} onSwipeBack={() => openChat(null)}>
-        {activePanel !== null ? (
+      <MainArea shown={activeChatId !== null || activePanel !== null || settingsView !== null} onSwipeBack={() => openChat(null)}>
+        {settingsView !== null ? (
+          <SettingsView
+            group={settingsView.group}
+            focus={settingsView.focus}
+            preferences={preferences}
+            onPreferences={setPreferences}
+            away={realtime.away}
+            onAwayToggle={toggleAway}
+            push={push.status}
+            pushBusy={push.busy}
+            onPushToggle={togglePush}
+            onBack={() => setSettingsView(null)}
+          />
+        ) : activePanel !== null ? (
           <ExtensionRegistry
             panel={activePanel}
             context={{ params: activePanel.params, openPanel, closePanel, notify, density: preferences.density }}
@@ -873,17 +897,6 @@ export function App() {
       )}
       {toast && <Toast key={toast.id} toast={toast} onDismiss={() => setToast(null)} />}
 
-      <SettingsDialog
-        open={settingsOpen}
-        preferences={preferences}
-        push={push.status}
-        pushBusy={push.busy}
-        away={realtime.away}
-        onPreferences={setPreferences}
-        onPushToggle={togglePush}
-        onAwayToggle={toggleAway}
-        onOpenChange={setSettingsOpen}
-      />
       <NewSessionDialog
         open={newSessionOpen}
         api={api}

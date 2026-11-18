@@ -23,7 +23,7 @@ const asking: Chat = { ...blocked, pendingPrompt: { promptId: 'p2', kind: 'quest
 function list(chat: Chat): string {
   return renderToStaticMarkup(
     createElement(SidePanel, {
-      chats: [chat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+      chats: [chat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
@@ -101,7 +101,7 @@ test('the feed shows the working indicator only while the session is working', (
 function listOf(chats: Chat[]): string {
   return renderToStaticMarkup(
     createElement(SidePanel, {
-      chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+      chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
@@ -215,7 +215,7 @@ test('the header offers a source filter that narrows the list and shows when it 
   const render = (origin?: 'all' | 'computer' | 'spawned'): string =>
     renderToStaticMarkup(
       createElement(SidePanel, {
-        chats: [spawnedChat, computerChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        chats: [spawnedChat, computerChat], activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(origin === undefined ? {} : { initialOrigin: origin }),
       }),
     )
@@ -237,7 +237,7 @@ test('the Ended tab says how to archive, since selection is a press and hold', (
   const render = (filter: 'all' | 'ended', chats: Chat[]): string =>
     renderToStaticMarkup(
       createElement(SidePanel, {
-        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialFilter: filter,
       }),
     )
@@ -275,7 +275,7 @@ test('the avatar takes its color from the project and carries a state badge', ()
 function listWith(chats: Chat[], props: { status?: 'connected' | 'reconnecting' | 'resyncing' | 'error' | 'loading'; activeId?: string | null } = {}): string {
   return renderToStaticMarkup(
     createElement(SidePanel, {
-      chats, activeId: props.activeId ?? null, status: props.status ?? 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+      chats, activeId: props.activeId ?? null, status: props.status ?? 'connected', onOpen: () => {}, onNew: () => {},
       onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {},
     }),
   )
@@ -322,7 +322,7 @@ test('the connection notice offers a retry only when the connection is not fine 
   const render = (status: 'connected' | 'reconnecting' | 'error', onRetry?: () => void): string =>
     renderToStaticMarkup(
       createElement(SidePanel, {
-        chats: [base], activeId: null, status, onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        chats: [base], activeId: null, status, onOpen: () => {}, onNew: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, ...(onRetry === undefined ? {} : { onRetry }),
       }),
     )
@@ -371,7 +371,7 @@ test('the list counts its results while a search is on', () => {
   const render = (chats: Chat[], query: string): string =>
     renderToStaticMarkup(
       createElement(SidePanel, {
-        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {}, onSettings: () => {},
+        chats, activeId: null, status: 'connected', onOpen: () => {}, onNew: () => {},
         onArchiveSelected: async () => {}, onPinSelected: async () => {}, onActionError: () => {}, initialQuery: query,
       }),
     )

@@ -1,4 +1,4 @@
-import { Plus, Settings } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { Chat } from '../../../channel/web/protocol.ts'
 import { filterChats, filterCounts, matchesOrigin, searchTerms, type ListFilter, type OriginFilter } from '../../chat-filters.ts'
@@ -36,7 +36,6 @@ export type SidePanelProps = {
   onNew(): void
   /** Tries the connection again now. The notice offers it only when this is set. */
   onRetry?(): void
-  onSettings(): void
   onArchiveSelected(chatIds: string[]): Promise<void>
   onPinSelected(chatIds: string[], pinned: boolean): Promise<void>
   onActionError(error: unknown): void
@@ -56,7 +55,6 @@ export function SidePanel({
   onOpen,
   onNew,
   onRetry,
-  onSettings,
   onArchiveSelected,
   onPinSelected,
   onActionError,
@@ -111,9 +109,6 @@ export function SidePanel({
         ) : (
           <SearchBar query={query} onQuery={setQuery} origin={origin} onOrigin={setOrigin} />
         )}
-        <Button variant="ghost" size="icon" aria-label="Settings" title="Settings" onClick={onSettings}>
-          <Settings aria-hidden="true" />
-        </Button>
         <Button size="icon" className="hidden md:inline-flex" aria-label="Start a new session" title="Start a new session" onClick={onNew}>
           <Plus aria-hidden="true" />
         </Button>
