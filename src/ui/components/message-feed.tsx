@@ -12,6 +12,7 @@ import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
 import { PickerRows } from './picker-rows.tsx'
+import { FullscreenButton } from './tool-fullscreen.tsx'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -760,6 +761,9 @@ function ToolInput({ input }: { input: unknown }) {
           {editInput.replaceAll && <Badge>all occurrences</Badge>}
           <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300">+{added}</span>
           <span className="font-mono text-[10px] text-red-700 dark:text-red-300">−{removed}</span>
+          <FullscreenButton title={editInput.filePath}>
+            <DiffView lines={lines} />
+          </FullscreenButton>
         </div>
         <DiffView lines={lines} />
       </div>
@@ -772,11 +776,26 @@ function ToolInput({ input }: { input: unknown }) {
       <div className="overflow-hidden rounded-xl bg-muted">
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</span>
-          <code className="min-w-0 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
+          <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
+          <FullscreenButton title={writeInput.filePath}>
+            {isMarkdownFilePath(writeInput.filePath) ? (
+              <div className="p-4">
+                <div className={MARKDOWN_PROSE}>
+                  <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering Markdown…</div>}>
+                    <MarkdownBody markdown={writeInput.content} />
+                  </Suspense>
+                </div>
+              </div>
+            ) : (
+              <CodeBlock preClassName="whitespace-pre p-4 font-mono text-[11px] leading-relaxed">
+                <code>{writeInput.content}</code>
+              </CodeBlock>
+            )}
+          </FullscreenButton>
         </div>
         {isMarkdownFilePath(writeInput.filePath) ? (
           <div className="max-h-96 max-w-full overflow-auto overscroll-x-contain p-3">
-            <div className="prose prose-sm max-w-none break-words text-foreground dark:prose-invert prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-card/70 prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-card/70 prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+            <div className={MARKDOWN_PROSE}>
               <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering Markdown…</div>}>
                 <MarkdownBody markdown={writeInput.content} />
               </Suspense>
@@ -797,6 +816,9 @@ function ToolInput({ input }: { input: unknown }) {
     </CodeBlock>
   )
 }
+
+/** Typography for rendered Markdown in a tool's file view, shared by the inline and full-screen views. */
+const MARKDOWN_PROSE = 'prose prose-sm max-w-none break-words text-foreground dark:prose-invert prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-card/70 prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-card/70 prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border'
 
 function DiffView({ lines }: { lines: DiffLine[] }) {
   return (
