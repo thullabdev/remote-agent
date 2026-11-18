@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { CHATS_TAB, readSideTab, saveSideTab } from '../../src/ui/components/side-panel/side-tab.ts'
+import { CHATS_TAB, readSideTab, saveSideTab, SETTINGS_TAB } from '../../src/ui/components/side-panel/side-tab.ts'
+
+it('returns the remembered Settings tab without it being registered', () => {
+  expect(readSideTab(['terminal'], storageWith(`"${SETTINGS_TAB}"`))).toBe(SETTINGS_TAB)
+})
 
 function storageWith(value: string | null) {
   return { getItem: () => value, setItem: () => {} }
