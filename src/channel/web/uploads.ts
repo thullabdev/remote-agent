@@ -2,13 +2,15 @@ import type { Database } from 'bun:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { UploadRecord } from './protocol.ts'
+import type { UploadRecord, UploadRef } from './protocol.ts'
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 export const MAX_THUMBNAIL_BYTES = 256 * 1024
+export const MAX_TEXT_BYTES = 64 * 1024
 export const MAX_ATTACHMENTS = 5
 
 const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'])
+const TEXT_MIME = 'text/markdown'
 const THUMBNAIL_MIMES = new Set(['image/jpeg', 'image/webp'])
 const THUMBNAIL_FILE = 'thumb'
 
@@ -89,13 +91,42 @@ export class UploadLibrary {
     if (mime === null || !ALLOWED_MIMES.has(mime)) {
       throw new UploadError(415, 'Only PNG, JPEG, GIF, WebP and PDF files can be uploaded.')
     }
+    return this.save(bytes, safeFileName(rawName), mime)
+  }
+
+  /**
+   * Stores text written by the server, such as the comments attached to a chat, as a markdown file. The bytes are not
+   * sniffed and the allowed-type list does not apply: the text comes from the server, never from a client file.
+   */
+  addText(rawName: string, text: string): UploadRef {
+    const trimmedName = rawName.trim()
+    if (trimmedName === '') {
+      throw new UploadError(400, 'The file needs a name.')
+    }
+    if (trimmedName.length > 120) {
+      throw new UploadError(400, 'The file name is longer than 120 characters.')
+    }
+    if (text.trim() === '') {
+      throw new UploadError(400, 'The text is empty.')
+    }
+    const bytes = new TextEncoder().encode(text)
+    if (bytes.byteLength > MAX_TEXT_BYTES) {
+      throw new UploadError(400, 'The text is larger than 64 KB.')
+    }
+    const withoutUnsafe = trimmedName.replace(/[^A-Za-z0-9._ -]/g, '-')
+    const name = withoutUnsafe.endsWith('.md') ? withoutUnsafe : `${withoutUnsafe}.md`
+    const record = this.save(bytes, name, TEXT_MIME)
+    return { id: record.id, name: record.name, mime: record.mime, size: record.size }
+  }
+
+  /** Writes the bytes under a new id, or returns the entry already holding the same bytes. */
+  private save(bytes: Uint8Array, name: string, mime: string): UploadRecord {
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const existing = this.db.query<UploadRow, [string]>('SELECT id, name, mime, size, thumb_mime, created_at FROM uploads WHERE sha256 = ?').get(sha256)
     if (existing !== null) {
       return toRecord(existing)
     }
     const id = `u_${randomUUID()}`
-    const name = safeFileName(rawName)
     mkdirSync(join(this.dir, id), { recursive: true })
     writeFileSync(join(this.dir, id, name), bytes)
     const createdAt = this.now()

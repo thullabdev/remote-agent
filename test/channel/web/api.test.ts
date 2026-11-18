@@ -818,6 +818,28 @@ test('refuses uploads of the wrong type, too large, or with bad data', async () 
   expect((await call('POST', '/api/uploads', { data: base64(PNG_BYTES) })).status).toBe(400)
 })
 
+test('the upload route still refuses a markdown or plain text file', async () => {
+  expect((await upload('notes.md', new TextEncoder().encode('# Notes\n'))).status).toBe(415)
+  expect((await upload('notes.txt', new TextEncoder().encode('plain text'))).status).toBe(415)
+})
+
+test('stores text as a markdown upload and answers 201 with its reference', async () => {
+  const { status, body } = await call('POST', '/api/uploads/text', { name: 'review', text: '# Review\n\nLooks good.' })
+  expect(status).toBe(201)
+  expect(body.upload).toMatchObject({ name: 'review.md', mime: 'text/markdown', size: new TextEncoder().encode('# Review\n\nLooks good.').byteLength })
+  expect((await call('GET', '/api/uploads')).body.uploads.map((item: { id: string }) => item.id)).toEqual([body.upload.id])
+})
+
+test('refuses text that is blank, bad JSON, or missing fields with 400 and an error message', async () => {
+  const blank = await call('POST', '/api/uploads/text', { name: 'review', text: '   ' })
+  expect(blank.status).toBe(400)
+  expect(typeof blank.body.error).toBe('string')
+  const badJson = await call('POST', '/api/uploads/text', undefined, '{not json')
+  expect(badJson.status).toBe(400)
+  expect(typeof badJson.body.error).toBe('string')
+  expect((await call('POST', '/api/uploads/text', { name: 'review' })).status).toBe(400)
+})
+
 test('serves a file with its sniffed type, a preview when asked, and refuses a preview for a PDF', async () => {
   const image = (await upload('a.png', PNG_BYTES)).body.upload
   const pdf = (await upload('a.pdf', PDF_BYTES)).body.upload

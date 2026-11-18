@@ -106,6 +106,7 @@ const ROUTES: Route[] = [
   { method: 'PUT', pattern: ['chats', ':id', 'draft'], run: ({ deps, request }, id) => saveDraft(deps, request, id) },
   { method: 'GET', pattern: ['uploads'], run: ({ deps }) => listUploads(deps) },
   { method: 'POST', pattern: ['uploads'], run: ({ deps, request }) => addUpload(deps, request) },
+  { method: 'POST', pattern: ['uploads', 'text'], run: ({ deps, request }) => addTextUpload(deps, request) },
   { method: 'GET', pattern: ['uploads', ':id'], run: ({ deps, url }, id) => uploadFile(deps, id, url) },
   { method: 'POST', pattern: ['uploads', ':id', 'thumbnail'], run: ({ deps, request }, id) => addThumbnail(deps, request, id) },
   { method: 'DELETE', pattern: ['uploads', ':id'], run: ({ deps }, id) => removeUpload(deps, id) },
@@ -400,6 +401,7 @@ function listUploads(deps: ApiDeps): unknown {
 /** Uploads travel as JSON with base64 data, so the JSON Content-Type guard applies to them too. */
 const UploadBodySchema = z.object({ name: z.string().min(1).max(500), data: z.string().min(1) })
 const ThumbnailBodySchema = z.object({ data: z.string().min(1) })
+const TextUploadBodySchema = z.object({ name: z.string(), text: z.string() })
 
 /** Decodes base64 data, refusing anything that could not hold a file within the limit. */
 function decodeUpload(data: string): Uint8Array {
@@ -414,6 +416,13 @@ async function addUpload(deps: ApiDeps, request: Request): Promise<unknown> {
   const body = await readBody(request, UploadBodySchema)
   const bytes = decodeUpload(body.data)
   return { upload: withUploadErrors(() => library.add(body.name, bytes)) }
+}
+
+/** Stores text the server wrote, such as attached review comments, as a markdown upload. Answers 201. */
+async function addTextUpload(deps: ApiDeps, request: Request): Promise<Response> {
+  const library = requireUploads(deps)
+  const body = await readBody(request, TextUploadBodySchema)
+  return json({ upload: withUploadErrors(() => library.addText(body.name, body.text)) }, 201)
 }
 
 /** Serves the file, or its preview with `?thumb=1`, with the type its bytes show. */
