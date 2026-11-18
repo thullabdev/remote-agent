@@ -14,6 +14,7 @@ import { projectName, tabLabel } from './grouping.ts'
 import { refreshSessions, removeSession, startSessionEvents, useSelectedTerminalId, useTerminalSessions, selectTerminal, type TerminalSession } from './store.ts'
 import { closeSession } from './sessions-client.ts'
 import { attachTouchScroll } from './touch-scroll.ts'
+import { TabItem, TabStrip } from '../../../src/ui/components/tabs/tab-strip.tsx'
 
 export type { TerminalSession } from './store.ts'
 
@@ -233,35 +234,19 @@ function TerminalTab({ term, selected, onSelect, onClose }: { term: TerminalSess
   const folder = projectName(term.cwd)
   const command = term.command ? label.slice(folder.length) : ''
   return (
-    <div className="group relative flex shrink-0 items-center">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={selected}
-        title={`${label} · ${term.cwd}`}
-        onClick={() => onSelect(term.id)}
-        className={cn(
-          'max-w-[220px] truncate py-2 text-xs transition-colors',
-          selected ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-        )}
-      >
-        <span>{folder}</span>
-        {command !== '' ? <span className="text-muted-foreground"> {command.trimStart()}</span> : null}
-      </button>
-      <button
-        type="button"
-        aria-label={`Close ${label}`}
-        title="Close this terminal"
-        onClick={() => onClose(term.id)}
-        className={cn(
-          'mr-1 grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground transition-opacity hover:bg-muted hover:text-foreground',
-          selected ? 'opacity-70' : 'opacity-0 group-hover:opacity-70 focus-visible:opacity-70',
-        )}
-      >
-        <X className="size-3" aria-hidden="true" />
-      </button>
-      {selected ? <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" aria-hidden="true" /> : null}
-    </div>
+    <TabItem
+      name={
+        <>
+          <span>{folder}</span>
+          {command !== '' ? <span className="text-muted-foreground"> {command.trimStart()}</span> : null}
+        </>
+      }
+      title={`${label} · ${term.cwd}`}
+      selected={selected}
+      closeLabel={`Close ${label}`}
+      onSelect={() => onSelect(term.id)}
+      onClose={() => onClose(term.id)}
+    />
   )
 }
 
@@ -356,15 +341,11 @@ export function TerminalsSideTab({ activeChat, notify, density }: SideTabContext
 
 
       {terminals.length > 1 ? (
-        <div
-          role="tablist"
-          aria-label="Open terminals"
-          className={cn('flex shrink-0 gap-4 overflow-x-auto overflow-y-hidden border-b border-border/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', padX)}
-        >
+        <TabStrip label="Open terminals" padX={padX}>
           {terminals.map(term => (
             <TerminalTab key={term.id} term={term} selected={term.id === selected} onSelect={sid => selectTerminal(sid)} onClose={handleClose} />
           ))}
-        </div>
+        </TabStrip>
       ) : null}
 
       {selected !== null ? (
