@@ -1,21 +1,10 @@
 import { Bell, BellOff, Check, ShieldCheck } from 'lucide-react'
-import type { ReactNode } from 'react'
 import type { PushStatus } from '../use-push-subscription.ts'
-import type { AccentPreference, Preferences } from '../preferences.ts'
-import { COLOR_THEMES } from '../themes.ts'
+import type { Preferences } from '../preferences.ts'
+import { AccentSwatches, ColorThemeGrid, SettingLabel, SettingSegments, SettingSwitch } from './settings/settings-controls.tsx'
 import { Button } from './ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog.tsx'
 import { Separator } from './ui/separator.tsx'
-
-const accents: { value: AccentPreference; color: string }[] = [
-  { value: 'ink', color: '#111111' },
-  { value: 'olive', color: '#3F4A3C' },
-  { value: 'blue', color: '#355C7D' },
-  { value: 'clay', color: '#A05237' },
-  { value: 'plum', color: '#704064' },
-  { value: 'amber', color: '#A8701E' },
-  { value: 'teal', color: '#1E6E6C' },
-]
 
 type SettingsDialogProps = {
   open: boolean
@@ -48,58 +37,18 @@ export function SettingsDialog({ open, preferences, push, pushBusy, away, onPref
                 When on, reports notify you if no device is focused on the chat.
               </p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={away}
-              aria-label="Away mode"
-              title={`Away mode ${away ? 'on' : 'off'}`}
-              onClick={onAwayToggle}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${away ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-background shadow-sm transition-transform ${away ? 'translate-x-5' : 'translate-x-0'}`} />
-            </button>
+            <SettingSwitch label="Away mode" checked={away} onChange={onAwayToggle} />
           </section>
           <SettingSegments label="Theme" value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
             ['light', 'Light'], ['dark', 'Dark'], ['system', 'System'],
           ]} />
           <section>
             <SettingLabel>Color theme</SettingLabel>
-            <div className="grid grid-cols-2 gap-2">
-              {COLOR_THEMES.map(theme => (
-                <button
-                  type="button"
-                  key={theme.id}
-                  aria-pressed={preferences.palette === theme.id}
-                  onClick={() => onPreferences({ ...preferences, palette: theme.id })}
-                  className={`flex items-center gap-2 rounded-xl border-2 p-2 text-left text-sm ${preferences.palette === theme.id ? 'border-primary' : 'border-border'}`}
-                >
-                  <span className="flex size-6 shrink-0 overflow-hidden rounded-full " aria-hidden="true">
-                    <span className="h-full w-1/2" style={{ backgroundColor: theme.light.background }} />
-                    <span className="h-full w-1/2" style={{ backgroundColor: theme.dark.background }} />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{theme.label}</span>
-                  <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: theme.dark.primary }} aria-hidden="true" />
-                </button>
-              ))}
-            </div>
+            <ColorThemeGrid value={preferences.palette} onChange={palette => onPreferences({ ...preferences, palette })} />
           </section>
           <section>
             <SettingLabel>Accent</SettingLabel>
-            <div className="flex gap-3">
-              {accents.map(({ value, color }) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-label={`${value} accent`}
-                  aria-pressed={preferences.accent === value}
-                  onClick={() => onPreferences({ ...preferences, accent: value })}
-                  className={`size-9 shrink-0 rounded-full border-2 p-1 ${preferences.accent === value ? 'border-primary' : 'border-border'}`}
-                >
-                  <span className="block size-full rounded-full" style={{ backgroundColor: color }} />
-                </button>
-              ))}
-            </div>
+            <AccentSwatches value={preferences.accent} onChange={accent => onPreferences({ ...preferences, accent })} />
           </section>
           <SettingSegments label="Glow (accent light in chat)" value={preferences.glow} onChange={glow => onPreferences({ ...preferences, glow })} options={[
             ['off', 'Off'], ['soft', 'Soft'], ['strong', 'Strong'],
@@ -154,40 +103,5 @@ export function SettingsDialog({ open, preferences, push, pushBusy, away, onPref
         </section>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function SettingLabel({ children }: { children: ReactNode }) {
-  return <div className="mb-2 font-mono text-xs text-muted-foreground">{children}</div>
-}
-
-function SettingSegments<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: T
-  options: readonly (readonly [T, string])[]
-  onChange(value: T): void
-}) {
-  return (
-    <section>
-      <SettingLabel>{label}</SettingLabel>
-      <div className="flex gap-1 rounded-xl bg-muted p-1">
-        {options.map(([option, title]) => (
-          <button
-            type="button"
-            key={option}
-            aria-pressed={value === option}
-            onClick={() => onChange(option)}
-            className={`flex-1 rounded-lg py-1.5 text-sm transition-colors ${value === option ? 'bg-card font-medium text-foreground shadow-sm' : 'text-muted-foreground'}`}
-          >
-            {title}
-          </button>
-        ))}
-      </div>
-    </section>
   )
 }
