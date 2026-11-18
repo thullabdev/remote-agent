@@ -197,6 +197,8 @@ export function App() {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
       setActivePanel(registeredPanelOf(window.location.search))
+      // The URL names a chat or a panel, so the settings view must not stay on top of it.
+      setSettingsView(null)
       setFocusPrompt(null)
       setInfoOpen(false)
     }
