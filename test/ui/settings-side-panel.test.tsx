@@ -23,3 +23,13 @@ describe('SettingsSidePanel', () => {
     expect(html).toContain('zebra')
   })
 })
+
+describe('SettingsSidePanel group rows', () => {
+  it('shows each group with its icon and description', () => {
+    const html = renderToStaticMarkup(<SettingsSidePanel onOpen={() => {}} />)
+    expect(html).toContain('Theme, colors, and text size')
+    expect(html).toContain('How messages are sent and shown')
+    expect(html).toContain('Away mode and push alerts')
+    expect(html.match(/<svg/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
+  })
+})

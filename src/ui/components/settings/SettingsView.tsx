@@ -17,16 +17,19 @@ export type SettingsViewProps = {
   push: PushStatus
   pushBusy: boolean
   onPushToggle(): void
-  /** Phone only: returns to the group list. Omitted on desktop. */
+  /** Returns the main area to the group list on a phone, or to the chat or empty state on desktop. Omitted when there is nothing to return to. */
   onBack?(): void
 }
 
 const FOCUS_CLASSES = ['ring-2', 'ring-primary']
 
-/** The settings of one group, shown in the main area. Each setting is a labelled section with its own control. */
+/**
+ * The settings of one group, shown in the main area. The header matches the chat header and stays put while the settings
+ * scroll underneath it. Each setting is a labelled section with its own control.
+ */
 export function SettingsView(props: SettingsViewProps) {
   const { group, focus, onBack } = props
-  const title = SETTING_GROUPS.find(candidate => candidate.id === group)?.title ?? ''
+  const groupInfo = SETTING_GROUPS.find(candidate => candidate.id === group)
 
   useEffect(() => {
     if (focus === undefined) {
@@ -43,23 +46,28 @@ export function SettingsView(props: SettingsViewProps) {
   }, [focus, group])
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background p-5 max-md:pb-24">
-      <header className="mb-5 flex items-center gap-2">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <header className="chat-header-glass flex h-[4.25rem] shrink-0 items-center gap-2 bg-background/85 px-2 backdrop-blur md:px-4">
         {onBack && (
-          <Button variant="ghost" size="icon" aria-label="Back to settings" title="Back to settings" onClick={onBack}>
+          <Button variant="ghost" size="icon-sm" aria-label="Back" title="Back" onClick={onBack}>
             <ArrowLeft aria-hidden="true" />
           </Button>
         )}
-        <h2 className="font-display text-xl">{title}</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-display text-sm font-semibold tracking-tight">{groupInfo?.title ?? ''}</h2>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{groupInfo?.description ?? ''}</p>
+        </div>
       </header>
-      <div className="grid gap-5">
-        {settingsIn(group).map(setting => (
-          <section key={setting.id} id={`setting-${setting.id}`} data-setting={setting.id} className="scroll-mt-4 rounded-2xl">
-            {renderSetting(setting, props)}
-          </section>
-        ))}
+      <div className="min-h-0 flex-1 overflow-y-auto p-5 max-md:pb-24">
+        <div className="grid gap-5">
+          {settingsIn(group).map(setting => (
+            <section key={setting.id} id={`setting-${setting.id}`} data-setting={setting.id} className="scroll-mt-4 rounded-2xl">
+              {renderSetting(setting, props)}
+            </section>
+          ))}
+        </div>
       </div>
-    </div>
+    </section>
   )
 }
 

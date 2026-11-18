@@ -17,7 +17,7 @@ export type SettingId =
   | 'awayMode'
   | 'pushNotifications'
 
-export type SettingGroup = { id: SettingGroupId; title: string }
+export type SettingGroup = { id: SettingGroupId; title: string; description: string }
 
 export type SettingDefinition = {
   id: SettingId
@@ -28,9 +28,9 @@ export type SettingDefinition = {
 }
 
 export const SETTING_GROUPS: readonly SettingGroup[] = [
-  { id: 'appearance', title: 'Appearance' },
-  { id: 'chat', title: 'Chat' },
-  { id: 'notifications', title: 'Notifications & presence' },
+  { id: 'appearance', title: 'Appearance', description: 'Theme, colors, and text size' },
+  { id: 'chat', title: 'Chat', description: 'How messages are sent and shown' },
+  { id: 'notifications', title: 'Notifications & presence', description: 'Away mode and push alerts' },
 ]
 
 export const SETTINGS: readonly SettingDefinition[] = [

@@ -30,7 +30,29 @@ describe('SettingsView', () => {
   })
 
   it('shows a back button only when given onBack', () => {
-    expect(renderToStaticMarkup(<SettingsView {...base} />)).not.toContain('aria-label="Back to settings"')
-    expect(renderToStaticMarkup(<SettingsView {...base} onBack={() => {}} />)).toContain('aria-label="Back to settings"')
+    expect(renderToStaticMarkup(<SettingsView {...base} />)).not.toContain('aria-label="Back"')
+    expect(renderToStaticMarkup(<SettingsView {...base} onBack={() => {}} />)).toContain('aria-label="Back"')
+  })
+})
+
+describe('SettingsView header', () => {
+  it('keeps the header outside the scrolling content', () => {
+    const html = renderToStaticMarkup(<SettingsView {...base} onBack={() => {}} />)
+    const headerEnd = html.indexOf('</header>')
+    expect(headerEnd).toBeGreaterThan(-1)
+    expect(html.indexOf('overflow-y-auto')).toBeGreaterThan(headerEnd)
+  })
+
+  it('shows the back button at every width, like the chat header does on phones', () => {
+    const html = renderToStaticMarkup(<SettingsView {...base} onBack={() => {}} />)
+    const button = html.match(/<button[^>]*aria-label="Back"[^>]*>/)?.[0] ?? ''
+    expect(button).not.toBe('')
+    expect(button).not.toContain('md:hidden')
+  })
+
+  it('titles the header with the group name and its description', () => {
+    const html = renderToStaticMarkup(<SettingsView {...base} group="chat" onBack={() => {}} />)
+    expect(html).toContain('<h2')
+    expect(html).toContain('How messages are sent and shown')
   })
 })

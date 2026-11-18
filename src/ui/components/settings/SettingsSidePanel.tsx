@@ -1,9 +1,16 @@
-import { Search, X } from 'lucide-react'
+import { Bell, ChevronRight, MessageSquareText, Palette, Search, X, type LucideIcon } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import { SETTING_GROUPS, settingsIn, type SettingGroupId, type SettingId } from '../../settings/settings-registry.ts'
+import { SETTING_GROUPS, type SettingGroupId, type SettingId } from '../../settings/settings-registry.ts'
 import { searchSettings } from '../../settings/settings-search.ts'
 import { Input } from '../ui/input.tsx'
 import { SidePanelFrame } from '../side-panel/SidePanelFrame.tsx'
+
+/** Each group's icon in the side panel. */
+const GROUP_ICONS: Record<SettingGroupId, LucideIcon> = {
+  appearance: Palette,
+  chat: MessageSquareText,
+  notifications: Bell,
+}
 
 export type SettingsSidePanelProps = {
   /** Opens a group in the main area; `focus` names the setting a search result picked. */
@@ -75,17 +82,26 @@ export function SettingsSidePanel({ onOpen, initialQuery = '' }: SettingsSidePan
           )
         ) : (
           <div className="space-y-1">
-            {SETTING_GROUPS.map(group => (
-              <button
-                type="button"
-                key={group.id}
-                onClick={() => onOpen(group.id)}
-                className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted"
-              >
-                <span className="text-sm font-medium">{group.title}</span>
-                <span className="text-xs text-muted-foreground">{settingsIn(group.id).length}</span>
-              </button>
-            ))}
+            {SETTING_GROUPS.map(group => {
+              const Icon = GROUP_ICONS[group.id]
+              return (
+                <button
+                  type="button"
+                  key={group.id}
+                  onClick={() => onOpen(group.id)}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left transition-colors hover:bg-muted"
+                >
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted">
+                    <Icon className="size-5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{group.title}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{group.description}</span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
