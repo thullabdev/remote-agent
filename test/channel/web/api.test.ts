@@ -812,21 +812,33 @@ test('uploads an image to the library and lists it', async () => {
 })
 
 test('refuses uploads of the wrong type, too large, or with bad data', async () => {
-  expect((await upload('a.svg', new TextEncoder().encode('<svg></svg>'))).status).toBe(415)
+  expect((await upload('blob.bin', new Uint8Array([0x00, 0x01, 0x02]))).status).toBe(415)
   expect((await call('POST', '/api/uploads', { name: 'big.png', data: 'A'.repeat(14_000_000) })).status).toBe(413)
   expect((await call('POST', '/api/uploads', { name: 'empty.png' })).status).toBe(400)
   expect((await call('POST', '/api/uploads', { data: base64(PNG_BYTES) })).status).toBe(400)
 })
 
-test('the upload route still refuses a markdown or plain text file', async () => {
-  expect((await upload('notes.md', new TextEncoder().encode('# Notes\n'))).status).toBe(415)
-  expect((await upload('notes.txt', new TextEncoder().encode('plain text'))).status).toBe(415)
+test('the upload route accepts markdown and plain text files, labelled by extension', async () => {
+  expect((await upload('notes.md', new TextEncoder().encode('# Notes\n'))).body.upload).toMatchObject({ name: 'notes.md', mime: 'text/markdown' })
+  expect((await upload('notes.txt', new TextEncoder().encode('plain text'))).body.upload).toMatchObject({ name: 'notes.txt', mime: 'text/plain' })
 })
 
-test('stores text as a markdown upload and answers 201 with its reference', async () => {
+test('serves an uploaded HTML file as plain text with nosniff, never as HTML', async () => {
+  const page = (await upload('page.html', new TextEncoder().encode('<script>alert(1)</script>'))).body.upload
+  const file = await api(new Request(`http://localhost/api/uploads/${page.id}`))
+  expect(file?.status).toBe(200)
+  expect(file?.headers.get('Content-Type')).toBe('text/plain; charset=utf-8')
+  expect(file?.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  expect(await file!.text()).toBe('<script>alert(1)</script>')
+  expect((await api(new Request(`http://localhost/api/uploads/${page.id}?thumb=1`)))?.status).toBe(404)
+  expect((await call('POST', `/api/uploads/${page.id}/thumbnail`, { data: base64(JPEG_BYTES) })).status).toBe(415)
+  expect((await call('GET', '/api/uploads')).body.uploads.find((item: { id: string }) => item.id === page.id)).toMatchObject({ mime: 'text/html', hasThumbnail: false })
+})
+
+test('stores text as a plain text upload and answers 201 with its reference', async () => {
   const { status, body } = await call('POST', '/api/uploads/text', { name: 'review', text: '# Review\n\nLooks good.' })
   expect(status).toBe(201)
-  expect(body.upload).toMatchObject({ name: 'review.md', mime: 'text/markdown', size: new TextEncoder().encode('# Review\n\nLooks good.').byteLength })
+  expect(body.upload).toMatchObject({ name: 'review.txt', mime: 'text/plain', size: new TextEncoder().encode('# Review\n\nLooks good.').byteLength })
   expect((await call('GET', '/api/uploads')).body.uploads.map((item: { id: string }) => item.id)).toEqual([body.upload.id])
 })
 

@@ -10,7 +10,7 @@ export const MAX_TEXT_BYTES = 64 * 1024
 export const MAX_ATTACHMENTS = 5
 
 const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'])
-const TEXT_MIME = 'text/markdown'
+const IMAGE_AND_PDF_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'])
 const THUMBNAIL_MIMES = new Set(['image/jpeg', 'image/webp'])
 const THUMBNAIL_FILE = 'thumb'
 
@@ -43,6 +43,61 @@ export function sniffMime(bytes: Uint8Array): string | null {
     return 'application/pdf'
   }
   return null
+}
+
+/** The mime label for each known text extension (lowercase). Any other text file is labelled text/plain. */
+export const TEXT_UPLOAD_TYPES: ReadonlyMap<string, string> = new Map([
+  ['md', 'text/markdown'],
+  ['markdown', 'text/markdown'],
+  ['html', 'text/html'],
+  ['htm', 'text/html'],
+  ['txt', 'text/plain'],
+  ['log', 'text/plain'],
+  ['csv', 'text/csv'],
+  ['tsv', 'text/tab-separated-values'],
+  ['json', 'application/json'],
+  ['yaml', 'application/yaml'],
+  ['yml', 'application/yaml'],
+  ['xml', 'application/xml'],
+])
+
+const TEXT_MIMES: ReadonlySet<string> = new Set(TEXT_UPLOAD_TYPES.values())
+
+/** True for the mime labels of text uploads, which the file route serves as plain text. */
+export function isTextMime(mime: string): boolean {
+  return TEXT_MIMES.has(mime)
+}
+
+/** The lowercase extension after the last dot, or null when the name has no dot. */
+function extensionOf(name: string): string | null {
+  const dot = name.lastIndexOf('.')
+  return dot < 0 ? null : name.slice(dot + 1).toLowerCase()
+}
+
+/** The mime label for a text file, from its extension. */
+function textMimeFor(name: string): string {
+  return TEXT_UPLOAD_TYPES.get(extensionOf(name) ?? '') ?? 'text/plain'
+}
+
+/**
+ * Whether the bytes are text: valid UTF-8 with no NUL byte. A name with an image or PDF extension is never text, so
+ * a broken image is refused rather than stored as text. The bytes decide; the extension only sets the label.
+ */
+export function isTextUpload(name: string, bytes: Uint8Array): boolean {
+  const extension = extensionOf(name)
+  if (extension !== null && IMAGE_AND_PDF_EXTENSIONS.has(extension)) {
+    return false
+  }
+  if (bytes.includes(0)) {
+    return false
+  }
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  try {
+    decoder.decode(bytes)
+  } catch {
+    return false
+  }
+  return true
 }
 
 /** A basename with only safe characters, never starting with a dot, so it cannot escape its folder. */
@@ -82,21 +137,28 @@ export class UploadLibrary {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
   }
 
-  /** Stores a file. The same bytes uploaded again return the existing entry. */
+  /**
+   * Stores a file. Images and PDFs keep the type their bytes show; any other file that is text (see isTextUpload)
+   * is stored under its extension's label. The same bytes uploaded again return the existing entry.
+   */
   add(rawName: string, bytes: Uint8Array): UploadRecord {
     if (bytes.byteLength > MAX_UPLOAD_BYTES) {
       throw new UploadError(413, 'File is larger than 10 MB.')
     }
+    const name = safeFileName(rawName)
     const mime = sniffMime(bytes)
-    if (mime === null || !ALLOWED_MIMES.has(mime)) {
-      throw new UploadError(415, 'Only PNG, JPEG, GIF, WebP and PDF files can be uploaded.')
+    if (mime !== null && ALLOWED_MIMES.has(mime)) {
+      return this.save(bytes, name, mime)
     }
-    return this.save(bytes, safeFileName(rawName), mime)
+    if (isTextUpload(name, bytes)) {
+      return this.save(bytes, name, textMimeFor(name))
+    }
+    throw new UploadError(415, 'Only images, PDFs and text files can be uploaded.')
   }
 
   /**
-   * Stores text written by the server, such as the comments attached to a chat, as a markdown file. The bytes are not
-   * sniffed and the allowed-type list does not apply: the text comes from the server, never from a client file.
+   * Stores text written by the server, such as the comments attached to a chat. The bytes are not sniffed: the text
+   * comes from the server, never from a client file. A name without a known text extension gets .txt.
    */
   addText(rawName: string, text: string): UploadRef {
     const trimmedName = rawName.trim()
@@ -114,8 +176,9 @@ export class UploadLibrary {
       throw new UploadError(400, 'The text is larger than 64 KB.')
     }
     const withoutUnsafe = trimmedName.replace(/[^A-Za-z0-9._ -]/g, '-')
-    const name = withoutUnsafe.endsWith('.md') ? withoutUnsafe : `${withoutUnsafe}.md`
-    const record = this.save(bytes, name, TEXT_MIME)
+    const hasKnownExtension = TEXT_UPLOAD_TYPES.has(extensionOf(withoutUnsafe) ?? '')
+    const name = hasKnownExtension ? withoutUnsafe : `${withoutUnsafe}.txt`
+    const record = this.save(bytes, name, textMimeFor(name))
     return { id: record.id, name: record.name, mime: record.mime, size: record.size }
   }
 

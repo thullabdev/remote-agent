@@ -12,7 +12,7 @@ import { MAX_PINNED_CHATS, type ChatLog } from './chat-log.ts'
 import { orderChats } from './order.ts'
 import type { PushService } from './push.ts'
 import { ActionSchema, AwaySchema, clientSourceId, DraftSchema, PinSchema, PromptReplySchema, ReadSchema, SendMessageSchema, type Chat, type PushSubscriptionRecord, type UploadRef, type UsageView } from './protocol.ts'
-import { MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
+import { isTextMime, MAX_UPLOAD_BYTES, UploadError, type UploadLibrary } from './uploads.ts'
 import type { SubagentSource } from './transcript/subagent.ts'
 
 const GENERAL_ID = 'general'
@@ -442,8 +442,11 @@ async function uploadFile(deps: ApiDeps, id: string, url: URL): Promise<Response
   if (!(await blob.exists())) {
     throw new ApiError(404, 'The file is missing from disk.')
   }
+  // Text uploads are served as plain text whatever their extension. Served as text/html or image/svg+xml, an uploaded
+  // page would run its scripts in the app's own origin; as plain text the browser shows the bytes and renders nothing.
+  const contentType = preview === undefined && isTextMime(record.mime) ? 'text/plain; charset=utf-8' : source.mime
   return new Response(blob, {
-    headers: { 'Content-Type': source.mime, 'Cache-Control': 'private', 'X-Content-Type-Options': 'nosniff' },
+    headers: { 'Content-Type': contentType, 'Cache-Control': 'private', 'X-Content-Type-Options': 'nosniff' },
   })
 }
 
