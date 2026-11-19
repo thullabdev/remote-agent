@@ -55,7 +55,7 @@ describe('composer bus', () => {
   })
 
   describe('comment bundles', () => {
-    const bundle: CommentBundle = { id: 'bundle-1', markdown: '# Review comments\n', count: 1, files: ['src/a.ts'], createdAt: 1 }
+    const bundle: CommentBundle = { id: 'bundle-1', kind: 'comments', title: 'Review comments · 1 comment', markdown: '# Review comments\n', count: 1, files: ['src/a.ts'], createdAt: 1 }
 
     test('a bundle with no composer mounted is queued', () => {
       expect(attachCommentsToComposer('bundle-empty', bundle)).toBe('queued')

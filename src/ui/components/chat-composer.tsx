@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2, MessageSquarePlus, Paperclip, RotateCcw, Send, X } from 'lucide-react'
+import { Maximize2, Minimize2, MessageSquarePlus, Paperclip, Quote, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
@@ -60,19 +60,19 @@ function bundleStorage(): OpenStateStorage | null {
 const CARD_FILE_NAMES = 2
 
 /**
- * A review's comments waiting in the composer. It is a card, not a file chip: the label, the files it covers, and a toggle that
- * shows the markdown that will be sent.
+ * A bundle waiting in the composer: a review's comments or a quote. It is a card, not a file chip: its title (for a quote, "Quote ·
+ * <source>"), the files it covers, and a toggle that shows the markdown that will be sent.
  */
 function CommentBundleCard({ bundle, onRemove }: { bundle: CommentBundle; onRemove(): void }) {
   const [shown, setShown] = useState(false)
-  const label = `Review comments · ${bundle.count} ${bundle.count === 1 ? 'comment' : 'comments'}`
+  const label = bundle.title
   const listed = bundle.files.slice(0, CARD_FILE_NAMES).join(', ')
   const more = bundle.files.length - CARD_FILE_NAMES
   const files = more > 0 ? `${listed}, +${more} more` : listed
   return (
     <div className="flex min-w-0 max-w-full flex-col gap-1.5 rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs">
       <div className="flex min-w-0 items-center gap-2">
-        <MessageSquarePlus className="size-3.5 shrink-0" aria-hidden="true" />
+        {bundle.kind === 'quote' ? <Quote className="size-3.5 shrink-0" aria-hidden="true" /> : <MessageSquarePlus className="size-3.5 shrink-0" aria-hidden="true" />}
         <span className="min-w-0 truncate font-medium">{label}</span>
         <button
           type="button"

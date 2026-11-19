@@ -27,6 +27,8 @@ function throwingStorage(): OpenStateStorage {
 function bundle(overrides: Partial<CommentBundle> = {}): CommentBundle {
   return {
     id: 'b1',
+    kind: 'comments',
+    title: 'Review comments · 1 comment',
     markdown: '# Review comments\n\nbody\n',
     count: 1,
     files: ['src/a.ts'],
@@ -105,6 +107,38 @@ describe('comment bundle store', () => {
       JSON.stringify({ 'chat-1': [valid, badId, badMarkdown, badCount, negativeCount, badFiles, badFileItem, badCreatedAt, null, 'x'] }),
     )
     expect(readBundles(storage, 'chat-1')).toEqual([valid])
+  })
+
+  test('a quote bundle keeps its kind and title through a write and read', () => {
+    const storage = memoryStorage()
+    const quote = bundle({ id: 'q1', kind: 'quote', title: 'Quote · Bash result', markdown: '> ok\n\nlooks wrong', count: 1, files: [] })
+    writeBundles(storage, 'chat-1', [quote])
+    expect(readBundles(storage, 'chat-1')).toEqual([quote])
+  })
+
+  test('an old stored bundle with no kind or title reads as a git comments bundle', () => {
+    const storage = memoryStorage()
+    const old = { id: 'old', markdown: '# Review comments\n', count: 2, files: ['src/a.ts', 'src/b.ts'], createdAt: 5 }
+    storage.setItem(COMMENT_BUNDLES_STORAGE_KEY, JSON.stringify({ 'chat-1': [old] }))
+    expect(readBundles(storage, 'chat-1')).toEqual([
+      { ...old, kind: 'comments', title: 'Review comments · 2 comments' },
+    ])
+  })
+
+  test('an old bundle with one comment gets the singular title, and a missing quote title is plain Quote', () => {
+    const storage = memoryStorage()
+    const single = { id: 's', markdown: 'x', count: 1, files: [], createdAt: 1 }
+    const quote = { id: 'q', kind: 'quote', markdown: '> y', count: 1, files: [], createdAt: 2 }
+    storage.setItem(COMMENT_BUNDLES_STORAGE_KEY, JSON.stringify({ 'chat-1': [single, quote] }))
+    const [first, second] = readBundles(storage, 'chat-1')
+    expect(first?.title).toBe('Review comments · 1 comment')
+    expect(second).toEqual({ ...quote, kind: 'quote', title: 'Quote' })
+  })
+
+  test('an entry with a non-string title is dropped on read', () => {
+    const storage = memoryStorage()
+    storage.setItem(COMMENT_BUNDLES_STORAGE_KEY, JSON.stringify({ 'chat-1': [{ ...bundle(), title: 4 }] }))
+    expect(readBundles(storage, 'chat-1')).toEqual([])
   })
 
   test('a corrupt store or a non-array chat entry reads as empty', () => {

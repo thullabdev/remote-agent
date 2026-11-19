@@ -1,14 +1,43 @@
 import type { OpenStateStorage } from './components/ui/accordion-state.ts'
 
 /**
- * A review's comments, held by the chat composer until the next message is sent. The markdown is prepended to that message's
- * text. `count` is the number of comments and `files` the distinct paths they are on.
+ * What a bundle holds: a review's git comments ('comments') or a quote of a span of chat text ('quote').
  */
-export type CommentBundle = { id: string; markdown: string; count: number; files: string[]; createdAt: number }
+export type CommentBundleKind = 'quote' | 'comments'
+
+/**
+ * Content held by the chat composer until the next message is sent. The markdown is prepended to that message's text. `title` is the
+ * label the composer card shows. `count` is the number of comments (1 for a quote) and `files` the distinct paths they are on.
+ */
+export type CommentBundle = {
+  id: string
+  kind: CommentBundleKind
+  title: string
+  markdown: string
+  count: number
+  files: string[]
+  createdAt: number
+}
 
 export const COMMENT_BUNDLES_STORAGE_KEY = 'remote-agent.composer.comment-bundles.v1'
 
-function isBundle(value: unknown): value is CommentBundle {
+/** The title for a bundle stored without one: a git review's comment count, or the plain quote label. */
+function defaultTitle(kind: CommentBundleKind, count: number): string {
+  if (kind === 'quote') {
+    return 'Quote'
+  }
+  return `Review comments · ${count} ${count === 1 ? 'comment' : 'comments'}`
+}
+
+/** Old stored bundles have no kind or title: they are git comment bundles with the title their card showed. */
+function withDefaults(entry: Record<string, unknown>): CommentBundle {
+  const kind: CommentBundleKind = entry.kind === 'quote' ? 'quote' : 'comments'
+  const count = entry.count as number
+  const title = typeof entry.title === 'string' ? entry.title : defaultTitle(kind, count)
+  return { ...(entry as Omit<CommentBundle, 'kind' | 'title'>), kind, title }
+}
+
+function isBundle(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -17,6 +46,9 @@ function isBundle(value: unknown): value is CommentBundle {
     return false
   }
   if (typeof entry.count !== 'number' || !Number.isInteger(entry.count) || entry.count < 0) {
+    return false
+  }
+  if (entry.title !== undefined && typeof entry.title !== 'string') {
     return false
   }
   return Array.isArray(entry.files) && entry.files.every(file => typeof file === 'string')
@@ -57,7 +89,7 @@ export function readBundles(storage: OpenStateStorage | null, chatId: string): C
   if (!Array.isArray(entries)) {
     return []
   }
-  return entries.filter(isBundle)
+  return entries.filter(isBundle).map(withDefaults)
 }
 
 /** Stores the chat's bundles in the shared map. A chat with no bundles has its key removed. A failed write is ignored. */
