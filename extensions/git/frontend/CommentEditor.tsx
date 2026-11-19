@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, MessageSquarePlus, X } from 'lucide-react'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
-import { attachCommentsToComposer, openChatForAttach } from '../../../src/ui/composer-bus.ts'
+import { attachCommentToChat } from '../../../src/ui/attach-comment.ts'
 import { attachComments, type AttachOutcome, type Comment, clearComments, announceCommentsChanged } from './comments.ts'
 import { browserStorage } from './open-files.ts'
 
@@ -135,8 +135,7 @@ export async function runAttachComments(input: { chatId: string; comments: Comme
     chatId: input.chatId,
     comments: input.comments,
     branch: input.branch,
-    attach: attachCommentsToComposer,
-    open: openChatForAttach,
+    attach: attachCommentToChat,
   })
   if (outcome.status === 'attached') {
     clearComments(browserStorage(), input.chatId)

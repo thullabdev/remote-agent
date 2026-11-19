@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { OpenStateStorage } from '../../../src/ui/components/ui/accordion-state.ts'
 import type { CommentBundle } from '../../../src/ui/comment-bundle.ts'
 import type { AttachResult } from '../../../src/ui/composer-bus.ts'
+import type { CommentToAttach } from '../../../src/ui/attach-comment.ts'
 import type { DiffLine } from '../backend/parse.ts'
 import {
   addComment,
@@ -375,52 +376,37 @@ describe('attachment helpers', () => {
 
 describe('attachComments', () => {
   test('builds one bundle with the markdown, count and unique files, and reports attached without uploading', () => {
-    const bundles: Array<{ chatId: string; bundle: CommentBundle }> = []
+    const cards: CommentToAttach[] = []
     const outcome = attachComments({
       chatId: 'chat-1',
       comments: [comment({ id: 'a' }), comment({ id: 'b', line: 9, text: 'second' }), comment({ id: 'c', path: 'src/b.ts' })],
       branch: 'main',
-      attach: (chatId, bundle) => {
-        bundles.push({ chatId, bundle })
+      attach: card => {
+        cards.push(card)
         return 'delivered'
       },
-      open: () => {},
     })
 
     expect(outcome).toEqual({ status: 'attached' })
-    expect(bundles).toHaveLength(1)
-    const [sent] = bundles
+    expect(cards).toHaveLength(1)
+    const [sent] = cards
     expect(sent?.chatId).toBe('chat-1')
-    expect(sent?.bundle.count).toBe(3)
-    expect(sent?.bundle.files).toEqual(['src/a.ts', 'src/b.ts'])
-    expect(sent?.bundle.markdown).toBe(buildCommentsMarkdown([comment({ id: 'a' }), comment({ id: 'b', line: 9, text: 'second' }), comment({ id: 'c', path: 'src/b.ts' })], 'main'))
-    expect(sent?.bundle.id.length).toBeGreaterThan(0)
-    expect(utf8ByteLength(sent?.bundle.markdown ?? '')).toBeLessThanOrEqual(MAX_ATTACH_BYTES)
+    expect(sent?.kind).toBe('comments')
+    expect(sent?.title).toBe('Review comments · 3 comments')
+    expect(sent?.count).toBe(3)
+    expect(sent?.files).toEqual(['src/a.ts', 'src/b.ts'])
+    expect(sent?.markdown).toBe(buildCommentsMarkdown([comment({ id: 'a' }), comment({ id: 'b', line: 9, text: 'second' }), comment({ id: 'c', path: 'src/b.ts' })], 'main'))
+    expect(utf8ByteLength(sent?.markdown ?? '')).toBeLessThanOrEqual(MAX_ATTACH_BYTES)
   })
 
-  test('a bundle that is queued opens the chat so the composer shows it', () => {
-    const opened: string[] = []
+  test('a queued card still counts as attached: the host brings the chat into view', () => {
     const outcome = attachComments({
       chatId: 'chat-1',
       comments: [comment()],
       branch: 'main',
       attach: (): AttachResult => 'queued',
-      open: chatId => opened.push(chatId),
     })
     expect(outcome).toEqual({ status: 'attached' })
-    expect(opened).toEqual(['chat-1'])
-  })
-
-  test('a bundle that is delivered does not open the chat', () => {
-    const opened: string[] = []
-    attachComments({
-      chatId: 'chat-1',
-      comments: [comment()],
-      branch: 'main',
-      attach: (): AttachResult => 'delivered',
-      open: chatId => opened.push(chatId),
-    })
-    expect(opened).toEqual([])
   })
 
   test('markdown over the 64 KB cap is refused without attaching', () => {
@@ -433,7 +419,6 @@ describe('attachComments', () => {
         attachCalls += 1
         return 'delivered'
       },
-      open: () => {},
     })
     expect(outcome.status).toBe('refused')
     expect(outcome.status === 'refused' ? outcome.message : '').toContain('too long')

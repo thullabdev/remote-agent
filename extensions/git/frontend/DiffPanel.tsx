@@ -2,6 +2,7 @@ import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from '
 import { X } from 'lucide-react'
 import type { DiffHunk, DiffLine } from '../backend/parse.ts'
 import { TabItem, TabStrip } from '../../../src/ui/components/tabs/tab-strip.tsx'
+import { newCommentId } from '../../../src/ui/attach-comment.ts'
 import type { PanelContext } from '../../../src/ui/extension-slots.ts'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
 import { cn } from '../../../src/ui/lib/utils.ts'
@@ -16,7 +17,6 @@ import {
   anchorForRange,
   type Comment,
   commentsForRow,
-  createCommentId,
   readComments,
   removeComment,
   subscribeCommentsChanged,
@@ -546,7 +546,7 @@ export function DiffPanel(props: DiffPanelProps) {
       return
     }
     const comment: Comment = {
-      id: createCommentId(),
+      id: newCommentId(),
       path,
       scope,
       side: anchor.side,

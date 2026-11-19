@@ -1,6 +1,6 @@
 import type { OpenStateStorage } from '../../../src/ui/components/ui/accordion-state.ts'
-import type { CommentBundle } from '../../../src/ui/comment-bundle.ts'
 import type { AttachResult } from '../../../src/ui/composer-bus.ts'
+import type { CommentToAttach } from '../../../src/ui/attach-comment.ts'
 import type { DiffLine } from '../backend/parse.ts'
 
 export type CommentScope = 'staged' | 'unstaged' | 'commit'
@@ -149,14 +149,6 @@ export function clearComments(storage: OpenStateStorage | null, chatId: string):
     writeChat(storage, chatId, [])
   }
   return []
-}
-
-/** A new comment id: a UUID where the browser has one, otherwise a time and random string. */
-export function createCommentId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /**
@@ -308,10 +300,8 @@ export function attachComments(input: {
   chatId: string
   comments: Comment[]
   branch: string | null
-  /** Hands the bundle over: shown by the composer now, or queued until the composer mounts. */
-  attach(chatId: string, bundle: CommentBundle): AttachResult
-  /** Brings the chat into view so the waiting bundle is shown. */
-  open(chatId: string): void
+  /** The host's attach for a comment card: shown by the composer now, or queued until the composer mounts. */
+  attach(card: CommentToAttach): AttachResult
 }): AttachOutcome {
   if (input.comments.length === 0) {
     return { status: 'refused', message: 'There are no comments to attach.' }
@@ -321,15 +311,16 @@ export function attachComments(input: {
   if (problem !== null) {
     return { status: 'refused', message: problem }
   }
-  const bundle: CommentBundle = {
-    id: createCommentId(),
+  const result = input.attach({
+    chatId: input.chatId,
+    kind: 'comments',
+    title: `Review comments · ${input.comments.length} ${input.comments.length === 1 ? 'comment' : 'comments'}`,
     markdown,
     count: input.comments.length,
     files: [...new Set(input.comments.map(comment => comment.path))].sort(),
-    createdAt: Date.now(),
-  }
-  if (input.attach(input.chatId, bundle) === 'queued') {
-    input.open(input.chatId)
+  })
+  if (result === 'full') {
+    return { status: 'refused', message: 'The chat cannot take the comments right now. Try again.' }
   }
   return { status: 'attached' }
 }
