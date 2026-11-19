@@ -46,3 +46,12 @@ describe('SettingsGroup', () => {
     expect(html).not.toContain('data-setting="codeWrap"')
   })
 })
+
+describe('SettingsGroup alignment', () => {
+  it('insets the settings body by the same padding as the header, so rows line up with the icon tile', () => {
+    const html = renderToStaticMarkup(<SettingsGroup view={view('chat')} context={context} onToggle={() => {}} />)
+    const body = html.match(/<div id="settings-group-chat" class="([^"]*)"/)?.[1] ?? ''
+    expect(body).toContain('px-3')
+    expect(body).not.toContain('px-1')
+  })
+})

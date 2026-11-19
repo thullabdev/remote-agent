@@ -49,7 +49,7 @@ export function SettingsGroup({ view, context, onToggle }: { view: GroupView; co
         </button>
       )}
       {view.open && (
-        <div id={bodyId} className="space-y-3 px-1 pb-3">
+        <div id={bodyId} className="space-y-3 px-3 pb-3">
           {view.settings.map(setting => (
             <SettingRow key={setting.id} setting={setting} context={context} />
           ))}
