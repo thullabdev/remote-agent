@@ -38,3 +38,49 @@ describe('searchSettings', () => {
     expect(searchSettings('*')).toEqual([])
   })
 })
+
+import { groupsForView, type GroupOpenState } from '../../src/ui/settings/settings-search.ts'
+
+const allOpen: GroupOpenState = { appearance: true, chat: true, notifications: true }
+
+describe('groupsForView', () => {
+  it('shows every group with all its settings when nothing is searched', () => {
+    const views = groupsForView('', allOpen)
+    expect(views.map(view => view.group)).toEqual(['appearance', 'chat', 'notifications'])
+    expect(views[1]!.settings.map(setting => setting.id)).toEqual(['enter', 'codeWrap'])
+    expect(views.every(view => view.searching === false)).toBe(true)
+  })
+
+  it('keeps a collapsed group collapsed when nothing is searched', () => {
+    const views = groupsForView('', { ...allOpen, chat: false })
+    expect(views.find(view => view.group === 'chat')!.open).toBe(false)
+  })
+
+  it('shows only matching settings, in their groups, expanded while searching', () => {
+    const views = groupsForView('accent', { ...allOpen, appearance: false })
+    expect(views.map(view => view.group)).toEqual(['appearance'])
+    expect(views[0]!.settings.map(setting => setting.id)).toEqual(['accent', 'glow'])
+    expect(views[0]!.searching).toBe(true)
+    expect(views[0]!.open).toBe(true)
+  })
+
+  it('hides groups with no match', () => {
+    const views = groupsForView('web push', allOpen)
+    expect(views.map(view => view.group)).toEqual(['notifications'])
+  })
+
+  it('returns the group collapsed again once the search is cleared', () => {
+    const collapsed: GroupOpenState = { ...allOpen, chat: false }
+    expect(groupsForView('enter', collapsed).find(view => view.group === 'chat')!.open).toBe(true)
+    expect(groupsForView('', collapsed).find(view => view.group === 'chat')!.open).toBe(false)
+  })
+
+  it('returns no groups for a query that matches nothing', () => {
+    expect(groupsForView('zebra', allOpen)).toEqual([])
+  })
+
+  it('treats regex characters as plain text', () => {
+    expect(() => groupsForView('(', allOpen)).not.toThrow()
+    expect(groupsForView('*', allOpen)).toEqual([])
+  })
+})
