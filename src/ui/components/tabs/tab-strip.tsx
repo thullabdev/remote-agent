@@ -11,7 +11,7 @@ export function TabStrip({ label, padX, children }: { label: string; padX?: stri
     <div
       role="tablist"
       aria-label={label}
-      className={cn('flex h-full min-h-0 min-w-0 shrink items-stretch gap-4 overflow-x-auto overflow-y-hidden border-b border-border/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', padX)}
+      className={cn('flex min-w-0 shrink self-stretch items-stretch gap-4 overflow-x-auto overflow-y-hidden border-b border-border/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', padX)}
     >
       {children}
     </div>
@@ -42,7 +42,7 @@ export function TabItem({
     }
   }, [selected])
   return (
-    <div ref={ref} className="group relative flex h-full shrink-0 items-center">
+    <div ref={ref} className="group relative flex shrink-0 self-stretch items-center">
       <button
         type="button"
         role="tab"
@@ -53,6 +53,7 @@ export function TabItem({
       >
         {name}
       </button>
+      {selected ? <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -bottom-px h-1 bg-primary" /> : null}
       <button
         type="button"
         aria-label={closeLabel}
