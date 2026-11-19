@@ -47,7 +47,7 @@ Settings belong in the side panel with the other side tabs. A main-area settings
 
 ## Parts
 
-- `src/ui/components/settings/SettingsSidePanel.tsx`: the fixed header (search field), the scrolling body, one collapsible section per group, search filtering, and result focus.
+- `src/ui/components/settings/SettingsSidePanel.tsx`: the fixed header (search field), the scrolling body, one collapsible section per group and search filtering.
 - `src/ui/components/settings/SettingsView.tsx`: removed. Its per-setting rendering moves into `SettingsSidePanel.tsx` or a sibling `SettingsSection.tsx`.
 - `src/ui/app.tsx`: drops the `settingsView` state and the settings branch of the main area. `openSettings` is no longer needed; the side tab renders the panel directly.
 - `src/ui/shell/MainArea` usage: `shown` returns to `activeChatId !== null || activePanel !== null`.
