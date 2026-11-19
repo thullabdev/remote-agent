@@ -67,7 +67,7 @@ export function SettingSwitch({ label, checked, onChange }: { label: string; che
 
 export function AccentSwatches({ value, onChange }: { value: AccentPreference; onChange(value: AccentPreference): void }) {
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-wrap gap-3">
       {accents.map(({ value: accent, color }) => (
         <button
           type="button"

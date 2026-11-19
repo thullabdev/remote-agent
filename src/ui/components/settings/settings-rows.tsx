@@ -1,15 +1,13 @@
-import { ArrowLeft, Bell, BellOff, Check, ShieldCheck } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
-import { settingsIn, SETTING_GROUPS, type SettingDefinition, type SettingGroupId, type SettingId } from '../../settings/settings-registry.ts'
-import type { PushStatus } from '../../use-push-subscription.ts'
+import { Bell, BellOff, Check, ShieldCheck } from 'lucide-react'
+import type { ReactNode } from 'react'
+import type { SettingDefinition } from '../../settings/settings-registry.ts'
 import type { Preferences } from '../../preferences.ts'
+import type { PushStatus } from '../../use-push-subscription.ts'
 import { Button } from '../ui/button.tsx'
 import { AccentSwatches, ColorThemeGrid, SettingLabel, SettingSegments, SettingSwitch } from './settings-controls.tsx'
 
-export type SettingsViewProps = {
-  group: SettingGroupId
-  /** Scrolled to and briefly highlighted, when a search result opened this group. */
-  focus?: SettingId
+/** What every setting row reads and writes. The side panel gets it from the app. */
+export type SettingsContext = {
   preferences: Preferences
   onPreferences(preferences: Preferences): void
   away: boolean
@@ -17,62 +15,19 @@ export type SettingsViewProps = {
   push: PushStatus
   pushBusy: boolean
   onPushToggle(): void
-  /** Returns the main area to the group list on a phone, or to the chat or empty state on desktop. Omitted when there is nothing to return to. */
-  onBack?(): void
 }
 
-const FOCUS_CLASSES = ['ring-2', 'ring-primary']
-
-/**
- * The settings of one group, shown in the main area. The header matches the chat header and stays put while the settings
- * scroll underneath it. Each setting is a labelled section with its own control.
- */
-export function SettingsView(props: SettingsViewProps) {
-  const { group, focus, onBack } = props
-  const groupInfo = SETTING_GROUPS.find(candidate => candidate.id === group)
-
-  useEffect(() => {
-    if (focus === undefined) {
-      return
-    }
-    const element = document.getElementById(`setting-${focus}`)
-    element?.scrollIntoView({ block: 'center' })
-    element?.classList.add(...FOCUS_CLASSES)
-    const timer = window.setTimeout(() => element?.classList.remove(...FOCUS_CLASSES), 1500)
-    return () => {
-      window.clearTimeout(timer)
-      element?.classList.remove(...FOCUS_CLASSES)
-    }
-  }, [focus, group])
-
+/** One setting: its control, labelled and wrapped so the search and the group can find it. */
+export function SettingRow({ setting, context }: { setting: SettingDefinition; context: SettingsContext }) {
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <header className="chat-header-glass flex h-[4.25rem] shrink-0 items-center gap-2 bg-background/85 px-2 backdrop-blur md:px-4">
-        {onBack && (
-          <Button variant="ghost" size="icon-sm" aria-label="Back" title="Back" onClick={onBack}>
-            <ArrowLeft aria-hidden="true" />
-          </Button>
-        )}
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate font-display text-sm font-semibold tracking-tight">{groupInfo?.title ?? ''}</h2>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{groupInfo?.description ?? ''}</p>
-        </div>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-5 max-md:pb-24">
-        <div className="grid gap-5">
-          {settingsIn(group).map(setting => (
-            <section key={setting.id} id={`setting-${setting.id}`} data-setting={setting.id} className="scroll-mt-4 rounded-2xl">
-              {renderSetting(setting, props)}
-            </section>
-          ))}
-        </div>
-      </div>
+    <section data-setting={setting.id} className="rounded-2xl">
+      {renderSetting(setting, context)}
     </section>
   )
 }
 
-function renderSetting(setting: SettingDefinition, props: SettingsViewProps): ReactNode {
-  const { preferences, onPreferences } = props
+function renderSetting(setting: SettingDefinition, context: SettingsContext): ReactNode {
+  const { preferences, onPreferences } = context
   switch (setting.id) {
     case 'theme':
       return <SettingSegments label={setting.title} value={preferences.theme} onChange={theme => onPreferences({ ...preferences, theme })} options={[
@@ -132,21 +87,16 @@ function renderSetting(setting: SettingDefinition, props: SettingsViewProps): Re
             <p className="text-sm font-medium">{setting.title}</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{setting.description}</p>
           </div>
-          <SettingSwitch label={setting.title} checked={props.away} onChange={props.onAwayToggle} />
+          <SettingSwitch label={setting.title} checked={context.away} onChange={context.onAwayToggle} />
         </div>
       )
     case 'pushNotifications':
-      return <PushSetting {...props} title={setting.title} description={setting.description} />
+      return <PushSetting context={context} title={setting.title} description={setting.description} />
   }
 }
 
-function PushSetting({
-  title,
-  description,
-  push,
-  pushBusy,
-  onPushToggle,
-}: SettingsViewProps & { title: string; description: string }) {
+function PushSetting({ context, title, description }: { context: SettingsContext; title: string; description: string }) {
+  const { push, pushBusy, onPushToggle } = context
   return (
     <div>
       <div className="flex items-start gap-3">
