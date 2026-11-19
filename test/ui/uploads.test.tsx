@@ -5,7 +5,8 @@ import type { UploadRecord } from '../../src/channel/web/protocol.ts'
 import { UploadPicker } from '../../src/ui/components/upload-picker.tsx'
 import type { UploadRef } from '../../src/channel/web/protocol.ts'
 import { describeUses } from '../../src/ui/components/library-dialog.tsx'
-import { filterUploads, formatSize, insertReference, isReferenced, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, segmentReferences, shortName, uploadUrl } from '../../src/ui/uploads.ts'
+import { uploadTextFile } from '../../src/ui/api.ts'
+import { EMPTY_FILE_MESSAGE, filterUploads, formatSize, insertReference, isEmptyFile, isReferenced, isText, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, segmentReferences, shortName, TEXT_UPLOAD_EXTENSIONS, UPLOAD_ACCEPT, uploadUrl } from '../../src/ui/uploads.ts'
 
 const image: UploadRecord = { id: 'u_1', name: 'diagram.png', mime: 'image/png', size: 2048, createdAt: 1, hasThumbnail: true }
 const pdf: UploadRecord = { id: 'u_2', name: 'spec.pdf', mime: 'application/pdf', size: 4 * 1024 * 1024, createdAt: 2, hasThumbnail: false }
@@ -146,4 +147,63 @@ test('the library says how many messages use each file', () => {
   expect(describeUses(0)).toBe('Not used yet')
   expect(describeUses(1)).toBe('Used in 1 message')
   expect(describeUses(4)).toBe('Used in 4 messages')
+})
+
+test('the accept list has the images, PDFs, a text allowance and every text extension', () => {
+  const accepted = UPLOAD_ACCEPT.split(',')
+  expect(accepted).toContain('image/png')
+  expect(accepted).toContain('application/pdf')
+  expect(accepted).toContain('text/*')
+  for (const extension of TEXT_UPLOAD_EXTENSIONS) {
+    expect(accepted).toContain(`.${extension}`)
+  }
+})
+
+test('an empty file is refused, a file with bytes is not', () => {
+  expect(isEmptyFile({ size: 0 })).toBe(true)
+  expect(isEmptyFile({ size: 1 })).toBe(false)
+  expect(EMPTY_FILE_MESSAGE).toBe('This file is empty.')
+})
+
+test('a text upload is any file that is neither an image nor a PDF', () => {
+  expect(isText('text/markdown')).toBe(true)
+  expect(isText('application/json')).toBe(true)
+  expect(isText('image/png')).toBe(false)
+  expect(isText('application/pdf')).toBe(false)
+})
+
+test('uploading text returns the reference, and a refused upload shows the server message', async () => {
+  const ref = { id: 'u_9', name: 'notes.md', mime: 'text/plain', size: 5 }
+  const sent: { url: string; body: unknown }[] = []
+  const ok = await uploadTextFile('notes.md', 'hello', async (url, init) => {
+    sent.push({ url, body: JSON.parse(String(init?.body)) })
+    return new Response(JSON.stringify({ upload: ref }), { status: 201, headers: { 'Content-Type': 'application/json' } })
+  })
+  expect(ok).toEqual(ref)
+  expect(sent).toEqual([{ url: '/api/uploads/text', body: { name: 'notes.md', text: 'hello' } }])
+
+  const refused = uploadTextFile('blank.txt', '   ', async () => new Response(JSON.stringify({ error: 'The text is empty.' }), { status: 400 }))
+  await expect(refused).rejects.toThrow('The text is empty.')
+})
+
+test('a text file row shows its icon and no image preview', () => {
+  const notesMd: UploadRecord = { id: 'u_4', name: 'notes.md', mime: 'text/markdown', size: 300, createdAt: 3, hasThumbnail: false }
+  const markup = renderToStaticMarkup(createElement(UploadPicker, {
+    uploads: [notesMd],
+    query: '',
+    selected: 0,
+    note: null,
+    attachedIds: new Set<string>(),
+    attachedCount: 0,
+    limit: 5,
+    onHover: () => {},
+    onPick: () => {},
+    onUploadFiles: () => {},
+    onManage: () => {},
+    onDone: () => {},
+  }))
+  expect(markup).toContain('lucide-file-text')
+  expect(markup).toContain('notes.md')
+  expect(markup).not.toContain('<img')
+  expect(markup).toContain('accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/*,.md')
 })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { UploadRef } from '../channel/web/protocol.ts'
 import type { ApiClient } from './api.ts'
+import { MAX_ATTACHMENTS_PER_MESSAGE } from './uploads.ts'
 
 /** How long the composer waits after the last edit before saving the draft. */
 export const DRAFT_SAVE_DELAY_MS = 800
@@ -58,7 +59,11 @@ export function useDraft(api: DraftApi, chatId: string): {
         if (active && draft !== null) {
           // Only fill an empty composer, so text typed while the draft loads is never overwritten.
           setText(current => (current === '' ? draft.text : current))
-          setAttachments(current => (current.length === 0 ? draft.attachments : current))
+          // Attachments already on the composer are kept, and the draft's saved ones are added after them.
+          setAttachments(current => {
+            const added = draft.attachments.filter(saved => !current.some(item => item.id === saved.id))
+            return [...current, ...added].slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
+          })
         }
       })
       .catch(() => {

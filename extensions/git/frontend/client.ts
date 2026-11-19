@@ -1,6 +1,5 @@
 import type { Commit, DiffHunk, FileChange } from '../backend/parse.ts'
 import type { RepoInfo } from '../backend/git.ts'
-import type { UploadRef } from '../../../src/channel/web/protocol.ts'
 
 const PREFIX = '/api/extensions/remote-agent.git'
 
@@ -26,23 +25,6 @@ function errorMessageOf(payload: unknown, status: number): string {
     return payload.error
   }
   return `Request failed with status ${status}`
-}
-
-/** Stores text as a server-made attachment (the host's `/api/uploads/text`). Returns the upload the composer can attach. */
-export async function uploadTextAttachment(name: string, text: string): Promise<UploadRef> {
-  const response = await fetch('/api/uploads/text', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, text }),
-  })
-  const payload: unknown = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error(errorMessageOf(payload, response.status))
-  }
-  if (typeof payload !== 'object' || payload === null || !('upload' in payload)) {
-    throw new Error('The attachment was not created')
-  }
-  return payload.upload as UploadRef
 }
 
 export const gitApi = {

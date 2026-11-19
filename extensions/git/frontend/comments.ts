@@ -1,5 +1,6 @@
 import type { OpenStateStorage } from '../../../src/ui/components/ui/accordion-state.ts'
-import type { UploadRef } from '../../../src/channel/web/protocol.ts'
+import type { CommentBundle } from '../../../src/ui/comment-bundle.ts'
+import type { AttachResult } from '../../../src/ui/composer-bus.ts'
 import type { DiffLine } from '../backend/parse.ts'
 
 export type CommentScope = 'staged' | 'unstaged' | 'commit'
@@ -280,15 +281,6 @@ export function buildCommentsMarkdown(comments: Comment[], branch: string | null
   return out.join('\n')
 }
 
-/** The attachment's file name: `review-comments-<YYYY-MM-DD>-<branch or detached>.md`, with the branch made file-name safe. */
-export function attachmentName(branch: string | null, now: Date): string {
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  const safeBranch = (branch === null || branch === '' ? 'detached' : branch).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80)
-  return `review-comments-${year}-${month}-${day}-${safeBranch}.md`
-}
-
 /** The UTF-8 byte length of a text. */
 export function utf8ByteLength(text: string): number {
   return new TextEncoder().encode(text).byteLength
@@ -306,23 +298,21 @@ export function attachmentProblem(count: number, markdown: string): string | nul
   return null
 }
 
-export type AttachOutcome = { status: 'attached' } | { status: 'refused' | 'failed'; message: string }
+export type AttachOutcome = { status: 'attached' } | { status: 'refused'; message: string }
 
 /**
- * Builds the markdown, uploads it as a text attachment and hands it to the chat's composer. The comments are not cleared here:
- * the caller clears them only on 'attached'.
+ * Builds the review as a comment bundle and hands it to the chat's composer, which shows it as a card and prepends it to the next
+ * message. Nothing is uploaded. The comments are not cleared here: the caller clears them only on 'attached'.
  */
-export async function attachComments(input: {
+export function attachComments(input: {
   chatId: string
   comments: Comment[]
   branch: string | null
-  now: Date
-  upload(name: string, text: string): Promise<UploadRef>
-  /** Hands the attachment over. Returns false when it waits for the chat's composer to mount. */
-  attach(chatId: string, ref: UploadRef): boolean
-  /** Brings the chat into view so the waiting attachment is shown. */
+  /** Hands the bundle over: shown by the composer now, or queued until the composer mounts. */
+  attach(chatId: string, bundle: CommentBundle): AttachResult
+  /** Brings the chat into view so the waiting bundle is shown. */
   open(chatId: string): void
-}): Promise<AttachOutcome> {
+}): AttachOutcome {
   if (input.comments.length === 0) {
     return { status: 'refused', message: 'There are no comments to attach.' }
   }
@@ -331,13 +321,14 @@ export async function attachComments(input: {
   if (problem !== null) {
     return { status: 'refused', message: problem }
   }
-  let ref: UploadRef
-  try {
-    ref = await input.upload(attachmentName(input.branch, input.now), markdown)
-  } catch (error) {
-    return { status: 'failed', message: error instanceof Error ? error.message : 'Could not attach the comments' }
+  const bundle: CommentBundle = {
+    id: createCommentId(),
+    markdown,
+    count: input.comments.length,
+    files: [...new Set(input.comments.map(comment => comment.path))].sort(),
+    createdAt: Date.now(),
   }
-  if (!input.attach(input.chatId, ref)) {
+  if (input.attach(input.chatId, bundle) === 'queued') {
     input.open(input.chatId)
   }
   return { status: 'attached' }

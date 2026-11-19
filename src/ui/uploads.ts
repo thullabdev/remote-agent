@@ -147,6 +147,28 @@ export function isPdf(mime: string): boolean {
   return mime === 'application/pdf'
 }
 
+export function isImage(mime: string): boolean {
+  return mime.startsWith('image/')
+}
+
+/** A text upload is any stored file that is neither an image nor a PDF. The server stores nothing else. */
+export function isText(mime: string): boolean {
+  return !isImage(mime) && !isPdf(mime)
+}
+
+/** Text file extensions the host accepts. The server stores each one as text (see TEXT_UPLOAD_TYPES on the server). */
+export const TEXT_UPLOAD_EXTENSIONS: readonly string[] = ['md', 'markdown', 'html', 'htm', 'txt', 'log', 'csv', 'tsv', 'json', 'yaml', 'yml', 'xml']
+
+/** The `accept` attribute of every file input: images, PDFs, any text/*, and the text extensions above. */
+export const UPLOAD_ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/*', ...TEXT_UPLOAD_EXTENSIONS.map(ext => `.${ext}`)].join(',')
+
+export const EMPTY_FILE_MESSAGE = 'This file is empty.'
+
+/** An empty file is refused in the browser; the server would store it. */
+export function isEmptyFile(file: { size: number }): boolean {
+  return file.size === 0
+}
+
 export function toRef(upload: UploadRecord): UploadRef {
   return { id: upload.id, name: upload.name, mime: upload.mime, size: upload.size }
 }

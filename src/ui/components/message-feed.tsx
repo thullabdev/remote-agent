@@ -1,12 +1,13 @@
-import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, Crosshair, FileText, GitBranch, ImageIcon, ListTree, LoaderCircle, Wrench, X } from 'lucide-react'
+import { ArrowDown, Bookmark, Check, ChevronDown, ChevronUp, CircleAlert, Crosshair, GitBranch, ListTree, LoaderCircle, Wrench, X } from 'lucide-react'
 import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SessionStatusCard } from './session-status-card.tsx'
 import { chatState } from '../../channel/web/chat-state.ts'
 import type { Chat, Message, UploadRef } from '../../channel/web/protocol.ts'
 import { NEEDS_YOU_BADGE_CLASS, commandToolInput, dayKey, diffLines, editToolInput, formatDayLabel, formatTime, groupMessages, isInterruptedToolGroup, isMarkdownFilePath, promptQuestionIndex, toolInputText, markChangedRanges, writeToolInput, type DiffLine } from '../presentation.ts'
 import { agentInfo } from '../agents.ts'
-import { isPdf, isReferenced, segmentReferences, uploadUrl } from '../uploads.ts'
+import { isImage, isReferenced, segmentReferences, uploadUrl } from '../uploads.ts'
 import { CodeBlock } from './code-block.tsx'
+import { FileTypeIcon } from './file-icon.tsx'
 import { Badge } from './ui/badge.tsx'
 import { Button } from './ui/button.tsx'
 import { Input } from './ui/input.tsx'
@@ -558,7 +559,6 @@ function MessageText({ text, files }: { text: string; files: UploadRef[] }) {
 }
 
 function FileChip({ file }: { file: UploadRef }) {
-  const Icon = isPdf(file.mime) ? FileText : ImageIcon
   return (
     <a
       href={uploadUrl(file.id)}
@@ -567,7 +567,7 @@ function FileChip({ file }: { file: UploadRef }) {
       title={file.name}
       className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md bg-black/10 px-1.5 py-px align-baseline text-[0.9em] font-medium"
     >
-      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <FileTypeIcon name={file.name} mime={file.mime} className="size-4 shrink-0" />
       <span className="truncate">{file.name}</span>
     </a>
   )
@@ -587,16 +587,16 @@ function SentPaths({ files }: { files: UploadRef[] }) {
   )
 }
 
-/** An attached library file: the image itself, or a PDF link. A file that was deleted from the library shows as removed. */
+/** An attached library file: the image itself, or a link to a PDF or text file. A file that was deleted from the library shows as removed. */
 function AttachmentView({ attachment }: { attachment: UploadRef }) {
   const [missing, setMissing] = useState(false)
   if (missing) {
     return <span className="rounded-lg bg-black/10 px-2 py-1 text-xs">{attachment.name} (removed)</span>
   }
-  if (isPdf(attachment.mime)) {
+  if (!isImage(attachment.mime)) {
     return (
       <a href={uploadUrl(attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-black/10 px-2 py-1 text-xs">
-        <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+        <FileTypeIcon name={attachment.name} mime={attachment.mime} className="size-4 shrink-0" />
         <span className="truncate">{attachment.name}</span>
       </a>
     )

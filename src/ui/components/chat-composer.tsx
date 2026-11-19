@@ -1,10 +1,13 @@
-import { FileText, Image as ImageIcon, Maximize2, Minimize2, Paperclip, RotateCcw, Send, X } from 'lucide-react'
+import { Maximize2, Minimize2, MessageSquarePlus, Paperclip, RotateCcw, Send, X } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { Chat, UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
 import { applySuggestion, argumentSuggestions, matchingCommands, moveCommandSelection, slashCommandQuery, type CommandSuggestion } from '../command-suggestions.ts'
-import { subscribeComposer } from '../composer-bus.ts'
+import { bundleMessage, readBundles, writeBundles, type CommentBundle } from '../comment-bundle.ts'
+import { subscribeBundles, subscribeComposer } from '../composer-bus.ts'
 import { useDraft, type DraftApi } from '../use-draft.ts'
-import { filterUploads, insertReference, isPdf, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
+import { EMPTY_FILE_MESSAGE, filterUploads, insertReference, isEmptyFile, MAX_ATTACHMENTS_PER_MESSAGE, MAX_UPLOAD_BYTES, mentionQuery, pickerOrder, referenceBeforeCaret, referencedAttachments, removeMention, removeReferences, toRef } from '../uploads.ts'
+import type { OpenStateStorage } from './ui/accordion-state.ts'
+import { FileTypeIcon } from './file-icon.tsx'
 import { Button } from './ui/button.tsx'
 import { LibraryDialog } from './library-dialog.tsx'
 import { UploadPicker } from './upload-picker.tsx'
@@ -44,15 +47,81 @@ export function shouldSendOnEnter(
 
 const KIND_LABEL = { command: 'Command', flag: 'Option', value: 'Model' } as const
 
+/** The browser's local storage, or null where there is none or it cannot be reached. */
+function bundleStorage(): OpenStateStorage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
+
+/** How many file names a bundle card lists before it says how many more there are. */
+const CARD_FILE_NAMES = 2
+
+/**
+ * A review's comments waiting in the composer. It is a card, not a file chip: the label, the files it covers, and a toggle that
+ * shows the markdown that will be sent.
+ */
+function CommentBundleCard({ bundle, onRemove }: { bundle: CommentBundle; onRemove(): void }) {
+  const [shown, setShown] = useState(false)
+  const label = `Review comments · ${bundle.count} ${bundle.count === 1 ? 'comment' : 'comments'}`
+  const listed = bundle.files.slice(0, CARD_FILE_NAMES).join(', ')
+  const more = bundle.files.length - CARD_FILE_NAMES
+  const files = more > 0 ? `${listed}, +${more} more` : listed
+  return (
+    <div className="flex min-w-0 max-w-full flex-col gap-1.5 rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <MessageSquarePlus className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate font-medium">{label}</span>
+        <button
+          type="button"
+          aria-expanded={shown}
+          onClick={() => setShown(value => !value)}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {shown ? 'Hide' : 'Show'}
+        </button>
+        <button
+          type="button"
+          aria-label="Remove review comments"
+          onClick={onRemove}
+          className="ml-auto shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <X className="size-3" aria-hidden="true" />
+        </button>
+      </div>
+      {files !== '' && <span className="truncate text-muted-foreground">{files}</span>}
+      {shown && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-card p-2 font-mono text-[11px] leading-relaxed">{bundle.markdown}</pre>}
+    </div>
+  )
+}
+
 function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary, onUpload, onDeleteUpload, onSend, onResume, drafts, firstTask = false }: ChatComposerProps) {
   const { text, setText, attachments, setAttachments } = useDraft(drafts, chat.id)
-  // The text is the source of truth: a file whose reference was deleted by hand is detached, so it never goes unseen.
+  // Comment bundles stay on this device, per chat. They are prepended to the message when it is sent, and cleared with it.
+  const [bundles, setBundles] = useState<CommentBundle[]>(() => readBundles(bundleStorage(), chat.id))
   useEffect(() => {
+    writeBundles(bundleStorage(), chat.id, bundles)
+  }, [bundles, chat.id])
+  useEffect(() => {
+    return subscribeBundles(chat.id, bundle => {
+      setBundles(list => (list.some(item => item.id === bundle.id) ? list : [...list, bundle]))
+    })
+  }, [chat.id])
+  // A file that was referred to in the text is detached when its reference is deleted by hand, so it never goes unseen.
+  // A file that was never referred to (one attached from outside) stays until its chip is removed.
+  const referredIds = useRef(new Set<string>())
+  useEffect(() => {
+    const referenced = referencedAttachments(text, attachments)
+    for (const item of referenced) {
+      referredIds.current.add(item.id)
+    }
     setAttachments(current => {
-      const kept = referencedAttachments(text, current)
+      const kept = current.filter(item => !referredIds.current.has(item.id) || referenced.some(ref => ref.id === item.id))
       return kept.length === current.length ? current : kept
     })
-  }, [text, setAttachments])
+  }, [text, attachments, setAttachments])
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedSuggestion, setSelectedSuggestion] = useState(0)
@@ -154,16 +223,22 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
     }
   }, [pickerOpen, libraryOpen, onRefreshLibrary])
 
-  const addAttachment = (ref: UploadRef) => {
-    setAttachments(current => {
-      if (current.some(item => item.id === ref.id)) {
-        return current
-      }
-      return current.length >= MAX_ATTACHMENTS_PER_MESSAGE ? current : [...current, ref]
-    })
+  // The latest list, so an outside attachment can be answered at once: taken, or refused because the composer is full.
+  const attachmentsNow = useRef(attachments)
+  attachmentsNow.current = attachments
+  const addAttachment = (ref: UploadRef): boolean => {
+    const current = attachmentsNow.current
+    if (current.some(item => item.id === ref.id)) {
+      return true
+    }
+    if (current.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+      return false
+    }
+    setAttachments(list => (list.some(item => item.id === ref.id) || list.length >= MAX_ATTACHMENTS_PER_MESSAGE ? list : [...list, ref]))
+    return true
   }
 
-  // An attachment sent to this chat from outside the composer (for example, a git comment bundle) becomes a normal chip.
+  // A file attachment sent to this chat from outside the composer becomes a normal chip.
   useEffect(() => {
     return subscribeComposer(chat.id, ref => addAttachment(ref))
   }, [chat.id])
@@ -205,6 +280,10 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
     setUploading(true)
     try {
       for (const file of files) {
+        if (isEmptyFile(file)) {
+          setPickerNote(EMPTY_FILE_MESSAGE)
+          continue
+        }
         if (file.size > MAX_UPLOAD_BYTES) {
           setPickerNote('That file is larger than 10 MB.')
           continue
@@ -225,13 +304,15 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
   const submit = async (event?: FormEvent) => {
     event?.preventDefault()
     const value = text.trim()
-    if ((value === '' && attachments.length === 0) || disabled || sending || uploading) {
+    if ((value === '' && attachments.length === 0 && bundles.length === 0) || disabled || sending || uploading) {
       return
     }
     const sent = attachments
+    const message = bundleMessage(bundles, value)
     setText('')
     setAttachments([])
-    await onSend(value, sent)
+    setBundles([])
+    await onSend(message, sent)
     inputRef.current?.focus()
   }
 
@@ -364,11 +445,18 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
           onDelete={onDeleteUpload}
         />
       )}
+      {bundles.length > 0 && (
+        <div className="mx-auto mb-1.5 flex w-full max-w-4xl flex-col gap-1.5">
+          {bundles.map(bundle => (
+            <CommentBundleCard key={bundle.id} bundle={bundle} onRemove={() => setBundles(list => list.filter(item => item.id !== bundle.id))} />
+          ))}
+        </div>
+      )}
       {(attachments.length > 0 || uploading) && (
         <div className="mx-auto mb-1.5 flex max-w-4xl flex-wrap gap-1.5">
           {attachments.map(attachment => (
             <span key={attachment.id} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-card py-1 pl-2.5 pr-1 text-xs">
-              {isPdf(attachment.mime) ? <FileText className="size-3.5 shrink-0" aria-hidden="true" /> : <ImageIcon className="size-3.5 shrink-0" aria-hidden="true" />}
+              <FileTypeIcon name={attachment.name} mime={attachment.mime} className="size-4 shrink-0" />
               <span className="truncate">{attachment.name}</span>
               <button
                 type="button"
@@ -424,7 +512,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
               variant="ghost"
               size="icon"
               aria-label="Attach file"
-              title="Attach an image or PDF"
+              title="Attach an image, PDF or text file"
               aria-pressed={pickerOpen}
               disabled={disabled || uploading || limitReached}
               onClick={() => {
@@ -437,7 +525,7 @@ function ChatComposerView({ chat, sending, enterSends, library, onRefreshLibrary
               <Paperclip aria-hidden="true" />
             </Button>
           )}
-          <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
+          <Button type="submit" size="icon" aria-label="Send message" disabled={disabled || sending || uploading || (text.trim() === '' && attachments.length === 0 && bundles.length === 0)} className="mb-0.5 size-9 rounded-full disabled:opacity-30">
             <Send className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
           </Button>
           </span>

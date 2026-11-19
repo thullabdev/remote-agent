@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { OpenStateStorage } from '../../../src/ui/components/ui/accordion-state.ts'
-import type { UploadRef } from '../../../src/channel/web/protocol.ts'
+import type { CommentBundle } from '../../../src/ui/comment-bundle.ts'
+import type { AttachResult } from '../../../src/ui/composer-bus.ts'
 import type { DiffLine } from '../backend/parse.ts'
 import {
   addComment,
   anchorForLine,
   anchorForRange,
   attachComments,
-  attachmentName,
   attachmentProblem,
   buildCommentsMarkdown,
   clearComments,
@@ -360,13 +360,6 @@ describe('buildCommentsMarkdown', () => {
 })
 
 describe('attachment helpers', () => {
-  test('attachmentName uses the local date and a file-name-safe branch', () => {
-    const now = new Date(2026, 10, 18, 9, 30)
-    expect(attachmentName('feat/git-extension', now)).toBe('review-comments-2026-11-18-feat-git-extension.md')
-    expect(attachmentName(null, now)).toBe('review-comments-2026-11-18-detached.md')
-    expect(attachmentName('a b:c', now)).toBe('review-comments-2026-11-18-a-b-c.md')
-  })
-
   test('utf8ByteLength counts bytes, not characters', () => {
     expect(utf8ByteLength('abc')).toBe(3)
     expect(utf8ByteLength('é')).toBe(2)
@@ -381,87 +374,88 @@ describe('attachment helpers', () => {
 })
 
 describe('attachComments', () => {
-  const ref: UploadRef = { id: 'u1', name: 'review-comments.md', mime: 'text/markdown', size: 10 }
-
-  test('uploads the markdown, attaches it to the chat and reports attached', async () => {
-    const uploads: Array<{ name: string; text: string }> = []
-    const attached: Array<{ chatId: string; ref: UploadRef }> = []
-    const outcome = await attachComments({
+  test('builds one bundle with the markdown, count and unique files, and reports attached without uploading', () => {
+    const bundles: Array<{ chatId: string; bundle: CommentBundle }> = []
+    const outcome = attachComments({
       chatId: 'chat-1',
-      comments: [comment()],
+      comments: [comment({ id: 'a' }), comment({ id: 'b', line: 9, text: 'second' }), comment({ id: 'c', path: 'src/b.ts' })],
       branch: 'main',
-      now: new Date(2026, 10, 18),
-      upload: async (name, text) => {
-        uploads.push({ name, text })
-        return ref
+      attach: (chatId, bundle) => {
+        bundles.push({ chatId, bundle })
+        return 'delivered'
       },
       open: () => {},
-      attach: (chatId, upload) => {
-        attached.push({ chatId, ref: upload })
-        return true
-      },
     })
 
     expect(outcome).toEqual({ status: 'attached' })
-    expect(uploads).toHaveLength(1)
-    expect(uploads[0]?.name).toBe('review-comments-2026-11-18-main.md')
-    expect(uploads[0]?.text).toContain('rename x')
-    expect(attached).toEqual([{ chatId: 'chat-1', ref }])
+    expect(bundles).toHaveLength(1)
+    const [sent] = bundles
+    expect(sent?.chatId).toBe('chat-1')
+    expect(sent?.bundle.count).toBe(3)
+    expect(sent?.bundle.files).toEqual(['src/a.ts', 'src/b.ts'])
+    expect(sent?.bundle.markdown).toBe(buildCommentsMarkdown([comment({ id: 'a' }), comment({ id: 'b', line: 9, text: 'second' }), comment({ id: 'c', path: 'src/b.ts' })], 'main'))
+    expect(sent?.bundle.id.length).toBeGreaterThan(0)
+    expect(utf8ByteLength(sent?.bundle.markdown ?? '')).toBeLessThanOrEqual(MAX_ATTACH_BYTES)
   })
 
-  test('when no composer is mounted, the attachment waits and the chat is brought into view', async () => {
+  test('a bundle that is queued opens the chat so the composer shows it', () => {
     const opened: string[] = []
-    const outcome = await attachComments({
+    const outcome = attachComments({
       chatId: 'chat-1',
       comments: [comment()],
       branch: 'main',
-      now: new Date(),
-      upload: async () => ref,
-      attach: () => false,
+      attach: (): AttachResult => 'queued',
       open: chatId => opened.push(chatId),
     })
     expect(outcome).toEqual({ status: 'attached' })
     expect(opened).toEqual(['chat-1'])
   })
 
-  test('reports failed with the upload error, and does not attach', async () => {
-    let attachCalls = 0
-    const outcome = await attachComments({
+  test('a bundle that is delivered does not open the chat', () => {
+    const opened: string[] = []
+    attachComments({
       chatId: 'chat-1',
       comments: [comment()],
       branch: 'main',
-      now: new Date(),
-      upload: async () => {
-        throw new Error('Upload too large')
+      attach: (): AttachResult => 'delivered',
+      open: chatId => opened.push(chatId),
+    })
+    expect(opened).toEqual([])
+  })
+
+  test('markdown over the 64 KB cap is refused without attaching', () => {
+    let attachCalls = 0
+    const outcome = attachComments({
+      chatId: 'chat-1',
+      comments: [comment({ lineText: 'x'.repeat(MAX_ATTACH_BYTES) })],
+      branch: 'main',
+      attach: (): AttachResult => {
+        attachCalls += 1
+        return 'delivered'
       },
       open: () => {},
-      attach: () => {
-        attachCalls += 1
-        return true
-      },
     })
-    expect(outcome).toEqual({ status: 'failed', message: 'Upload too large' })
+    expect(outcome.status).toBe('refused')
+    expect(outcome.status === 'refused' ? outcome.message : '').toContain('too long')
     expect(attachCalls).toBe(0)
   })
 
-  test('refuses without uploading when there are no comments or the cap is exceeded', async () => {
-    let uploadCalls = 0
+  test('refuses without attaching when there are no comments or more than 200', () => {
+    let attachCalls = 0
     const deps = {
       chatId: 'chat-1',
       branch: 'main',
-      now: new Date(),
-      upload: async () => {
-        uploadCalls += 1
-        return ref
+      attach: (): AttachResult => {
+        attachCalls += 1
+        return 'delivered'
       },
-      attach: () => true,
       open: () => {},
     }
 
-    expect(await attachComments({ ...deps, comments: [] })).toEqual({ status: 'refused', message: 'There are no comments to attach.' })
+    expect(attachComments({ ...deps, comments: [] })).toEqual({ status: 'refused', message: 'There are no comments to attach.' })
     const many = Array.from({ length: 201 }, (_, index) => comment({ id: `c${index}` }))
-    const refused = await attachComments({ ...deps, comments: many })
+    const refused = attachComments({ ...deps, comments: many })
     expect(refused.status).toBe('refused')
-    expect(uploadCalls).toBe(0)
+    expect(attachCalls).toBe(0)
   })
 })

@@ -1,9 +1,9 @@
-import { FileText, Search, Trash2, Upload } from 'lucide-react'
+import { Search, Trash2, Upload } from 'lucide-react'
 import { useState, type DragEvent } from 'react'
 import type { UploadRecord, UploadRef } from '../../channel/web/protocol.ts'
-import { filterUploads, formatSize, isPdf, MAX_UPLOAD_BYTES, uploadUrl } from '../uploads.ts'
+import { EMPTY_FILE_MESSAGE, filterUploads, formatSize, isEmptyFile, isImage, isText, MAX_UPLOAD_BYTES, UPLOAD_ACCEPT, uploadUrl } from '../uploads.ts'
+import { FileTile } from './file-icon.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog.tsx'
-import { UPLOAD_ACCEPT } from './upload-picker.tsx'
 
 type LibraryDialogProps = {
   open: boolean
@@ -26,6 +26,10 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
   const uploadFiles = async (files: File[]) => {
     setNote(null)
     const accepted = files.filter(file => {
+      if (isEmptyFile(file)) {
+        setNote(EMPTY_FILE_MESSAGE)
+        return false
+      }
       if (file.size > MAX_UPLOAD_BYTES) {
         setNote(`${file.name} is larger than 10 MB and was skipped.`)
         return false
@@ -69,7 +73,7 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
           className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed px-4 py-3 text-sm transition-colors ${dragging ? 'border-foreground/50 bg-muted' : 'border-border'}`}
         >
           <span className="text-muted-foreground">
-            {uploading !== null ? `Uploading ${uploading.done + 1} of ${uploading.total}…` : 'Drop images or PDFs here'}
+            {uploading !== null ? `Uploading ${uploading.done + 1} of ${uploading.total}…` : 'Drop images, PDFs or text files here'}
           </span>
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 font-medium hover:bg-muted/70">
             <Upload className="size-3.5" aria-hidden="true" />
@@ -112,7 +116,15 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
               <li key={upload.id} className="flex min-w-0 items-center gap-3 rounded-xl px-2 py-2 hover:bg-muted/60">
                 <LibraryThumb upload={upload} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{upload.name}</p>
+                  <p className="truncate text-sm font-medium">
+                    {isText(upload.mime) ? (
+                      <a href={uploadUrl(upload.id)} target="_blank" rel="noreferrer" className="hover:underline">
+                        {upload.name}
+                      </a>
+                    ) : (
+                      upload.name
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {formatSize(upload.size)} · {formatDate(upload.createdAt)} · {describeUses(upload.uses ?? 0)}
                   </p>
@@ -136,12 +148,8 @@ export function LibraryDialog({ open, onOpenChange, library, onUpload, onDelete 
 }
 
 function LibraryThumb({ upload }: { upload: UploadRecord }) {
-  if (isPdf(upload.mime)) {
-    return (
-      <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-muted" aria-hidden="true">
-        <FileText className="size-5" />
-      </span>
-    )
+  if (!isImage(upload.mime)) {
+    return <FileTile name={upload.name} mime={upload.mime} />
   }
   return <img src={uploadUrl(upload.id, upload.hasThumbnail)} alt="" loading="lazy" className="size-12 shrink-0 rounded-lg bg-muted object-cover" />
 }

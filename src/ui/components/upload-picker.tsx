@@ -1,8 +1,7 @@
-import { Check, FileText, Search, Upload } from 'lucide-react'
+import { Check, Search, Upload } from 'lucide-react'
 import type { UploadRecord } from '../../channel/web/protocol.ts'
-import { formatSize, isPdf, shortName, uploadUrl } from '../uploads.ts'
-
-export const UPLOAD_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,application/pdf'
+import { formatSize, isImage, shortName, UPLOAD_ACCEPT, uploadUrl } from '../uploads.ts'
+import { FileTile } from './file-icon.tsx'
 
 type UploadPickerProps = {
   uploads: UploadRecord[]
@@ -84,7 +83,7 @@ export function UploadPicker({ uploads, query, search, selected, note, attachedI
       <div className="min-h-0 flex-1 overflow-auto pb-1">
         {uploads.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">
-            {query === '' ? 'The library is empty. Upload an image or PDF.' : `No library files match “${query}”.`}
+            {query === '' ? 'The library is empty. Upload an image, PDF or text file.' : `No library files match “${query}”.`}
           </p>
         ) : (
           uploads.map((upload, index) => {
@@ -121,12 +120,8 @@ export function UploadPicker({ uploads, query, search, selected, note, attachedI
 }
 
 function PickerThumb({ upload }: { upload: UploadRecord }) {
-  if (isPdf(upload.mime)) {
-    return (
-      <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-muted" aria-hidden="true">
-        <FileText className="size-5" />
-      </span>
-    )
+  if (!isImage(upload.mime)) {
+    return <FileTile name={upload.name} mime={upload.mime} />
   }
   return (
     <img

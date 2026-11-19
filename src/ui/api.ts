@@ -1,4 +1,4 @@
-import type { ActivityView, Chat, Draft, ForkView, Message, PinView, PushSubscriptionRecord, UploadRecord, UsageView } from '../channel/web/protocol.ts'
+import type { ActivityView, Chat, Draft, ForkView, Message, PinView, PushSubscriptionRecord, UploadRecord, UploadRef, UsageView } from '../channel/web/protocol.ts'
 import type { TranscriptItem } from '../channel/web/transcript/parse.ts'
 
 /** One page of a sub-agent's activity: its items in order, and the cursor for the next page, or null at the end. */
@@ -23,6 +23,33 @@ export class RequestError extends Error {
 
 export type ApiClient = ReturnType<typeof createApiClient>
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
+/** The `error` text of a failed response's body, or a status message when the body has none. */
+function errorMessageOf(payload: unknown, status: number): string {
+  return payload !== null && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string' ? payload.error : `Request failed (${status}).`
+}
+
+/** Stores text as an upload (the server's `/api/uploads/text`) and returns the reference the composer can attach. */
+export async function uploadTextFile(name: string, text: string, fetcher: Fetcher = fetch): Promise<UploadRef> {
+  const response = await fetcher('/api/uploads/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, text }),
+  })
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    throw new RequestError(response.status, errorMessageOf(payload, response.status))
+  }
+  if (payload === null || typeof payload !== 'object' || !('upload' in payload)) {
+    throw new Error('The attachment was not created.')
+  }
+  return payload.upload as UploadRef
+}
 
 export function createApiClient(fetcher: Fetcher = fetch): {
   getState(): Promise<WebState>
@@ -73,11 +100,7 @@ export function createApiClient(fetcher: Fetcher = fetch): {
       payload = null
     }
     if (!response.ok) {
-      const message =
-        payload !== null && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
-          ? payload.error
-          : `Request failed (${response.status}).`
-      throw new RequestError(response.status, message)
+      throw new RequestError(response.status, errorMessageOf(payload, response.status))
     }
     return payload as T
   }

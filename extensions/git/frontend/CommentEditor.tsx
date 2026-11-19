@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { Check, MessageSquarePlus, X } from 'lucide-react'
 import { Button } from '../../../src/ui/components/ui/button.tsx'
-import { attachToComposer, openChatForAttach } from '../../../src/ui/composer-bus.ts'
+import { attachCommentsToComposer, openChatForAttach } from '../../../src/ui/composer-bus.ts'
 import { attachComments, type AttachOutcome, type Comment, clearComments, announceCommentsChanged } from './comments.ts'
-import { uploadTextAttachment } from './client.ts'
 import { browserStorage } from './open-files.ts'
 
 /**
@@ -132,13 +131,11 @@ export function AttachCommentsControl({ count, busy, onAttach }: { count: number
  * Any other outcome keeps the comments; the caller shows the message.
  */
 export async function runAttachComments(input: { chatId: string; comments: Comment[]; branch: string | null }): Promise<AttachOutcome> {
-  const outcome = await attachComments({
+  const outcome = attachComments({
     chatId: input.chatId,
     comments: input.comments,
     branch: input.branch,
-    now: new Date(),
-    upload: uploadTextAttachment,
-    attach: attachToComposer,
+    attach: attachCommentsToComposer,
     open: openChatForAttach,
   })
   if (outcome.status === 'attached') {
