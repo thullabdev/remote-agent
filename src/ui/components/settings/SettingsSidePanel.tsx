@@ -1,33 +1,34 @@
-import { Bell, ChevronRight, MessageSquareText, Palette, Search, X, type LucideIcon } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
-import { SETTING_GROUPS, type SettingGroupId, type SettingId } from '../../settings/settings-registry.ts'
-import { searchSettings } from '../../settings/settings-search.ts'
+import type { SettingGroupId } from '../../settings/settings-registry.ts'
+import { groupsForView, type GroupOpenState } from '../../settings/settings-search.ts'
 import { Input } from '../ui/input.tsx'
 import { SidePanelFrame } from '../side-panel/SidePanelFrame.tsx'
-
-/** Each group's icon in the side panel. */
-const GROUP_ICONS: Record<SettingGroupId, LucideIcon> = {
-  appearance: Palette,
-  chat: MessageSquareText,
-  notifications: Bell,
-}
+import { SettingsGroup } from './SettingsGroup.tsx'
+import type { SettingsContext } from './settings-rows.tsx'
 
 export type SettingsSidePanelProps = {
-  /** Opens a group in the main area; `focus` names the setting a search result picked. */
-  onOpen(group: SettingGroupId, focus?: SettingId): void
+  /** What every setting row reads and writes. The app supplies it. */
+  context: SettingsContext
   /** The search the panel opens with. Empty, unless a test says otherwise. */
   initialQuery?: string
 }
 
+const ALL_OPEN: GroupOpenState = { appearance: true, chat: true, notifications: true }
+
 /**
- * The Settings tab of the side column: a search field over every setting, and the list of groups when nothing is
- * searched. Picking a group or a result opens it in the main area. The query is not kept when the tab is left.
+ * The Settings tab of the side column. The search field stays at the top; the groups scroll beneath it, each one collapsible
+ * and expanded by default. A search keeps the matching settings in their groups. The query is not kept when the tab is left.
  */
-export function SettingsSidePanel({ onOpen, initialQuery = '' }: SettingsSidePanelProps) {
+export function SettingsSidePanel({ context, initialQuery = '' }: SettingsSidePanelProps) {
   const [query, setQuery] = useState(initialQuery)
+  const [open, setOpen] = useState<GroupOpenState>(ALL_OPEN)
   const input = useRef<HTMLInputElement>(null)
-  const results = useMemo(() => searchSettings(query), [query])
-  const searching = query.trim() !== ''
+  const views = useMemo(() => groupsForView(query, open), [query, open])
+
+  const toggle = (group: SettingGroupId) => {
+    setOpen(current => ({ ...current, [group]: !current[group] }))
+  }
 
   return (
     <SidePanelFrame label="Settings">
@@ -59,50 +60,11 @@ export function SettingsSidePanel({ onOpen, initialQuery = '' }: SettingsSidePan
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {searching ? (
-          results.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-muted-foreground">No settings match &ldquo;{query.trim()}&rdquo;.</div>
-          ) : (
-            <div className="space-y-1">
-              {results.map(setting => (
-                <button
-                  type="button"
-                  key={setting.id}
-                  onClick={() => onOpen(setting.group, setting.id)}
-                  className="w-full rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted"
-                >
-                  <span className="block text-sm font-medium">{setting.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {SETTING_GROUPS.find(group => group.id === setting.group)?.title} · {setting.description}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 max-md:pb-24">
+        {views.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">No settings match &ldquo;{query.trim()}&rdquo;.</div>
         ) : (
-          <div className="space-y-1">
-            {SETTING_GROUPS.map(group => {
-              const Icon = GROUP_ICONS[group.id]
-              return (
-                <button
-                  type="button"
-                  key={group.id}
-                  onClick={() => onOpen(group.id)}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left transition-colors hover:bg-muted"
-                >
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted">
-                    <Icon className="size-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{group.title}</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{group.description}</span>
-                  </span>
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                </button>
-              )
-            })}
-          </div>
+          views.map(view => <SettingsGroup key={view.group} view={view} context={context} onToggle={toggle} />)
         )}
       </div>
     </SidePanelFrame>
