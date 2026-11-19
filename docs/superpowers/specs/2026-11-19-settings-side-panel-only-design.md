@@ -13,7 +13,6 @@ Settings belong in the side panel with the other side tabs. A main-area settings
 - Each group is a collapsible section, expanded by default.
 - The search field and the group headers stay fixed at the top of the panel. Only the settings below them scroll.
 - Searching keeps the matching settings in their groups, with their controls. Groups with no matches are hidden, and groups that remain are expanded.
-- Selecting a search result scrolls to that setting inside the panel and briefly highlights it.
 - The main area shows only chats and extension panels, as before the Settings tab existed.
 
 ## Non-goals
@@ -43,7 +42,7 @@ Settings belong in the side panel with the other side tabs. A main-area settings
 - Each group header shows its title and description, with a chevron that turns when the group opens or closes. It is a button with `aria-expanded`.
 - While a search is active, every remaining group is expanded, so no match is hidden behind a collapsed header.
 - Search matches a setting's title, description and keywords, as it does now.
-- Selecting a result expands its group if needed, scrolls the setting into view, and highlights it for about 1.5 s.
+- Amended after review: no result-selection scroll or highlight. Matches show in place in their groups, so there is no separate result to select. The earlier goal and tests for selecting a result are dropped.
 - The Back button and the `onBack` prop are removed with the main-area view.
 
 ## Parts
@@ -57,5 +56,4 @@ Settings belong in the side panel with the other side tabs. A main-area settings
 
 - The exact collapse animation, if any. A plain show/hide is enough.
 - Styling for the group header, which should match the side panel's existing row style.
-- How the focus highlight is applied: the same ring classes as before.
-- Tests: rendering with groups expanded by default; collapsing hides a group's settings; searching keeps matches in their groups and hides empty groups; selecting a result expands its group and marks it for focus; the header and search field sit outside the scrolling body; a check that every control fits at 260px.
+- Tests: rendering with groups expanded by default; collapsing hides a group's settings; searching keeps matches in their groups and hides empty groups; the header and search field sit outside the scrolling body; a check that every control fits at 260px.
