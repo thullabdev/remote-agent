@@ -14,6 +14,7 @@ import { Input } from './ui/input.tsx'
 import { Textarea } from './ui/textarea.tsx'
 import { PickerRows } from './picker-rows.tsx'
 import { FullscreenButton } from './tool-fullscreen.tsx'
+import { QuoteComment } from './quote-comment.tsx'
 
 const MarkdownBody = lazy(() => import('./markdown-body.tsx'))
 
@@ -246,6 +247,7 @@ function MessageFeedView({
             </div>
           )}
         </div>
+        <QuoteComment chatId={chat.id} scope={feedRef} />
       </div>
       {awayFromLatest && (
         <Button
@@ -428,7 +430,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
           onToggle={() => onTogglePin?.(message)}
         >
           {message.text !== '' && (
-            <p className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">
+            <p data-quote-source="Your message" className="whitespace-pre-wrap break-words text-[length:var(--message-font,1rem)] leading-relaxed">
               <MessageText text={message.text} files={attachments} />
             </p>
           )}
@@ -534,7 +536,7 @@ function MessageCard({ message, messages, pendingError, onRetry, onPromptAction,
           )}
         </div>
         <div className="min-w-0">
-          <div className="prose max-w-none break-words text-[length:var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
+          <div data-quote-source="Agent message" className="prose max-w-none break-words text-[length:var(--message-font,1rem)] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-headings:font-display prose-headings:tracking-tight prose-a:text-primary prose-a:underline prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-[.9em] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-pre:p-3 prose-blockquote:border-primary/40 prose-th:border-border prose-td:border-border">
             <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering message…</div>}>
               <MarkdownBody markdown={message.markdown} />
             </Suspense>
@@ -698,12 +700,12 @@ function ToolStep({
             </Button>
           </div>
         )}
-        <div className="min-w-0">
+        <div className="min-w-0" data-quote-source={`${message.tool} input`}>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Input</div>
           <ToolInput input={message.input} />
         </div>
         {message.result !== null && (
-          <div className="min-w-0">
+          <div className="min-w-0" data-quote-source={`${message.tool} result`}>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Result {message.resultTruncated && <span className="normal-case">(shortened)</span>}
             </div>
@@ -754,7 +756,7 @@ function ToolInput({ input }: { input: unknown }) {
     const added = lines.filter(line => line.kind === 'add').length
     const removed = lines.filter(line => line.kind === 'remove').length
     return (
-      <div className="overflow-hidden rounded-xl bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted" data-quote-source="Edit">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Edit</span>
           <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{editInput.filePath}</code>
@@ -762,7 +764,10 @@ function ToolInput({ input }: { input: unknown }) {
           <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300">+{added}</span>
           <span className="font-mono text-[10px] text-red-700 dark:text-red-300">−{removed}</span>
           <FullscreenButton title={editInput.filePath}>
-            <DiffView lines={lines} />
+            {/* The full-screen view is portalled out of the feed, so it names its own source. */}
+            <div data-quote-source="Edit">
+              <DiffView lines={lines} />
+            </div>
           </FullscreenButton>
         </div>
         <DiffView lines={lines} />
@@ -773,24 +778,27 @@ function ToolInput({ input }: { input: unknown }) {
   const writeInput = writeToolInput(input)
   if (writeInput !== null) {
     return (
-      <div className="overflow-hidden rounded-xl bg-muted">
+      <div className="overflow-hidden rounded-xl bg-muted" data-quote-source="Write">
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">File</span>
           <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">{writeInput.filePath}</code>
           <FullscreenButton title={writeInput.filePath}>
-            {isMarkdownFilePath(writeInput.filePath) ? (
-              <div className="p-4">
-                <div className={MARKDOWN_PROSE}>
-                  <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering Markdown…</div>}>
-                    <MarkdownBody markdown={writeInput.content} />
-                  </Suspense>
+            {/* The full-screen view is portalled out of the feed, so it names its own source. */}
+            <div data-quote-source="Write">
+              {isMarkdownFilePath(writeInput.filePath) ? (
+                <div className="p-4">
+                  <div className={MARKDOWN_PROSE}>
+                    <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering Markdown…</div>}>
+                      <MarkdownBody markdown={writeInput.content} />
+                    </Suspense>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <CodeBlock preClassName="whitespace-pre p-4 font-mono text-[11px] leading-relaxed">
-                <code>{writeInput.content}</code>
-              </CodeBlock>
-            )}
+              ) : (
+                <CodeBlock preClassName="whitespace-pre p-4 font-mono text-[11px] leading-relaxed">
+                  <code>{writeInput.content}</code>
+                </CodeBlock>
+              )}
+            </div>
           </FullscreenButton>
         </div>
         {isMarkdownFilePath(writeInput.filePath) ? (
