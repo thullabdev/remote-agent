@@ -27,8 +27,6 @@ import './extensions.ts'
 import { NewSessionDialog } from './components/new-session-dialog.tsx'
 import { ResumeDialog } from './components/resume-dialog.tsx'
 import { SettingsSidePanel } from './components/settings/SettingsSidePanel.tsx'
-import { SettingsView } from './components/settings/SettingsView.tsx'
-import type { SettingGroupId, SettingId } from './settings/settings-registry.ts'
 import { readPreferences, savePreferences, type Preferences } from './preferences.ts'
 import { applyAppearance } from './appearance.ts'
 import { connectionNoticeText, deepLink, deepLinkPanel, pendingPromptMessage } from './presentation.ts'
@@ -119,8 +117,6 @@ export function App() {
   const [forksByChat, setForksByChat] = useState<Record<string, ForkView[]>>({})
   const [forksVersion, setForksVersion] = useState(0)
   const [library, setLibrary] = useState<UploadRecord[]>([])
-  // The settings group shown in the main area, and the setting a search result picked inside it. Only one main-area view shows.
-  const [settingsView, setSettingsView] = useState<{ group: SettingGroupId; focus?: SettingId } | null>(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
   const [pendingMessages, setPendingMessages] = useState<Record<string, PendingMessage[]>>({})
@@ -197,8 +193,6 @@ export function App() {
     const handlePopState = () => {
       setActiveChatId(deepLink(window.location.search).chatId)
       setActivePanel(registeredPanelOf(window.location.search))
-      // The URL names a chat or a panel, so the settings view must not stay on top of it.
-      setSettingsView(null)
       setFocusPrompt(null)
       setInfoOpen(false)
     }
@@ -228,7 +222,6 @@ export function App() {
     setActiveChatId(chatId)
     // A chat and a panel are alternative main-area views: opening either one leaves the other.
     setActivePanel(null)
-    setSettingsView(null)
     setFocusPrompt(chatId !== null && focus !== undefined ? { chatId, promptId: focus.promptId } : null)
     setInfoOpen(false)
     const url = new URL(window.location.href)
@@ -260,7 +253,6 @@ export function App() {
   const openPanel = useCallback((id: string, params: Record<string, string> = {}) => {
     newChatWatch.current = null
     setActiveChatId(null)
-    setSettingsView(null)
     setActivePanel({ id, params })
     setInfoOpen(false)
     const url = new URL(window.location.href)
@@ -726,7 +718,17 @@ export function App() {
             onActionError={handleError}
           />
         ) : sideTab === SETTINGS_TAB ? (
-          <SettingsSidePanel onOpen={(group, focus) => setSettingsView({ group, focus })} />
+          <SettingsSidePanel
+            context={{
+              preferences,
+              onPreferences: setPreferences,
+              away: realtime.away,
+              onAwayToggle: toggleAway,
+              push: push.status,
+              pushBusy: push.busy,
+              onPushToggle: togglePush,
+            }}
+          />
         ) : (
           <SidePanelFrame label={sideTabList.find(tab => tab.id === sideTab)?.title ?? 'Side panel'}>
             {sideTabRender(sideTab, { activeChat: sideChat, openPanel, notify, density: preferences.density })}
@@ -734,21 +736,8 @@ export function App() {
         )}
       </SideColumn>
 
-      <MainArea shown={activeChatId !== null || activePanel !== null || settingsView !== null} onSwipeBack={() => openChat(null)}>
-        {settingsView !== null ? (
-          <SettingsView
-            group={settingsView.group}
-            focus={settingsView.focus}
-            preferences={preferences}
-            onPreferences={setPreferences}
-            away={realtime.away}
-            onAwayToggle={toggleAway}
-            push={push.status}
-            pushBusy={push.busy}
-            onPushToggle={togglePush}
-            onBack={() => setSettingsView(null)}
-          />
-        ) : activePanel !== null ? (
+      <MainArea shown={activeChatId !== null || activePanel !== null} onSwipeBack={() => openChat(null)}>
+        {activePanel !== null ? (
           <ExtensionRegistry
             panel={activePanel}
             context={{ params: activePanel.params, openPanel, closePanel, notify, density: preferences.density }}
